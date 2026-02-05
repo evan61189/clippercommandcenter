@@ -11,7 +11,12 @@ import {
 } from 'lucide-react'
 
 function getUserId(): string {
-  return localStorage.getItem('closeout_user_id') || ''
+  let userId = localStorage.getItem('closeout_user_id')
+  if (!userId) {
+    userId = 'user_' + Math.random().toString(36).substring(2, 15)
+    localStorage.setItem('closeout_user_id', userId)
+  }
+  return userId
 }
 
 interface ProcoreProject {
