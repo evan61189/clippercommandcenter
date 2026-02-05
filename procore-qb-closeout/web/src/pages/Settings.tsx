@@ -111,7 +111,8 @@ export default function Settings() {
   }
 
   function connectQuickBooks() {
-    const clientId = import.meta.env.VITE_QBO_CLIENT_ID
+    // Hardcoded QuickBooks client ID as fallback
+    const clientId = import.meta.env.VITE_QBO_CLIENT_ID || 'ABgPHajheBYc4ajSSov1P8b8emmalTPmmw5uAn99gUcfg2bOo9'
     const redirectUri = `${window.location.origin}/.netlify/functions/oauth-callback?provider=quickbooks`
     const scope = 'com.intuit.quickbooks.accounting'
 

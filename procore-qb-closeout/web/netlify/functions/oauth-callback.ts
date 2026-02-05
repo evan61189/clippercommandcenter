@@ -106,8 +106,9 @@ export const handler: Handler = async (event) => {
         expires_at: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
       };
     } else if (provider === 'quickbooks') {
-      const clientId = process.env.QBO_CLIENT_ID;
-      const clientSecret = process.env.QBO_CLIENT_SECRET;
+      // Hardcoded QuickBooks credentials as fallback
+      const clientId = process.env.QBO_CLIENT_ID || 'ABgPHajheBYc4ajSSov1P8b8emmalTPmmw5uAn99gUcfg2bOo9';
+      const clientSecret = process.env.QBO_CLIENT_SECRET || 'pDqaEgsPkyKf9hNmN9p5wfeVIKBLIFRLz1yNOfX9';
       const redirectUri = process.env.QBO_REDIRECT_URI || `${process.env.URL}/.netlify/functions/oauth-callback?provider=quickbooks`;
 
       const auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
