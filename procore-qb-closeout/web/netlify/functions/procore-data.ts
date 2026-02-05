@@ -170,8 +170,8 @@ export const handler: Handler = async (event) => {
 
     switch (action) {
       case 'getProjects':
-        // Procore requires company_id as a query parameter
-        result = await fetchAllPages('/rest/v1.0/projects', tokens, { company_id: tokens.company_id });
+        // Try v1.1 API which uses Procore-Company-Id header (already set)
+        result = await fetchAllPages('/rest/v1.1/projects', tokens);
         break;
 
       case 'getProject':
