@@ -26,7 +26,7 @@ interface ProcoreProject {
   status: string
 }
 
-type Step = 'select' | 'fetching' | 'reconciling' | 'complete' | 'error'
+type Step = 'select' | 'fetching_procore' | 'procore_fetched' | 'fetching_qb' | 'reconciling' | 'complete' | 'error'
 
 export default function RunReconciliation() {
   const [step, setStep] = useState<Step>('select')
@@ -36,6 +36,8 @@ export default function RunReconciliation() {
   const [error, setError] = useState<string | null>(null)
   const [progress, setProgress] = useState<string>('')
   const [result, setResult] = useState<any>(null)
+  const [procoreData, setProcoreData] = useState<any>(null)
+  const [qbData, setQbData] = useState<any>(null)
 
   const userId = getUserId()
 
@@ -68,15 +70,14 @@ export default function RunReconciliation() {
     }
   }
 
-  async function runReconciliation() {
+  async function fetchProcoreData() {
     if (!selectedProject) return
 
-    setStep('fetching')
+    setStep('fetching_procore')
     setProgress('Fetching data from Procore...')
     setError(null)
 
     try {
-      // Fetch Procore data
       const procoreResponse = await fetch('/.netlify/functions/procore-data', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -87,38 +88,57 @@ export default function RunReconciliation() {
         }),
       })
 
-      const procoreData = await procoreResponse.json()
+      const data = await procoreResponse.json()
       if (!procoreResponse.ok) {
-        throw new Error(procoreData.error || 'Failed to fetch Procore data')
+        throw new Error(data.error || 'Failed to fetch Procore data')
       }
 
-      setProgress('Fetching data from QuickBooks...')
+      setProcoreData(data)
+      setStep('procore_fetched')
+    } catch (err: any) {
+      setError(err.message)
+      setStep('error')
+    }
+  }
 
-      // Fetch QuickBooks data
+  async function fetchQuickBooksData() {
+    setStep('fetching_qb')
+    setProgress('Fetching data from QuickBooks...')
+    setError(null)
+
+    try {
       const qbResponse = await fetch('/.netlify/functions/quickbooks-data', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'getFullData', userId }),
       })
 
-      const qbData = await qbResponse.json()
+      const data = await qbResponse.json()
       if (!qbResponse.ok) {
-        throw new Error(qbData.error || 'Failed to fetch QuickBooks data')
+        throw new Error(data.error || 'Failed to fetch QuickBooks data')
       }
 
-      setStep('reconciling')
-      setProgress('Running reconciliation analysis...')
+      setQbData(data)
+      await runReconciliation(data)
+    } catch (err: any) {
+      setError(err.message)
+      setStep('error')
+    }
+  }
 
-      // Generate a project ID for Supabase
+  async function runReconciliation(quickbooksData: any) {
+    setStep('reconciling')
+    setProgress('Running reconciliation analysis...')
+
+    try {
       const projectId = crypto.randomUUID()
 
-      // Run reconciliation
       const reconResponse = await fetch('/.netlify/functions/run-reconciliation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           procoreData,
-          qbData,
+          qbData: quickbooksData,
           projectId,
           userId,
         }),
@@ -189,18 +209,19 @@ export default function RunReconciliation() {
 
       {/* Progress Steps */}
       <div className="flex items-center justify-between px-4">
-        {['Select Project', 'Fetch Data', 'Reconcile', 'Complete'].map((label, idx) => {
+        {['Select Project', 'Procore Data', 'QuickBooks', 'Reconcile'].map((label, idx) => {
           const stepMap: Record<number, Step[]> = {
             0: ['select'],
-            1: ['fetching'],
-            2: ['reconciling'],
-            3: ['complete'],
+            1: ['fetching_procore', 'procore_fetched'],
+            2: ['fetching_qb'],
+            3: ['reconciling', 'complete'],
           }
           const isActive = stepMap[idx]?.includes(step)
           const isPast =
             (idx === 0 && step !== 'select') ||
-            (idx === 1 && !['select', 'fetching'].includes(step)) ||
-            (idx === 2 && ['complete'].includes(step))
+            (idx === 1 && !['select', 'fetching_procore', 'procore_fetched'].includes(step)) ||
+            (idx === 2 && ['reconciling', 'complete'].includes(step)) ||
+            (idx === 3 && step === 'complete')
 
           return (
             <div key={label} className="flex items-center">
@@ -267,7 +288,7 @@ export default function RunReconciliation() {
 
           <div className="flex justify-end">
             <button
-              onClick={runReconciliation}
+              onClick={fetchProcoreData}
               disabled={!selectedProject}
               className={`flex items-center px-6 py-3 rounded-lg font-medium ${
                 selectedProject
@@ -276,13 +297,13 @@ export default function RunReconciliation() {
               }`}
             >
               <Play className="w-5 h-5 mr-2" />
-              Run Reconciliation
+              Fetch Procore Data
             </button>
           </div>
         </div>
       )}
 
-      {(step === 'fetching' || step === 'reconciling') && (
+      {(step === 'fetching_procore' || step === 'fetching_qb' || step === 'reconciling') && (
         <div className="card">
           <div className="flex flex-col items-center py-12">
             <Loader2 className="w-16 h-16 animate-spin text-procore-blue mb-4" />
@@ -290,6 +311,81 @@ export default function RunReconciliation() {
             <p className="text-sm text-gray-500 mt-2">
               This may take a minute depending on the project size
             </p>
+          </div>
+        </div>
+      )}
+
+      {step === 'procore_fetched' && procoreData && (
+        <div className="space-y-4">
+          <div className="card bg-green-50 border-green-200">
+            <div className="flex items-start space-x-3">
+              <CheckCircle className="w-6 h-6 text-green-500 flex-shrink-0" />
+              <div>
+                <h3 className="font-medium text-green-800">Procore Data Fetched Successfully!</h3>
+                <p className="text-sm text-green-700 mt-1">
+                  Review the data below, then continue to fetch QuickBooks data.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="card">
+            <h3 className="font-medium text-gray-900 mb-4">Procore Data Summary</h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+              <div className="text-center p-3 bg-gray-50 rounded-lg">
+                <p className="text-2xl font-semibold text-gray-900">
+                  {procoreData.vendors?.length || 0}
+                </p>
+                <p className="text-sm text-gray-500">Vendors</p>
+              </div>
+              <div className="text-center p-3 bg-gray-50 rounded-lg">
+                <p className="text-2xl font-semibold text-gray-900">
+                  {procoreData.costCodes?.length || 0}
+                </p>
+                <p className="text-sm text-gray-500">Cost Codes</p>
+              </div>
+              <div className="text-center p-3 bg-gray-50 rounded-lg">
+                <p className="text-2xl font-semibold text-gray-900">
+                  {procoreData.commitments?.subcontracts?.length || 0}
+                </p>
+                <p className="text-sm text-gray-500">Subcontracts</p>
+              </div>
+              <div className="text-center p-3 bg-gray-50 rounded-lg">
+                <p className="text-2xl font-semibold text-gray-900">
+                  {procoreData.commitments?.purchaseOrders?.length || 0}
+                </p>
+                <p className="text-sm text-gray-500">Purchase Orders</p>
+              </div>
+            </div>
+
+            {/* Raw Data Preview */}
+            <details className="mt-4">
+              <summary className="cursor-pointer text-sm text-gray-600 hover:text-gray-900">
+                View Raw Procore Data (Debug)
+              </summary>
+              <pre className="mt-2 p-4 bg-gray-900 text-gray-100 rounded-lg text-xs overflow-auto max-h-96">
+                {JSON.stringify(procoreData, null, 2)}
+              </pre>
+            </details>
+          </div>
+
+          <div className="flex justify-between">
+            <button
+              onClick={() => {
+                setStep('select')
+                setProcoreData(null)
+              }}
+              className="px-4 py-2 text-gray-600 hover:text-gray-900"
+            >
+              Back to Select
+            </button>
+            <button
+              onClick={fetchQuickBooksData}
+              className="flex items-center px-6 py-3 bg-procore-blue text-white rounded-lg hover:bg-blue-700"
+            >
+              <Play className="w-5 h-5 mr-2" />
+              Fetch QuickBooks Data
+            </button>
           </div>
         </div>
       )}
