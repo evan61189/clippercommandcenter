@@ -1,10 +1,12 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+// Use env vars if available, otherwise fall back to hardcoded values
+// TODO: Remove hardcoded values once env vars are working in Netlify
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://eruvdljuqvvoxfnlraje.supabase.co'
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
 
-// Check if Supabase is configured
-export const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey)
+// Check if Supabase is configured (need at least the anon key)
+export const isSupabaseConfigured = !!supabaseAnonKey
 
 // Create client only if configured, otherwise create a placeholder that will show helpful errors
 export const supabase: SupabaseClient = isSupabaseConfigured
