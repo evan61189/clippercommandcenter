@@ -236,11 +236,11 @@ export const handler: Handler = async (event) => {
         break;
 
       case 'getProjects':
-        // Use company-scoped endpoint with company_id in URL path
+        // Use /rest/v1.0/projects with company_id as query param (header is also sent)
         console.log('Fetching projects for company:', companyId);
         try {
-          // Company-scoped endpoint - company_id in URL path
-          result = await procoreRequest(`/rest/v1.0/companies/${companyId}/projects`, tokens, {
+          result = await procoreRequest('/rest/v1.0/projects', tokens, {
+            company_id: companyId,
             per_page: '50'
           });
           // Ensure result is an array
