@@ -37,7 +37,6 @@ export default function RunReconciliation() {
   const [progress, setProgress] = useState<string>('')
   const [result, setResult] = useState<any>(null)
   const [procoreData, setProcoreData] = useState<any>(null)
-  const [qbData, setQbData] = useState<any>(null)
 
   const userId = getUserId()
 
@@ -118,7 +117,6 @@ export default function RunReconciliation() {
         throw new Error(data.error || 'Failed to fetch QuickBooks data')
       }
 
-      setQbData(data)
       await runReconciliation(data)
     } catch (err: any) {
       setError(err.message)
