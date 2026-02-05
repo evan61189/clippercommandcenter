@@ -29,8 +29,9 @@ async function getStoredTokens(userId: string): Promise<TokenData | null> {
 }
 
 async function refreshAccessToken(tokens: TokenData): Promise<TokenData | null> {
-  const clientId = process.env.PROCORE_CLIENT_ID;
-  const clientSecret = process.env.PROCORE_CLIENT_SECRET;
+  // Hardcoded Procore credentials as fallback
+  const clientId = process.env.PROCORE_CLIENT_ID || '5m6ntNDYctNihGwfspa4OiG6EXHXx1HCXSHRVetAb7k';
+  const clientSecret = process.env.PROCORE_CLIENT_SECRET || 'z-aqwtz7agk1fyEyXW10zsV4SGKrjNP58bGqXgD4vd0';
 
   if (!clientId || !clientSecret) return null;
 

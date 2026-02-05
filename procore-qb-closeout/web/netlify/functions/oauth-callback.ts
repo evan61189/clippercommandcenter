@@ -28,8 +28,9 @@ export const handler: Handler = async (event) => {
     let credentials: any;
 
     if (provider === 'procore') {
-      const clientId = process.env.PROCORE_CLIENT_ID;
-      const clientSecret = process.env.PROCORE_CLIENT_SECRET;
+      // Hardcoded Procore credentials as fallback
+      const clientId = process.env.PROCORE_CLIENT_ID || '5m6ntNDYctNihGwfspa4OiG6EXHXx1HCXSHRVetAb7k';
+      const clientSecret = process.env.PROCORE_CLIENT_SECRET || 'z-aqwtz7agk1fyEyXW10zsV4SGKrjNP58bGqXgD4vd0';
       const redirectUri = process.env.PROCORE_REDIRECT_URI || `${process.env.URL}/.netlify/functions/oauth-callback?provider=procore`;
 
       console.log('Procore OAuth - clientId exists:', !!clientId, 'clientSecret exists:', !!clientSecret);
