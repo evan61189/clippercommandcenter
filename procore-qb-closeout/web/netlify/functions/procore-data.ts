@@ -334,8 +334,8 @@ export const handler: Handler = async (event) => {
           safeRequest(() => procoreRequest(`/rest/v1.0/projects/${projectId}`, tokens, { company_id: companyId }), {}),
           // Vendors
           safeRequest(() => fetchAllPages(`/rest/v1.0/projects/${projectId}/vendors`, tokens, { company_id: companyId })),
-          // Cost codes
-          safeRequest(() => fetchAllPages(`/rest/v1.0/cost_codes`, tokens, { company_id: companyId, project_id: projectId })),
+          // Cost codes - use path-based project endpoint
+          safeRequest(() => fetchAllPages(`/rest/v1.0/projects/${projectId}/cost_codes`, tokens, { company_id: companyId })),
           // Commitments (subcontracts & POs)
           safeRequest(async () => {
             const subs = await safeRequest(() => fetchAllPages(`/rest/v1.0/work_order_contracts`, tokens, { company_id: companyId, project_id: projectId }));
@@ -364,8 +364,8 @@ export const handler: Handler = async (event) => {
             const primeCOs = await safeRequest(() => fetchAllPages(`/rest/v1.0/prime_contract/change_order_packages`, tokens, { company_id: companyId, project_id: projectId }));
             return { commitment: commitmentCOs, prime: primeCOs };
           }, { commitment: [], prime: [] }),
-          // Direct costs (expenses not tied to commitments)
-          safeRequest(() => fetchAllPages(`/rest/v1.0/direct_costs`, tokens, { company_id: companyId, project_id: projectId })),
+          // Direct costs (expenses not tied to commitments) - use path-based project endpoint
+          safeRequest(() => fetchAllPages(`/rest/v1.0/projects/${projectId}/direct_costs`, tokens, { company_id: companyId })),
         ]);
         result = {
           project,
