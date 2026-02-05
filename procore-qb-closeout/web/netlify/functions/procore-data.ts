@@ -216,6 +216,18 @@ export const handler: Handler = async (event) => {
     console.log('Processing action:', action, 'companyId:', companyId);
 
     switch (action) {
+      case 'debug':
+        // Debug action to check what's available
+        console.log('Debug: Fetching available companies...');
+        const companiesResp = await procoreRequest('/rest/v1.0/companies', tokens);
+        console.log('Available companies:', JSON.stringify(companiesResp));
+        result = {
+          stored_company_id: companyId,
+          available_companies: companiesResp,
+          token_preview: tokens.access_token?.substring(0, 20) + '...'
+        };
+        break;
+
       case 'testConnection':
         // Simple test to verify API auth works
         console.log('Testing Procore connection...');
