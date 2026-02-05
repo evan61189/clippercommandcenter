@@ -1,13 +1,15 @@
 import { Routes, Route, Link } from 'react-router-dom'
-import { Building2, FileText, CheckCircle, AlertTriangle } from 'lucide-react'
+import { Building2, CheckCircle, Settings as SettingsIcon, Play } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
 import ProjectDetail from './pages/ProjectDetail'
 import ReportDetail from './pages/ReportDetail'
 import CloseoutItems from './pages/CloseoutItems'
+import Settings from './pages/Settings'
+import RunReconciliation from './pages/RunReconciliation'
 
 function App() {
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Navigation */}
       <nav className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -22,13 +24,20 @@ function App() {
                 </span>
               </Link>
             </div>
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-2">
               <Link
                 to="/"
                 className="flex items-center space-x-1 text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
               >
                 <Building2 className="w-4 h-4" />
-                <span>Projects</span>
+                <span>Dashboard</span>
+              </Link>
+              <Link
+                to="/run"
+                className="flex items-center space-x-1 text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
+              >
+                <Play className="w-4 h-4" />
+                <span>Run</span>
               </Link>
               <Link
                 to="/closeout-items"
@@ -37,23 +46,32 @@ function App() {
                 <CheckCircle className="w-4 h-4" />
                 <span>Closeout Items</span>
               </Link>
+              <Link
+                to="/settings"
+                className="flex items-center space-x-1 text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
+              >
+                <SettingsIcon className="w-4 h-4" />
+                <span>Settings</span>
+              </Link>
             </div>
           </div>
         </div>
       </nav>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Routes>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/run" element={<RunReconciliation />} />
           <Route path="/project/:projectId" element={<ProjectDetail />} />
           <Route path="/report/:reportId" element={<ReportDetail />} />
           <Route path="/closeout-items" element={<CloseoutItems />} />
+          <Route path="/settings" element={<Settings />} />
         </Routes>
       </main>
 
       {/* Footer */}
-      <footer className="bg-white border-t border-gray-200 mt-auto">
+      <footer className="bg-white border-t border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <p className="text-center text-sm text-gray-500">
             Procore-QuickBooks Financial Closeout Reconciliation
