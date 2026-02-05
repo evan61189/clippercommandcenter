@@ -168,10 +168,12 @@ export const handler: Handler = async (event) => {
 
     let result: any;
 
+    const companyId = tokens.company_id;
+
     switch (action) {
       case 'getProjects':
-        // Procore requires company_id as a query parameter
-        result = await fetchAllPages('/rest/v1.0/projects', tokens, { company_id: tokens.company_id });
+        // Use v1.0 API with company_id in URL path
+        result = await fetchAllPages(`/rest/v1.0/companies/${companyId}/projects`, tokens);
         break;
 
       case 'getProject':
@@ -181,32 +183,30 @@ export const handler: Handler = async (event) => {
 
       case 'getVendors':
         if (!projectId) throw new Error('Project ID required');
-        result = await fetchAllPages('/rest/v1.0/vendors', tokens, { project_id: projectId });
+        result = await fetchAllPages(`/rest/v1.0/projects/${projectId}/vendors`, tokens);
         break;
 
       case 'getCostCodes':
         if (!projectId) throw new Error('Project ID required');
-        result = await fetchAllPages('/rest/v1.0/cost_codes', tokens, { project_id: projectId });
+        result = await fetchAllPages(`/rest/v1.0/projects/${projectId}/cost_codes`, tokens);
         break;
 
       case 'getCommitments':
         if (!projectId) throw new Error('Project ID required');
         const subcontracts = await fetchAllPages(
-          '/rest/v1.0/work_order_contracts',
-          tokens,
-          { project_id: projectId }
+          `/rest/v1.0/projects/${projectId}/work_order_contracts`,
+          tokens
         );
         const purchaseOrders = await fetchAllPages(
-          '/rest/v1.0/purchase_order_contracts',
-          tokens,
-          { project_id: projectId }
+          `/rest/v1.0/projects/${projectId}/purchase_order_contracts`,
+          tokens
         );
         result = { subcontracts, purchaseOrders };
         break;
 
       case 'getBudget':
         if (!projectId) throw new Error('Project ID required');
-        const budgetViews = await procoreRequest('/rest/v1.0/budget_views', tokens, { project_id: projectId });
+        const budgetViews = await procoreRequest(`/rest/v1.0/projects/${projectId}/budget_views`, tokens);
         if (budgetViews && budgetViews.length > 0) {
           result = await fetchAllPages(
             `/rest/v1.0/budget_views/${budgetViews[0].id}/detail_rows`,
@@ -222,15 +222,15 @@ export const handler: Handler = async (event) => {
         if (!projectId) throw new Error('Project ID required');
         const [project, vendors, costCodes, commitments, budget] = await Promise.all([
           procoreRequest(`/rest/v1.0/projects/${projectId}`, tokens),
-          fetchAllPages('/rest/v1.0/vendors', tokens, { project_id: projectId }),
-          fetchAllPages('/rest/v1.0/cost_codes', tokens, { project_id: projectId }),
+          fetchAllPages(`/rest/v1.0/projects/${projectId}/vendors`, tokens),
+          fetchAllPages(`/rest/v1.0/projects/${projectId}/cost_codes`, tokens),
           (async () => {
-            const subs = await fetchAllPages('/rest/v1.0/work_order_contracts', tokens, { project_id: projectId });
-            const pos = await fetchAllPages('/rest/v1.0/purchase_order_contracts', tokens, { project_id: projectId });
+            const subs = await fetchAllPages(`/rest/v1.0/projects/${projectId}/work_order_contracts`, tokens);
+            const pos = await fetchAllPages(`/rest/v1.0/projects/${projectId}/purchase_order_contracts`, tokens);
             return { subcontracts: subs, purchaseOrders: pos };
           })(),
           (async () => {
-            const views = await procoreRequest('/rest/v1.0/budget_views', tokens, { project_id: projectId });
+            const views = await procoreRequest(`/rest/v1.0/projects/${projectId}/budget_views`, tokens);
             if (views && views.length > 0) {
               return fetchAllPages(`/rest/v1.0/budget_views/${views[0].id}/detail_rows`, tokens, { project_id: projectId });
             }
