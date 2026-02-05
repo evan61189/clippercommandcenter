@@ -224,11 +224,11 @@ export const handler: Handler = async (event) => {
         break;
 
       case 'getProjects':
-        // Use v1.1 API which uses Procore-Company-Id header (set automatically)
+        // Use company-scoped endpoint with company_id in URL path
         console.log('Fetching projects for company:', companyId);
         try {
-          // v1.1 API - uses header for company ID
-          result = await procoreRequest('/rest/v1.1/projects', tokens, {
+          // Company-scoped endpoint - company_id in URL path
+          result = await procoreRequest(`/rest/v1.0/companies/${companyId}/projects`, tokens, {
             per_page: '50'
           });
           // Ensure result is an array
