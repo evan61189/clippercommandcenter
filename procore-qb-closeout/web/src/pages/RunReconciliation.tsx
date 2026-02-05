@@ -30,68 +30,80 @@ type Step = 'select' | 'fetching_procore' | 'procore_fetched' | 'fetching_qb' | 
 
 type DataView = 'vendors' | 'subcontracts' | 'purchaseOrders' | 'primeContract' | 'subInvoices' | 'paymentApplications' | 'changeOrders' | 'directCosts' | 'costCodes' | null
 
-// Data card component that expands to show a table
+// Simple data card button
 function DataCard({
   title,
   count,
   bgColor,
   textColor,
-  data,
-  columns,
-  isExpanded,
-  onToggle,
+  isSelected,
+  onSelect,
 }: {
   title: string
   count: number
   bgColor: string
   textColor: string
-  data: any[]
-  columns: { key: string; label: string; format?: (val: any) => string }[]
-  isExpanded: boolean
-  onToggle: () => void
+  isSelected: boolean
+  onSelect: () => void
 }) {
   return (
-    <div className="space-y-2">
-      <button
-        onClick={onToggle}
-        className={`w-full text-center p-3 ${bgColor} rounded-lg hover:opacity-80 transition-opacity cursor-pointer`}
-      >
-        <p className={`text-2xl font-semibold ${textColor}`}>{count}</p>
-        <p className={`text-sm ${textColor} opacity-80`}>{title}</p>
-      </button>
-      {isExpanded && data && data.length > 0 && (
-        <div className="bg-white border rounded-lg overflow-hidden">
-          <div className="overflow-x-auto max-h-64">
-            <table className="min-w-full text-xs">
-              <thead className="bg-gray-100 sticky top-0">
-                <tr>
-                  {columns.map((col) => (
-                    <th key={col.key} className="px-3 py-2 text-left font-medium text-gray-600">
-                      {col.label}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {data.slice(0, 50).map((item: any, idx: number) => (
-                  <tr key={idx} className="hover:bg-gray-50">
-                    {columns.map((col) => (
-                      <td key={col.key} className="px-3 py-2 text-gray-700">
-                        {col.format ? col.format(item[col.key]) : (item[col.key] ?? '-')}
-                      </td>
-                    ))}
-                  </tr>
+    <button
+      onClick={onSelect}
+      className={`w-full text-center p-3 ${bgColor} rounded-lg hover:opacity-80 transition-opacity cursor-pointer ${isSelected ? 'ring-2 ring-blue-500' : ''}`}
+    >
+      <p className={`text-2xl font-semibold ${textColor}`}>{count}</p>
+      <p className={`text-sm ${textColor} opacity-80`}>{title}</p>
+    </button>
+  )
+}
+
+// Large table component for displaying selected data
+function DataTable({
+  title,
+  data,
+  columns,
+}: {
+  title: string
+  data: any[]
+  columns: { key: string; label: string; format?: (val: any, item?: any) => string }[]
+}) {
+  if (!data || data.length === 0) {
+    return (
+      <div className="bg-white border rounded-lg p-8 text-center text-gray-500">
+        No {title.toLowerCase()} found for this project.
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-white border rounded-lg overflow-hidden">
+      <div className="bg-gray-100 px-4 py-2 border-b">
+        <h4 className="font-medium text-gray-900">{title} ({data.length})</h4>
+      </div>
+      <div className="overflow-x-auto" style={{ maxHeight: '400px' }}>
+        <table className="min-w-full text-sm">
+          <thead className="bg-gray-50 sticky top-0">
+            <tr>
+              {columns.map((col) => (
+                <th key={col.key} className="px-4 py-3 text-left font-medium text-gray-600 border-b">
+                  {col.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {data.map((item: any, idx: number) => (
+              <tr key={idx} className="hover:bg-gray-50">
+                {columns.map((col) => (
+                  <td key={col.key} className="px-4 py-2 text-gray-700">
+                    {col.format ? col.format(item[col.key], item) : (item[col.key] ?? '-')}
+                  </td>
                 ))}
-              </tbody>
-            </table>
-          </div>
-          {data.length > 50 && (
-            <p className="text-xs text-gray-500 p-2 text-center bg-gray-50">
-              Showing 50 of {data.length} items
-            </p>
-          )}
-        </div>
-      )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
@@ -408,58 +420,32 @@ export default function RunReconciliation() {
                 count={procoreData.vendors?.length || 0}
                 bgColor="bg-gray-50"
                 textColor="text-gray-900"
-                data={procoreData.vendors || []}
-                columns={[
-                  { key: 'name', label: 'Name' },
-                  { key: 'company', label: 'Company' },
-                  { key: 'email_address', label: 'Email' },
-                ]}
-                isExpanded={expandedView === 'vendors'}
-                onToggle={() => setExpandedView(expandedView === 'vendors' ? null : 'vendors')}
+                isSelected={expandedView === 'vendors'}
+                onSelect={() => setExpandedView(expandedView === 'vendors' ? null : 'vendors')}
               />
               <DataCard
                 title="Subcontracts"
                 count={procoreData.commitments?.subcontracts?.length || 0}
                 bgColor="bg-gray-50"
                 textColor="text-gray-900"
-                data={procoreData.commitments?.subcontracts || []}
-                columns={[
-                  { key: 'title', label: 'Title' },
-                  { key: 'number', label: 'Number' },
-                  { key: 'grand_total', label: 'Amount', format: (v) => v ? `$${Number(v).toLocaleString()}` : '-' },
-                  { key: 'status', label: 'Status' },
-                ]}
-                isExpanded={expandedView === 'subcontracts'}
-                onToggle={() => setExpandedView(expandedView === 'subcontracts' ? null : 'subcontracts')}
+                isSelected={expandedView === 'subcontracts'}
+                onSelect={() => setExpandedView(expandedView === 'subcontracts' ? null : 'subcontracts')}
               />
               <DataCard
                 title="Purchase Orders"
                 count={procoreData.commitments?.purchaseOrders?.length || 0}
                 bgColor="bg-gray-50"
                 textColor="text-gray-900"
-                data={procoreData.commitments?.purchaseOrders || []}
-                columns={[
-                  { key: 'title', label: 'Title' },
-                  { key: 'number', label: 'Number' },
-                  { key: 'grand_total', label: 'Amount', format: (v) => v ? `$${Number(v).toLocaleString()}` : '-' },
-                  { key: 'status', label: 'Status' },
-                ]}
-                isExpanded={expandedView === 'purchaseOrders'}
-                onToggle={() => setExpandedView(expandedView === 'purchaseOrders' ? null : 'purchaseOrders')}
+                isSelected={expandedView === 'purchaseOrders'}
+                onSelect={() => setExpandedView(expandedView === 'purchaseOrders' ? null : 'purchaseOrders')}
               />
               <DataCard
                 title="Prime Contracts"
                 count={procoreData.primeContract?.length || 0}
                 bgColor="bg-gray-50"
                 textColor="text-gray-900"
-                data={procoreData.primeContract || []}
-                columns={[
-                  { key: 'title', label: 'Title' },
-                  { key: 'number', label: 'Number' },
-                  { key: 'grand_total', label: 'Amount', format: (v) => v ? `$${Number(v).toLocaleString()}` : '-' },
-                ]}
-                isExpanded={expandedView === 'primeContract'}
-                onToggle={() => setExpandedView(expandedView === 'primeContract' ? null : 'primeContract')}
+                isSelected={expandedView === 'primeContract'}
+                onSelect={() => setExpandedView(expandedView === 'primeContract' ? null : 'primeContract')}
               />
             </div>
 
@@ -471,81 +457,158 @@ export default function RunReconciliation() {
                 count={procoreData.subInvoices?.length || 0}
                 bgColor="bg-blue-50"
                 textColor="text-blue-900"
-                data={procoreData.subInvoices || []}
-                columns={[
-                  { key: 'number', label: 'Number' },
-                  { key: 'status', label: 'Status' },
-                  { key: 'payment_due', label: 'Amount Due', format: (v) => v ? `$${Number(v).toLocaleString()}` : '-' },
-                ]}
-                isExpanded={expandedView === 'subInvoices'}
-                onToggle={() => setExpandedView(expandedView === 'subInvoices' ? null : 'subInvoices')}
+                isSelected={expandedView === 'subInvoices'}
+                onSelect={() => setExpandedView(expandedView === 'subInvoices' ? null : 'subInvoices')}
               />
               <DataCard
-                title="Payment Apps (AR)"
+                title="Payment Apps"
                 count={procoreData.paymentApplications?.length || 0}
                 bgColor="bg-green-50"
                 textColor="text-green-900"
-                data={procoreData.paymentApplications || []}
-                columns={[
-                  { key: 'number', label: 'Number' },
-                  { key: 'status', label: 'Status' },
-                  { key: 'total_amount', label: 'Amount', format: (v) => v ? `$${Number(v).toLocaleString()}` : '-' },
-                ]}
-                isExpanded={expandedView === 'paymentApplications'}
-                onToggle={() => setExpandedView(expandedView === 'paymentApplications' ? null : 'paymentApplications')}
+                isSelected={expandedView === 'paymentApplications'}
+                onSelect={() => setExpandedView(expandedView === 'paymentApplications' ? null : 'paymentApplications')}
               />
               <DataCard
                 title="Change Orders"
                 count={(procoreData.changeOrders?.commitment?.length || 0) + (procoreData.changeOrders?.prime?.length || 0)}
                 bgColor="bg-orange-50"
                 textColor="text-orange-900"
-                data={[...(procoreData.changeOrders?.commitment || []), ...(procoreData.changeOrders?.prime || [])]}
-                columns={[
-                  { key: 'title', label: 'Title' },
-                  { key: 'number', label: 'Number' },
-                  { key: 'status', label: 'Status' },
-                ]}
-                isExpanded={expandedView === 'changeOrders'}
-                onToggle={() => setExpandedView(expandedView === 'changeOrders' ? null : 'changeOrders')}
+                isSelected={expandedView === 'changeOrders'}
+                onSelect={() => setExpandedView(expandedView === 'changeOrders' ? null : 'changeOrders')}
               />
               <DataCard
                 title="Direct Costs"
                 count={procoreData.directCosts?.length || 0}
                 bgColor="bg-purple-50"
                 textColor="text-purple-900"
-                data={procoreData.directCosts || []}
-                columns={[
-                  { key: 'description', label: 'Description' },
-                  { key: 'direct_cost_date', label: 'Date' },
-                  { key: 'amount', label: 'Amount', format: (v) => v ? `$${Number(v).toLocaleString()}` : '-' },
-                ]}
-                isExpanded={expandedView === 'directCosts'}
-                onToggle={() => setExpandedView(expandedView === 'directCosts' ? null : 'directCosts')}
+                isSelected={expandedView === 'directCosts'}
+                onSelect={() => setExpandedView(expandedView === 'directCosts' ? null : 'directCosts')}
               />
               <DataCard
                 title="Cost Codes"
                 count={procoreData.costCodes?.length || 0}
                 bgColor="bg-gray-50"
                 textColor="text-gray-900"
-                data={procoreData.costCodes || []}
-                columns={[
-                  { key: 'full_code', label: 'Code' },
-                  { key: 'name', label: 'Name' },
-                ]}
-                isExpanded={expandedView === 'costCodes'}
-                onToggle={() => setExpandedView(expandedView === 'costCodes' ? null : 'costCodes')}
+                isSelected={expandedView === 'costCodes'}
+                onSelect={() => setExpandedView(expandedView === 'costCodes' ? null : 'costCodes')}
               />
             </div>
 
-            {/* Raw Data Preview */}
-            <details className="mt-4">
-              <summary className="cursor-pointer text-sm text-gray-600 hover:text-gray-900">
-                View Raw JSON (Debug)
-              </summary>
-              <pre className="mt-2 p-4 bg-gray-900 text-gray-100 rounded-lg text-xs overflow-auto max-h-96">
-                {JSON.stringify(procoreData, null, 2)}
-              </pre>
-            </details>
+            {/* Large Table View - Shows below cards when one is selected */}
+            {expandedView && (
+              <div className="mt-4">
+                {expandedView === 'vendors' && (
+                  <DataTable
+                    title="Vendors"
+                    data={procoreData.vendors || []}
+                    columns={[
+                      { key: 'name', label: 'Name' },
+                      { key: 'company', label: 'Company' },
+                      { key: 'email_address', label: 'Email' },
+                      { key: 'business_phone', label: 'Phone' },
+                    ]}
+                  />
+                )}
+                {expandedView === 'subcontracts' && (
+                  <DataTable
+                    title="Subcontracts"
+                    data={procoreData.commitments?.subcontracts || []}
+                    columns={[
+                      { key: 'number', label: 'Number' },
+                      { key: 'title', label: 'Title' },
+                      { key: 'status', label: 'Status' },
+                      { key: 'grand_total', label: 'Contract Amount', format: (v) => v ? `$${Number(v).toLocaleString()}` : '-' },
+                      { key: 'executed', label: 'Executed' },
+                    ]}
+                  />
+                )}
+                {expandedView === 'purchaseOrders' && (
+                  <DataTable
+                    title="Purchase Orders"
+                    data={procoreData.commitments?.purchaseOrders || []}
+                    columns={[
+                      { key: 'number', label: 'Number' },
+                      { key: 'title', label: 'Title' },
+                      { key: 'status', label: 'Status' },
+                      { key: 'grand_total', label: 'Amount', format: (v) => v ? `$${Number(v).toLocaleString()}` : '-' },
+                    ]}
+                  />
+                )}
+                {expandedView === 'primeContract' && (
+                  <DataTable
+                    title="Prime Contracts"
+                    data={procoreData.primeContract || []}
+                    columns={[
+                      { key: 'number', label: 'Number' },
+                      { key: 'title', label: 'Title' },
+                      { key: 'status', label: 'Status' },
+                      { key: 'grand_total', label: 'Contract Value', format: (v) => v ? `$${Number(v).toLocaleString()}` : '-' },
+                    ]}
+                  />
+                )}
+                {expandedView === 'subInvoices' && (
+                  <DataTable
+                    title="Subcontractor Invoices"
+                    data={procoreData.subInvoices || []}
+                    columns={[
+                      { key: 'number', label: 'Invoice #' },
+                      { key: 'origin_id', label: 'Origin ID' },
+                      { key: 'status', label: 'Status' },
+                      { key: 'payment_due', label: 'Amount Due', format: (v) => v ? `$${Number(v).toLocaleString()}` : '-' },
+                      { key: 'billing_date', label: 'Billing Date' },
+                    ]}
+                  />
+                )}
+                {expandedView === 'paymentApplications' && (
+                  <DataTable
+                    title="Payment Applications (Billings to Owner)"
+                    data={procoreData.paymentApplications || []}
+                    columns={[
+                      { key: 'number', label: 'App #' },
+                      { key: 'status', label: 'Status' },
+                      { key: 'billing_date', label: 'Billing Date' },
+                      { key: 'total_amount', label: 'Total Amount', format: (v) => v ? `$${Number(v).toLocaleString()}` : '-' },
+                    ]}
+                  />
+                )}
+                {expandedView === 'changeOrders' && (
+                  <DataTable
+                    title="Change Orders"
+                    data={[...(procoreData.changeOrders?.commitment || []), ...(procoreData.changeOrders?.prime || [])]}
+                    columns={[
+                      { key: 'number', label: 'CO #' },
+                      { key: 'title', label: 'Title' },
+                      { key: 'status', label: 'Status' },
+                      { key: 'grand_total', label: 'Amount', format: (v) => v ? `$${Number(v).toLocaleString()}` : '-' },
+                    ]}
+                  />
+                )}
+                {expandedView === 'directCosts' && (
+                  <DataTable
+                    title="Direct Costs"
+                    data={procoreData.directCosts || []}
+                    columns={[
+                      { key: 'description', label: 'Description' },
+                      { key: 'direct_cost_date', label: 'Date' },
+                      { key: 'invoice_number', label: 'Invoice #' },
+                      { key: 'amount', label: 'Amount', format: (v) => v ? `$${Number(v).toLocaleString()}` : '-' },
+                      { key: 'status', label: 'Status' },
+                    ]}
+                  />
+                )}
+                {expandedView === 'costCodes' && (
+                  <DataTable
+                    title="Cost Codes"
+                    data={procoreData.costCodes || []}
+                    columns={[
+                      { key: 'full_code', label: 'Code' },
+                      { key: 'name', label: 'Name' },
+                      { key: 'parent', label: 'Parent', format: (v) => v?.full_code || '-' },
+                    ]}
+                  />
+                )}
+              </div>
+            )}
           </div>
 
           <div className="flex justify-between">
