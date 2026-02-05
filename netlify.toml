@@ -1,0 +1,15 @@
+# Netlify configuration for Procore-QB Closeout Web Dashboard
+# This file should be at the repo root
+
+[build]
+  base = "procore-qb-closeout/web"
+  command = "npm install && npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
