@@ -75,6 +75,19 @@ async function qboRequest(
   tokens: TokenData,
   userId: string
 ): Promise<any> {
+  // Proactive token refresh - check if token expires in less than 5 minutes
+  if (tokens.expires_at) {
+    const expiresAt = new Date(tokens.expires_at);
+    const now = new Date();
+    if (expiresAt.getTime() - now.getTime() < 5 * 60 * 1000) {
+      console.log('QuickBooks token expiring soon, refreshing proactively...');
+      const newTokens = await refreshAccessToken(tokens, userId);
+      if (newTokens) {
+        tokens = newTokens;
+      }
+    }
+  }
+
   const url = `${QBO_BASE_URL}/v3/company/${tokens.realm_id}/${endpoint}`;
 
   const response = await fetch(url, {
@@ -85,17 +98,26 @@ async function qboRequest(
     },
   });
 
+  // Capture intuit_tid for debugging and support
+  const intuitTid = response.headers.get('intuit_tid');
+  if (intuitTid) {
+    console.log(`QuickBooks API [${endpoint}] intuit_tid: ${intuitTid}`);
+  }
+
   if (response.status === 401) {
     // Token expired, try to refresh
+    console.log(`QuickBooks 401 error, intuit_tid: ${intuitTid || 'not provided'}`);
     const newTokens = await refreshAccessToken(tokens, userId);
     if (newTokens) {
       return qboRequest(endpoint, newTokens, userId);
     }
-    throw new Error('Authentication failed');
+    throw new Error(`Authentication failed (intuit_tid: ${intuitTid || 'N/A'})`);
   }
 
   if (!response.ok) {
-    throw new Error(`QuickBooks API error: ${response.status}`);
+    const errorBody = await response.text();
+    console.error(`QuickBooks API error: ${response.status}, intuit_tid: ${intuitTid}, body: ${errorBody}`);
+    throw new Error(`QuickBooks API error: ${response.status} (intuit_tid: ${intuitTid || 'N/A'})`);
   }
 
   return response.json();
