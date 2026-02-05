@@ -4,9 +4,7 @@ import { useState } from 'react'
 import {
   ArrowLeft,
   AlertCircle,
-  DollarSign,
   FileText,
-  TrendingUp,
   CheckCircle,
 } from 'lucide-react'
 import {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import {
   ArrowLeft,
   Play,
@@ -9,7 +9,6 @@ import {
   Building2,
   RefreshCw,
 } from 'lucide-react'
-import { supabase } from '../lib/supabase'
 
 function getUserId(): string {
   return localStorage.getItem('closeout_user_id') || ''
@@ -25,7 +24,6 @@ interface ProcoreProject {
 type Step = 'select' | 'fetching' | 'reconciling' | 'complete' | 'error'
 
 export default function RunReconciliation() {
-  const navigate = useNavigate()
   const [step, setStep] = useState<Step>('select')
   const [projects, setProjects] = useState<ProcoreProject[]>([])
   const [selectedProject, setSelectedProject] = useState<ProcoreProject | null>(null)
