@@ -219,16 +219,16 @@ export const handler: Handler = async (event) => {
       case 'testConnection':
         // Simple test to verify API auth works
         console.log('Testing Procore connection...');
-        result = await procoreRequest('/rest/v1.0/me', tokens);
+        result = await procoreRequest('/rest/v1.1/me', tokens);
         console.log('Test result:', result);
         break;
 
       case 'getProjects':
-        // Use v1.0 API with company_id as query parameter
+        // Use v1.1 API which uses Procore-Company-Id header (set automatically)
         console.log('Fetching projects for company:', companyId);
         try {
-          result = await procoreRequest('/rest/v1.0/projects', tokens, {
-            company_id: companyId,
+          // v1.1 API - uses header for company ID
+          result = await procoreRequest('/rest/v1.1/projects', tokens, {
             per_page: '50'
           });
           // Ensure result is an array
