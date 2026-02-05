@@ -216,6 +216,18 @@ export const handler: Handler = async (event) => {
     console.log('Processing action:', action, 'companyId:', companyId);
 
     switch (action) {
+      case 'debug':
+        // Debug action to check what's available
+        console.log('Debug: Fetching available companies...');
+        const companiesResp = await procoreRequest('/rest/v1.0/companies', tokens);
+        console.log('Available companies:', JSON.stringify(companiesResp));
+        result = {
+          stored_company_id: companyId,
+          available_companies: companiesResp,
+          token_preview: tokens.access_token?.substring(0, 20) + '...'
+        };
+        break;
+
       case 'testConnection':
         // Simple test to verify API auth works
         console.log('Testing Procore connection...');
@@ -224,11 +236,11 @@ export const handler: Handler = async (event) => {
         break;
 
       case 'getProjects':
-        // Use v1.1 API which uses Procore-Company-Id header (set automatically)
+        // Use /rest/v1.0/projects with company_id as query param (header is also sent)
         console.log('Fetching projects for company:', companyId);
         try {
-          // v1.1 API - uses header for company ID
-          result = await procoreRequest('/rest/v1.1/projects', tokens, {
+          result = await procoreRequest('/rest/v1.0/projects', tokens, {
+            company_id: companyId,
             per_page: '50'
           });
           // Ensure result is an array
