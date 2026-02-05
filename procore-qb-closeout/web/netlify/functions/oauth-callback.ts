@@ -32,14 +32,25 @@ export const handler: Handler = async (event) => {
       const clientSecret = process.env.PROCORE_CLIENT_SECRET;
       const redirectUri = process.env.PROCORE_REDIRECT_URI || `${process.env.URL}/.netlify/functions/oauth-callback?provider=procore`;
 
+      console.log('Procore OAuth - clientId exists:', !!clientId, 'clientSecret exists:', !!clientSecret);
+
+      if (!clientId || !clientSecret) {
+        console.error('Missing Procore credentials in environment');
+        return {
+          statusCode: 302,
+          headers: { Location: '/?error=missing_procore_credentials' },
+          body: '',
+        };
+      }
+
       const response = await fetch(PROCORE_TOKEN_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
           grant_type: 'authorization_code',
           code,
-          client_id: clientId!,
-          client_secret: clientSecret!,
+          client_id: clientId,
+          client_secret: clientSecret,
           redirect_uri: redirectUri,
         }),
       });
@@ -55,13 +66,37 @@ export const handler: Handler = async (event) => {
       }
 
       tokens = await response.json();
+      console.log('Procore tokens received, fetching companies...');
 
       // Get company ID from Procore
       const companiesResponse = await fetch('https://api.procore.com/rest/v1.0/companies', {
         headers: { Authorization: `Bearer ${tokens.access_token}` },
       });
+
+      if (!companiesResponse.ok) {
+        const errorText = await companiesResponse.text();
+        console.error('Failed to fetch Procore companies:', errorText);
+        return {
+          statusCode: 302,
+          headers: { Location: '/?error=procore_companies_failed' },
+          body: '',
+        };
+      }
+
       const companies = await companiesResponse.json();
+      console.log('Procore companies:', JSON.stringify(companies));
+
+      if (!companies || companies.length === 0) {
+        console.error('No Procore companies found');
+        return {
+          statusCode: 302,
+          headers: { Location: '/?error=no_procore_companies' },
+          body: '',
+        };
+      }
+
       const companyId = companies[0]?.id;
+      console.log('Using Procore company ID:', companyId);
 
       credentials = {
         access_token: tokens.access_token,
