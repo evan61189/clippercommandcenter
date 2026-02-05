@@ -97,7 +97,8 @@ export default function Settings() {
   }
 
   function connectProcore() {
-    const clientId = import.meta.env.VITE_PROCORE_CLIENT_ID
+    // Hardcoded Procore client ID as fallback
+    const clientId = import.meta.env.VITE_PROCORE_CLIENT_ID || '5m6ntNDYctNihGwfspa4OiG6EXHXx1HCXSHRVetAb7k'
     const redirectUri = `${window.location.origin}/.netlify/functions/oauth-callback?provider=procore`
 
     const authUrl = new URL('https://login.procore.com/oauth/authorize')
