@@ -257,40 +257,42 @@ export const handler: Handler = async (event) => {
 
       case 'getProject':
         if (!projectId) throw new Error('Project ID required');
-        result = await procoreRequest(`/rest/v1.0/projects/${projectId}`, tokens);
+        result = await procoreRequest(`/rest/v1.0/projects/${projectId}`, tokens, { company_id: companyId });
         break;
 
       case 'getVendors':
         if (!projectId) throw new Error('Project ID required');
-        result = await fetchAllPages(`/rest/v1.0/projects/${projectId}/vendors`, tokens);
+        result = await fetchAllPages(`/rest/v1.0/projects/${projectId}/vendors`, tokens, { company_id: companyId });
         break;
 
       case 'getCostCodes':
         if (!projectId) throw new Error('Project ID required');
-        result = await fetchAllPages(`/rest/v1.0/projects/${projectId}/cost_codes`, tokens);
+        result = await fetchAllPages(`/rest/v1.0/projects/${projectId}/cost_codes`, tokens, { company_id: companyId });
         break;
 
       case 'getCommitments':
         if (!projectId) throw new Error('Project ID required');
         const subcontracts = await fetchAllPages(
           `/rest/v1.0/projects/${projectId}/work_order_contracts`,
-          tokens
+          tokens,
+          { company_id: companyId }
         );
         const purchaseOrders = await fetchAllPages(
           `/rest/v1.0/projects/${projectId}/purchase_order_contracts`,
-          tokens
+          tokens,
+          { company_id: companyId }
         );
         result = { subcontracts, purchaseOrders };
         break;
 
       case 'getBudget':
         if (!projectId) throw new Error('Project ID required');
-        const budgetViews = await procoreRequest(`/rest/v1.0/projects/${projectId}/budget_views`, tokens);
+        const budgetViews = await procoreRequest(`/rest/v1.0/projects/${projectId}/budget_views`, tokens, { company_id: companyId });
         if (budgetViews && budgetViews.length > 0) {
           result = await fetchAllPages(
             `/rest/v1.0/budget_views/${budgetViews[0].id}/detail_rows`,
             tokens,
-            { project_id: projectId }
+            { project_id: projectId, company_id: companyId }
           );
         } else {
           result = [];
@@ -300,18 +302,18 @@ export const handler: Handler = async (event) => {
       case 'getFullProjectData':
         if (!projectId) throw new Error('Project ID required');
         const [project, vendors, costCodes, commitments, budget] = await Promise.all([
-          procoreRequest(`/rest/v1.0/projects/${projectId}`, tokens),
-          fetchAllPages(`/rest/v1.0/projects/${projectId}/vendors`, tokens),
-          fetchAllPages(`/rest/v1.0/projects/${projectId}/cost_codes`, tokens),
+          procoreRequest(`/rest/v1.0/projects/${projectId}`, tokens, { company_id: companyId }),
+          fetchAllPages(`/rest/v1.0/projects/${projectId}/vendors`, tokens, { company_id: companyId }),
+          fetchAllPages(`/rest/v1.0/projects/${projectId}/cost_codes`, tokens, { company_id: companyId }),
           (async () => {
-            const subs = await fetchAllPages(`/rest/v1.0/projects/${projectId}/work_order_contracts`, tokens);
-            const pos = await fetchAllPages(`/rest/v1.0/projects/${projectId}/purchase_order_contracts`, tokens);
+            const subs = await fetchAllPages(`/rest/v1.0/projects/${projectId}/work_order_contracts`, tokens, { company_id: companyId });
+            const pos = await fetchAllPages(`/rest/v1.0/projects/${projectId}/purchase_order_contracts`, tokens, { company_id: companyId });
             return { subcontracts: subs, purchaseOrders: pos };
           })(),
           (async () => {
-            const views = await procoreRequest(`/rest/v1.0/projects/${projectId}/budget_views`, tokens);
+            const views = await procoreRequest(`/rest/v1.0/projects/${projectId}/budget_views`, tokens, { company_id: companyId });
             if (views && views.length > 0) {
-              return fetchAllPages(`/rest/v1.0/budget_views/${views[0].id}/detail_rows`, tokens, { project_id: projectId });
+              return fetchAllPages(`/rest/v1.0/budget_views/${views[0].id}/detail_rows`, tokens, { project_id: projectId, company_id: companyId });
             }
             return [];
           })(),
