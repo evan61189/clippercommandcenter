@@ -64,15 +64,19 @@ async function procoreRequest(
   const url = new URL(`${PROCORE_BASE_URL}${endpoint}`);
   if (params) {
     Object.entries(params).forEach(([key, value]) => {
-      url.searchParams.append(key, value);
+      if (value) { // Only add if value exists
+        url.searchParams.append(key, value);
+      }
     });
   }
+
+  console.log('Procore request:', url.toString(), 'company_id:', tokens.company_id);
 
   const response = await fetch(url.toString(), {
     headers: {
       Authorization: `Bearer ${tokens.access_token}`,
       'Content-Type': 'application/json',
-      'Procore-Company-Id': tokens.company_id,
+      ...(tokens.company_id ? { 'Procore-Company-Id': tokens.company_id } : {}),
     },
   });
 
@@ -86,7 +90,9 @@ async function procoreRequest(
   }
 
   if (!response.ok) {
-    throw new Error(`Procore API error: ${response.status}`);
+    const errorText = await response.text();
+    console.error('Procore API error response:', errorText);
+    throw new Error(`Procore API error: ${response.status} - ${errorText}`);
   }
 
   return response.json();
@@ -142,6 +148,20 @@ export const handler: Handler = async (event) => {
         statusCode: 401,
         headers,
         body: JSON.stringify({ error: 'Procore not connected. Please connect in Settings.' }),
+      };
+    }
+
+    // Debug: Check if company_id exists
+    console.log('Stored tokens company_id:', tokens.company_id);
+
+    if (!tokens.company_id || tokens.company_id === 'undefined') {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({
+          error: 'Invalid Procore company ID. Please disconnect and reconnect Procore in Settings.',
+          debug: { company_id: tokens.company_id }
+        }),
       };
     }
 
