@@ -51,6 +51,10 @@ export default function Dashboard() {
 
   // Show setup screen if Supabase is not configured
   if (!isSupabaseConfigured) {
+    // Debug info
+    const debugUrl = import.meta.env.VITE_SUPABASE_URL
+    const debugKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+
     return (
       <div className="max-w-2xl mx-auto space-y-6">
         <div className="card text-center py-12">
@@ -82,9 +86,18 @@ export default function Dashboard() {
             </ul>
           </div>
 
-          <div className="text-left bg-blue-50 rounded-lg p-4 text-sm text-blue-800">
+          <div className="text-left bg-blue-50 rounded-lg p-4 text-sm text-blue-800 mb-4">
             <strong>Note:</strong> After adding environment variables in Netlify,
             you must trigger a new deploy for them to take effect.
+          </div>
+
+          {/* Debug info */}
+          <div className="text-left bg-yellow-50 rounded-lg p-4 text-sm text-yellow-800">
+            <strong>Debug:</strong>
+            <ul className="mt-2 space-y-1">
+              <li>VITE_SUPABASE_URL: {debugUrl ? `"${debugUrl.substring(0, 30)}..."` : '(not set)'}</li>
+              <li>VITE_SUPABASE_ANON_KEY: {debugKey ? `"${debugKey.substring(0, 20)}..."` : '(not set)'}</li>
+            </ul>
           </div>
         </div>
       </div>
