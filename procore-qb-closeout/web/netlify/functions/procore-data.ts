@@ -301,22 +301,36 @@ export const handler: Handler = async (event) => {
 
       case 'getFullProjectData':
         if (!projectId) throw new Error('Project ID required');
+
+        // Helper to safely fetch data - returns empty on 404
+        const safeRequest = async (fn: () => Promise<any>, defaultValue: any = []) => {
+          try {
+            return await fn();
+          } catch (err: any) {
+            if (err.message?.includes('404')) {
+              console.log('Endpoint returned 404, using default value');
+              return defaultValue;
+            }
+            throw err;
+          }
+        };
+
         const [project, vendors, costCodes, commitments, budget] = await Promise.all([
-          procoreRequest(`/rest/v1.0/projects/${projectId}`, tokens, { company_id: companyId }),
-          fetchAllPages(`/rest/v1.0/projects/${projectId}/vendors`, tokens, { company_id: companyId }),
-          fetchAllPages(`/rest/v1.0/projects/${projectId}/cost_codes`, tokens, { company_id: companyId }),
-          (async () => {
-            const subs = await fetchAllPages(`/rest/v1.0/projects/${projectId}/work_order_contracts`, tokens, { company_id: companyId });
-            const pos = await fetchAllPages(`/rest/v1.0/projects/${projectId}/purchase_order_contracts`, tokens, { company_id: companyId });
+          safeRequest(() => procoreRequest(`/rest/v1.0/projects/${projectId}`, tokens, { company_id: companyId }), {}),
+          safeRequest(() => fetchAllPages(`/rest/v1.0/projects/${projectId}/vendors`, tokens, { company_id: companyId })),
+          safeRequest(() => fetchAllPages(`/rest/v1.0/cost_codes`, tokens, { company_id: companyId, project_id: projectId })),
+          safeRequest(async () => {
+            const subs = await safeRequest(() => fetchAllPages(`/rest/v1.0/work_order_contracts`, tokens, { company_id: companyId, project_id: projectId }));
+            const pos = await safeRequest(() => fetchAllPages(`/rest/v1.0/purchase_order_contracts`, tokens, { company_id: companyId, project_id: projectId }));
             return { subcontracts: subs, purchaseOrders: pos };
-          })(),
-          (async () => {
-            const views = await procoreRequest(`/rest/v1.0/projects/${projectId}/budget_views`, tokens, { company_id: companyId });
+          }, { subcontracts: [], purchaseOrders: [] }),
+          safeRequest(async () => {
+            const views = await procoreRequest(`/rest/v1.0/budget_views`, tokens, { company_id: companyId, project_id: projectId });
             if (views && views.length > 0) {
               return fetchAllPages(`/rest/v1.0/budget_views/${views[0].id}/detail_rows`, tokens, { project_id: projectId, company_id: companyId });
             }
             return [];
-          })(),
+          }),
         ]);
         result = { project, vendors, costCodes, commitments, budget };
         break;
