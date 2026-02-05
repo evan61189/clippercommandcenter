@@ -60,8 +60,31 @@ async function refreshAccessToken(tokens: TokenData): Promise<TokenData | null> 
 async function procoreRequest(
   endpoint: string,
   tokens: TokenData,
-  params?: Record<string, string>
+  params?: Record<string, string>,
+  userId?: string
 ): Promise<any> {
+  // Check if token is expired and refresh if needed
+  if (tokens.expires_at) {
+    const expiresAt = new Date(tokens.expires_at);
+    const now = new Date();
+    // Refresh if expires in less than 5 minutes
+    if (expiresAt.getTime() - now.getTime() < 5 * 60 * 1000) {
+      console.log('Token expired or expiring soon, refreshing...');
+      const newTokens = await refreshAccessToken(tokens);
+      if (newTokens) {
+        tokens = newTokens;
+        // Update tokens in database if userId is provided
+        if (userId) {
+          await supabase
+            .from('api_credentials')
+            .update({ credentials: newTokens, updated_at: new Date().toISOString() })
+            .eq('user_id', userId)
+            .eq('provider', 'procore');
+        }
+      }
+    }
+  }
+
   const url = new URL(`${PROCORE_BASE_URL}${endpoint}`);
   if (params) {
     Object.entries(params).forEach(([key, value]) => {
@@ -71,32 +94,53 @@ async function procoreRequest(
     });
   }
 
-  console.log('Procore request:', url.toString(), 'company_id:', tokens.company_id);
+  console.log('Procore request:', url.toString());
 
-  const response = await fetch(url.toString(), {
-    headers: {
-      Authorization: `Bearer ${tokens.access_token}`,
-      'Content-Type': 'application/json',
-      ...(tokens.company_id ? { 'Procore-Company-Id': tokens.company_id } : {}),
-    },
-  });
+  // Add timeout using AbortController (8 seconds to stay under Netlify's 10s limit)
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
 
-  if (response.status === 401) {
-    // Token expired, try to refresh
-    const newTokens = await refreshAccessToken(tokens);
-    if (newTokens) {
-      return procoreRequest(endpoint, newTokens, params);
+  try {
+    const response = await fetch(url.toString(), {
+      headers: {
+        Authorization: `Bearer ${tokens.access_token}`,
+        'Content-Type': 'application/json',
+        ...(tokens.company_id ? { 'Procore-Company-Id': tokens.company_id } : {}),
+      },
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    console.log('Procore response status:', response.status);
+
+    if (response.status === 401) {
+      // Token expired, try to refresh
+      console.log('Token expired, refreshing...');
+      const newTokens = await refreshAccessToken(tokens);
+      if (newTokens) {
+        return procoreRequest(endpoint, newTokens, params);
+      }
+      throw new Error('Authentication failed - token refresh failed');
     }
-    throw new Error('Authentication failed');
-  }
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('Procore API error response:', errorText);
-    throw new Error(`Procore API error: ${response.status} - ${errorText}`);
-  }
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Procore API error response:', response.status, errorText);
+      throw new Error(`Procore API error: ${response.status} - ${errorText}`);
+    }
 
-  return response.json();
+    const data = await response.json();
+    console.log('Procore response data type:', typeof data, Array.isArray(data) ? `array length: ${data.length}` : '');
+    return data;
+  } catch (error: any) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error('Procore API request timed out. Please try again.');
+    }
+    console.error('Procore request error:', error);
+    throw error;
+  }
 }
 
 async function fetchAllPages(
@@ -169,11 +213,34 @@ export const handler: Handler = async (event) => {
     let result: any;
 
     const companyId = tokens.company_id;
+    console.log('Processing action:', action, 'companyId:', companyId);
 
     switch (action) {
+      case 'testConnection':
+        // Simple test to verify API auth works
+        console.log('Testing Procore connection...');
+        result = await procoreRequest('/rest/v1.0/me', tokens);
+        console.log('Test result:', result);
+        break;
+
       case 'getProjects':
-        // Use v1.0 API with company_id in URL path
-        result = await fetchAllPages(`/rest/v1.0/companies/${companyId}/projects`, tokens);
+        // Use v1.0 API with company_id as query parameter
+        console.log('Fetching projects for company:', companyId);
+        try {
+          result = await procoreRequest('/rest/v1.0/projects', tokens, {
+            company_id: companyId,
+            per_page: '50'
+          });
+          // Ensure result is an array
+          if (!Array.isArray(result)) {
+            console.log('Projects response is not an array:', typeof result, result);
+            result = [];
+          }
+          console.log('Projects fetched:', result.length);
+        } catch (err: any) {
+          console.error('Failed to fetch projects:', err.message);
+          throw err;
+        }
         break;
 
       case 'getProject':
