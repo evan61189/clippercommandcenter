@@ -209,8 +209,28 @@ export const handler: Handler = async (event) => {
         );
         break;
 
+      case 'getInvoices':
+        // Customer invoices (what they owe us - AR)
+        result = await paginatedQuery('SELECT * FROM Invoice', 'Invoice', tokens, userId);
+        break;
+
+      case 'getPaymentsReceived':
+        // Payments received from customers
+        result = await paginatedQuery('SELECT * FROM Payment', 'Payment', tokens, userId);
+        break;
+
       case 'getFullData':
-        const [companyInfo, vendors, accounts, bills, payments, customers] = await Promise.all([
+        console.log('Fetching full QuickBooks data...');
+        const [
+          companyInfo,
+          vendors,
+          accounts,
+          bills,
+          billPayments,
+          customers,
+          invoices,
+          paymentsReceived
+        ] = await Promise.all([
           qboRequest(`companyinfo/${tokens.realm_id}`, tokens, userId).then(r => r.CompanyInfo),
           paginatedQuery('SELECT * FROM Vendor WHERE Active = true', 'Vendor', tokens, userId),
           paginatedQuery(
@@ -219,11 +239,27 @@ export const handler: Handler = async (event) => {
             tokens,
             userId
           ),
+          // Bills (what we owe vendors - AP)
           paginatedQuery('SELECT * FROM Bill', 'Bill', tokens, userId),
+          // Payments to vendors
           paginatedQuery('SELECT * FROM BillPayment', 'BillPayment', tokens, userId),
           paginatedQuery('SELECT * FROM Customer WHERE Active = true', 'Customer', tokens, userId),
+          // Invoices to customers (what they owe us - AR)
+          paginatedQuery('SELECT * FROM Invoice', 'Invoice', tokens, userId),
+          // Payments received from customers
+          paginatedQuery('SELECT * FROM Payment', 'Payment', tokens, userId),
         ]);
-        result = { companyInfo, vendors, accounts, bills, payments, customers };
+        console.log(`QB Data: ${vendors.length} vendors, ${bills.length} bills, ${invoices.length} invoices`);
+        result = {
+          companyInfo,
+          vendors,
+          accounts,
+          bills,
+          billPayments,
+          customers,
+          invoices,
+          paymentsReceived
+        };
         break;
 
       default:

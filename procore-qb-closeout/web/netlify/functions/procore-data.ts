@@ -307,23 +307,39 @@ export const handler: Handler = async (event) => {
           try {
             return await fn();
           } catch (err: any) {
-            if (err.message?.includes('404')) {
-              console.log('Endpoint returned 404, using default value');
+            if (err.message?.includes('404') || err.message?.includes('403')) {
+              console.log('Endpoint returned 404/403, using default value');
               return defaultValue;
             }
             throw err;
           }
         };
 
-        const [project, vendors, costCodes, commitments, budget] = await Promise.all([
+        const [
+          project,
+          vendors,
+          costCodes,
+          commitments,
+          budget,
+          subInvoices,
+          primeContract,
+          paymentApplications,
+          changeOrders,
+          directCosts
+        ] = await Promise.all([
+          // Basic project info
           safeRequest(() => procoreRequest(`/rest/v1.0/projects/${projectId}`, tokens, { company_id: companyId }), {}),
+          // Vendors
           safeRequest(() => fetchAllPages(`/rest/v1.0/projects/${projectId}/vendors`, tokens, { company_id: companyId })),
+          // Cost codes
           safeRequest(() => fetchAllPages(`/rest/v1.0/cost_codes`, tokens, { company_id: companyId, project_id: projectId })),
+          // Commitments (subcontracts & POs)
           safeRequest(async () => {
             const subs = await safeRequest(() => fetchAllPages(`/rest/v1.0/work_order_contracts`, tokens, { company_id: companyId, project_id: projectId }));
             const pos = await safeRequest(() => fetchAllPages(`/rest/v1.0/purchase_order_contracts`, tokens, { company_id: companyId, project_id: projectId }));
             return { subcontracts: subs, purchaseOrders: pos };
           }, { subcontracts: [], purchaseOrders: [] }),
+          // Budget
           safeRequest(async () => {
             const views = await procoreRequest(`/rest/v1.0/budget_views`, tokens, { company_id: companyId, project_id: projectId });
             if (views && views.length > 0) {
@@ -331,8 +347,35 @@ export const handler: Handler = async (event) => {
             }
             return [];
           }),
+          // Subcontractor invoices (requisitions)
+          safeRequest(() => fetchAllPages(`/rest/v1.0/requisitions`, tokens, { company_id: companyId, project_id: projectId })),
+          // Prime contract (contract with owner/client)
+          safeRequest(() => fetchAllPages(`/rest/v1.0/prime_contracts`, tokens, { company_id: companyId, project_id: projectId })),
+          // Payment applications (billings to owner)
+          safeRequest(() => fetchAllPages(`/rest/v1.0/payment_applications`, tokens, { company_id: companyId, project_id: projectId })),
+          // Change orders
+          safeRequest(async () => {
+            // Commitment change orders (from subs)
+            const commitmentCOs = await safeRequest(() => fetchAllPages(`/rest/v1.0/change_order_packages`, tokens, { company_id: companyId, project_id: projectId }));
+            // Prime contract change orders (to owner)
+            const primeCOs = await safeRequest(() => fetchAllPages(`/rest/v1.0/prime_contract/change_order_packages`, tokens, { company_id: companyId, project_id: projectId }));
+            return { commitment: commitmentCOs, prime: primeCOs };
+          }, { commitment: [], prime: [] }),
+          // Direct costs (expenses not tied to commitments)
+          safeRequest(() => fetchAllPages(`/rest/v1.0/direct_costs`, tokens, { company_id: companyId, project_id: projectId })),
         ]);
-        result = { project, vendors, costCodes, commitments, budget };
+        result = {
+          project,
+          vendors,
+          costCodes,
+          commitments,
+          budget,
+          subInvoices,
+          primeContract,
+          paymentApplications,
+          changeOrders,
+          directCosts
+        };
         break;
 
       default:
