@@ -302,15 +302,18 @@ export const handler: Handler = async (event) => {
       case 'getFullProjectData':
         if (!projectId) throw new Error('Project ID required');
 
-        // Helper to safely fetch data - returns empty on 404
+        // Helper to safely fetch data - returns empty on 404/403
         const safeRequest = async (fn: () => Promise<any>, defaultValue: any = []) => {
           try {
             return await fn();
           } catch (err: any) {
-            if (err.message?.includes('404') || err.message?.includes('403')) {
-              console.log('Endpoint returned 404/403, using default value');
+            const errMsg = err?.message || String(err);
+            // Check for 404, 403, or any "not found" type errors
+            if (errMsg.includes('404') || errMsg.includes('403') || errMsg.includes('Not Found') || errMsg.includes('not found')) {
+              console.log('Endpoint returned 404/403, using default value for:', errMsg.substring(0, 100));
               return defaultValue;
             }
+            console.error('safeRequest error (re-throwing):', errMsg.substring(0, 200));
             throw err;
           }
         };
