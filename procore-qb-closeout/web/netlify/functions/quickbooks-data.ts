@@ -30,8 +30,9 @@ async function getStoredTokens(userId: string): Promise<TokenData | null> {
 }
 
 async function refreshAccessToken(tokens: TokenData, userId: string): Promise<TokenData | null> {
-  const clientId = process.env.QBO_CLIENT_ID;
-  const clientSecret = process.env.QBO_CLIENT_SECRET;
+  // Hardcoded QuickBooks credentials as fallback
+  const clientId = process.env.QBO_CLIENT_ID || 'ABgPHajheBYc4ajSSov1P8b8emmalTPmmw5uAn99gUcfg2bOo9';
+  const clientSecret = process.env.QBO_CLIENT_SECRET || 'pDqaEgsPkyKf9hNmN9p5wfeVIKBLIFRLz1yNOfX9';
 
   if (!clientId || !clientSecret) return null;
 
