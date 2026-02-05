@@ -9,8 +9,9 @@ import {
   Play,
   Settings,
   XCircle,
+  Wrench,
 } from 'lucide-react'
-import { getProjects, getDashboardStats, supabase } from '../lib/supabase'
+import { getProjects, getDashboardStats, supabase, isSupabaseConfigured } from '../lib/supabase'
 import { formatCurrency } from '../lib/utils'
 import StatsCard from '../components/StatsCard'
 import ProjectCard from '../components/ProjectCard'
@@ -39,12 +40,56 @@ export default function Dashboard() {
   const { data: projects, isLoading: projectsLoading } = useQuery({
     queryKey: ['projects'],
     queryFn: getProjects,
+    enabled: isSupabaseConfigured,
   })
 
   const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ['dashboard-stats'],
     queryFn: getDashboardStats,
+    enabled: isSupabaseConfigured,
   })
+
+  // Show setup screen if Supabase is not configured
+  if (!isSupabaseConfigured) {
+    return (
+      <div className="max-w-2xl mx-auto space-y-6">
+        <div className="card text-center py-12">
+          <Wrench className="w-16 h-16 text-procore-blue mx-auto mb-6" />
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">
+            Setup Required
+          </h1>
+          <p className="text-gray-600 mb-6">
+            Configure your environment variables in Netlify to get started.
+          </p>
+
+          <div className="text-left bg-gray-50 rounded-lg p-6 mb-6">
+            <h3 className="font-semibold text-gray-900 mb-3">
+              Required Environment Variables:
+            </h3>
+            <ul className="space-y-2 text-sm font-mono">
+              <li className="flex items-start">
+                <span className="text-gray-400 mr-2">•</span>
+                <span><strong>VITE_SUPABASE_URL</strong> - Your Supabase project URL</span>
+              </li>
+              <li className="flex items-start">
+                <span className="text-gray-400 mr-2">•</span>
+                <span><strong>VITE_SUPABASE_ANON_KEY</strong> - Your Supabase anon key</span>
+              </li>
+              <li className="flex items-start">
+                <span className="text-gray-400 mr-2">•</span>
+                <span><strong>SUPABASE_SERVICE_KEY</strong> - For serverless functions</span>
+              </li>
+            </ul>
+          </div>
+
+          <div className="text-left bg-blue-50 rounded-lg p-4 text-sm text-blue-800">
+            <strong>Note:</strong> After adding environment variables in Netlify,
+            you must trigger a new deploy for them to take effect.
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   useEffect(() => {
     checkConnections()
