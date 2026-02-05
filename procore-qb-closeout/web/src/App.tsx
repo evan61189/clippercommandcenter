@@ -6,6 +6,8 @@ import ReportDetail from './pages/ReportDetail'
 import CloseoutItems from './pages/CloseoutItems'
 import Settings from './pages/Settings'
 import RunReconciliation from './pages/RunReconciliation'
+import Privacy from './pages/Privacy'
+import Terms from './pages/Terms'
 
 function App() {
   return (
@@ -67,15 +69,21 @@ function App() {
           <Route path="/report/:reportId" element={<ReportDetail />} />
           <Route path="/closeout-items" element={<CloseoutItems />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/privacy" element={<Privacy />} />
+          <Route path="/terms" element={<Terms />} />
         </Routes>
       </main>
 
       {/* Footer */}
       <footer className="bg-white border-t border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <p className="text-center text-sm text-gray-500">
-            Procore-QuickBooks Financial Closeout Reconciliation
-          </p>
+          <div className="flex justify-center items-center space-x-4 text-sm text-gray-500">
+            <span>Procore-QuickBooks Financial Closeout Reconciliation</span>
+            <span>|</span>
+            <Link to="/privacy" className="hover:text-gray-700">Privacy Policy</Link>
+            <span>|</span>
+            <Link to="/terms" className="hover:text-gray-700">Terms of Service</Link>
+          </div>
         </div>
       </footer>
     </div>
