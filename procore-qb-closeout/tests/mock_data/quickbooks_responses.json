@@ -1,0 +1,373 @@
+{
+  "company_info": {
+    "Id": "123456789",
+    "CompanyName": "General Contractor LLC",
+    "LegalName": "General Contractor LLC",
+    "Country": "US"
+  },
+  "vendors": [
+    {
+      "Id": "501",
+      "DisplayName": "ABC Concrete Inc",
+      "Balance": 9850.00,
+      "Active": true
+    },
+    {
+      "Id": "502",
+      "DisplayName": "Premier Drywall Svcs",
+      "Balance": 7250.00,
+      "Active": true
+    },
+    {
+      "Id": "503",
+      "DisplayName": "Valley Electric Company",
+      "Balance": 13440.00,
+      "Active": true
+    },
+    {
+      "Id": "504",
+      "DisplayName": "Capital HVAC",
+      "Balance": 8120.00,
+      "Active": true
+    },
+    {
+      "Id": "505",
+      "DisplayName": "Metro Plumbing Supply",
+      "Balance": 0.00,
+      "Active": true
+    },
+    {
+      "Id": "506",
+      "DisplayName": "Building Supply Co",
+      "Balance": 0.00,
+      "Active": true
+    }
+  ],
+  "accounts": [
+    {
+      "Id": "140",
+      "Name": "Job Costs:Concrete",
+      "AccountType": "Expense",
+      "AccountSubType": "JobCosts",
+      "FullyQualifiedName": "Job Costs:Concrete",
+      "Active": true
+    },
+    {
+      "Id": "141",
+      "Name": "Job Costs:Framing",
+      "AccountType": "Expense",
+      "AccountSubType": "JobCosts",
+      "FullyQualifiedName": "Job Costs:Framing",
+      "Active": true
+    },
+    {
+      "Id": "142",
+      "Name": "Job Costs:Drywall",
+      "AccountType": "Expense",
+      "AccountSubType": "JobCosts",
+      "FullyQualifiedName": "Job Costs:Drywall",
+      "Active": true
+    },
+    {
+      "Id": "143",
+      "Name": "Job Costs:Electrical",
+      "AccountType": "Expense",
+      "AccountSubType": "JobCosts",
+      "FullyQualifiedName": "Job Costs:Electrical",
+      "Active": true
+    },
+    {
+      "Id": "144",
+      "Name": "Job Costs:HVAC",
+      "AccountType": "Expense",
+      "AccountSubType": "JobCosts",
+      "FullyQualifiedName": "Job Costs:HVAC",
+      "Active": true
+    },
+    {
+      "Id": "145",
+      "Name": "Job Costs:Plumbing",
+      "AccountType": "Expense",
+      "AccountSubType": "JobCosts",
+      "FullyQualifiedName": "Job Costs:Plumbing",
+      "Active": true
+    },
+    {
+      "Id": "146",
+      "Name": "Job Costs:Painting",
+      "AccountType": "Expense",
+      "AccountSubType": "JobCosts",
+      "FullyQualifiedName": "Job Costs:Painting",
+      "Active": true
+    },
+    {
+      "Id": "147",
+      "Name": "Job Costs:Miscellaneous",
+      "AccountType": "Expense",
+      "AccountSubType": "JobCosts",
+      "FullyQualifiedName": "Job Costs:Miscellaneous",
+      "Active": true
+    }
+  ],
+  "bills": [
+    {
+      "Id": "2001",
+      "DocNumber": "PAY-001",
+      "VendorRef": {
+        "value": "501",
+        "name": "ABC Concrete Inc"
+      },
+      "TxnDate": "2024-04-15",
+      "DueDate": "2024-05-15",
+      "TotalAmt": 45000.00,
+      "Balance": 0.00,
+      "Line": [
+        {
+          "AccountBasedExpenseLineDetail": {
+            "AccountRef": {"value": "140", "name": "Job Costs:Concrete"},
+            "CustomerRef": {"value": "100", "name": "Corporate Office Buildout"}
+          }
+        }
+      ]
+    },
+    {
+      "Id": "2002",
+      "DocNumber": "PAY-002",
+      "VendorRef": {
+        "value": "501",
+        "name": "ABC Concrete Inc"
+      },
+      "TxnDate": "2024-05-20",
+      "DueDate": "2024-06-20",
+      "TotalAmt": 53500.00,
+      "Balance": 0.00,
+      "Line": [
+        {
+          "AccountBasedExpenseLineDetail": {
+            "AccountRef": {"value": "140", "name": "Job Costs:Concrete"},
+            "CustomerRef": {"value": "100", "name": "Corporate Office Buildout"}
+          }
+        }
+      ]
+    },
+    {
+      "Id": "2003",
+      "DocNumber": "PAY-001",
+      "VendorRef": {
+        "value": "502",
+        "name": "Premier Drywall Svcs"
+      },
+      "TxnDate": "2024-05-01",
+      "DueDate": "2024-06-01",
+      "TotalAmt": 35000.00,
+      "Balance": 0.00,
+      "Line": [
+        {
+          "AccountBasedExpenseLineDetail": {
+            "AccountRef": {"value": "142", "name": "Job Costs:Drywall"},
+            "CustomerRef": {"value": "100", "name": "Corporate Office Buildout"}
+          }
+        }
+      ]
+    },
+    {
+      "Id": "2004",
+      "DocNumber": "PAY-002",
+      "VendorRef": {
+        "value": "502",
+        "name": "Premier Drywall Svcs"
+      },
+      "TxnDate": "2024-06-01",
+      "DueDate": "2024-07-01",
+      "TotalAmt": 38500.00,
+      "Balance": 38500.00,
+      "Line": [
+        {
+          "AccountBasedExpenseLineDetail": {
+            "AccountRef": {"value": "142", "name": "Job Costs:Drywall"},
+            "CustomerRef": {"value": "100", "name": "Corporate Office Buildout"}
+          }
+        }
+      ]
+    },
+    {
+      "Id": "2005",
+      "DocNumber": "PAY-001",
+      "VendorRef": {
+        "value": "503",
+        "name": "Valley Electric Company"
+      },
+      "TxnDate": "2024-05-10",
+      "DueDate": "2024-06-10",
+      "TotalAmt": 78000.00,
+      "Balance": 0.00,
+      "Line": [
+        {
+          "AccountBasedExpenseLineDetail": {
+            "AccountRef": {"value": "143", "name": "Job Costs:Electrical"},
+            "CustomerRef": {"value": "100", "name": "Corporate Office Buildout"}
+          }
+        }
+      ]
+    },
+    {
+      "Id": "2006",
+      "DocNumber": "PAY-002",
+      "VendorRef": {
+        "value": "503",
+        "name": "Valley Electric Company"
+      },
+      "TxnDate": "2024-06-15",
+      "DueDate": "2024-07-15",
+      "TotalAmt": 56400.00,
+      "Balance": 56400.00,
+      "Line": [
+        {
+          "AccountBasedExpenseLineDetail": {
+            "AccountRef": {"value": "143", "name": "Job Costs:Electrical"},
+            "CustomerRef": {"value": "100", "name": "Corporate Office Buildout"}
+          }
+        }
+      ]
+    },
+    {
+      "Id": "2007",
+      "DocNumber": "INV-5544",
+      "VendorRef": {
+        "value": "504",
+        "name": "Capital HVAC"
+      },
+      "TxnDate": "2024-06-01",
+      "DueDate": "2024-07-01",
+      "TotalAmt": 81200.00,
+      "Balance": 8120.00,
+      "Line": [
+        {
+          "AccountBasedExpenseLineDetail": {
+            "AccountRef": {"value": "144", "name": "Job Costs:HVAC"},
+            "CustomerRef": {"value": "100", "name": "Corporate Office Buildout"}
+          }
+        }
+      ]
+    },
+    {
+      "Id": "2008",
+      "DocNumber": "INV-7721",
+      "VendorRef": {
+        "value": "505",
+        "name": "Metro Plumbing Supply"
+      },
+      "TxnDate": "2024-05-15",
+      "DueDate": "2024-06-15",
+      "TotalAmt": 24500.00,
+      "Balance": 0.00,
+      "Line": [
+        {
+          "AccountBasedExpenseLineDetail": {
+            "AccountRef": {"value": "145", "name": "Job Costs:Plumbing"},
+            "CustomerRef": {"value": "100", "name": "Corporate Office Buildout"}
+          }
+        }
+      ]
+    },
+    {
+      "Id": "2009",
+      "DocNumber": "INV-2024-0542",
+      "VendorRef": {
+        "value": "506",
+        "name": "Building Supply Co"
+      },
+      "TxnDate": "2024-04-20",
+      "DueDate": "2024-05-20",
+      "TotalAmt": 3500.00,
+      "Balance": 0.00,
+      "Line": [
+        {
+          "AccountBasedExpenseLineDetail": {
+            "AccountRef": {"value": "140", "name": "Job Costs:Concrete"},
+            "CustomerRef": {"value": "100", "name": "Corporate Office Buildout"}
+          }
+        }
+      ]
+    },
+    {
+      "Id": "2010",
+      "DocNumber": "UNMATCHED-001",
+      "VendorRef": {
+        "value": "507",
+        "name": "Unknown Supplier Inc"
+      },
+      "TxnDate": "2024-05-25",
+      "DueDate": "2024-06-25",
+      "TotalAmt": 2500.00,
+      "Balance": 2500.00,
+      "Line": [
+        {
+          "AccountBasedExpenseLineDetail": {
+            "AccountRef": {"value": "147", "name": "Job Costs:Miscellaneous"},
+            "CustomerRef": {"value": "100", "name": "Corporate Office Buildout"}
+          }
+        }
+      ]
+    }
+  ],
+  "bill_payments": [
+    {
+      "Id": "3001",
+      "VendorRef": {"value": "501", "name": "ABC Concrete Inc"},
+      "TotalAmt": 45000.00,
+      "TxnDate": "2024-05-01",
+      "PayType": "Check"
+    },
+    {
+      "Id": "3002",
+      "VendorRef": {"value": "501", "name": "ABC Concrete Inc"},
+      "TotalAmt": 53500.00,
+      "TxnDate": "2024-06-05",
+      "PayType": "Check"
+    },
+    {
+      "Id": "3003",
+      "VendorRef": {"value": "502", "name": "Premier Drywall Svcs"},
+      "TotalAmt": 35000.00,
+      "TxnDate": "2024-05-15",
+      "PayType": "Check"
+    },
+    {
+      "Id": "3004",
+      "VendorRef": {"value": "503", "name": "Valley Electric Company"},
+      "TotalAmt": 78000.00,
+      "TxnDate": "2024-05-25",
+      "PayType": "Check"
+    },
+    {
+      "Id": "3005",
+      "VendorRef": {"value": "504", "name": "Capital HVAC"},
+      "TotalAmt": 73080.00,
+      "TxnDate": "2024-06-15",
+      "PayType": "Check"
+    },
+    {
+      "Id": "3006",
+      "VendorRef": {"value": "505", "name": "Metro Plumbing Supply"},
+      "TotalAmt": 24500.00,
+      "TxnDate": "2024-06-01",
+      "PayType": "Check"
+    },
+    {
+      "Id": "3007",
+      "VendorRef": {"value": "506", "name": "Building Supply Co"},
+      "TotalAmt": 3500.00,
+      "TxnDate": "2024-05-10",
+      "PayType": "Check"
+    }
+  ],
+  "customers": [
+    {
+      "Id": "100",
+      "DisplayName": "Corporate Office Buildout - Phase 2",
+      "FullyQualifiedName": "Corporate Office Buildout - Phase 2",
+      "Active": true
+    }
+  ]
+}

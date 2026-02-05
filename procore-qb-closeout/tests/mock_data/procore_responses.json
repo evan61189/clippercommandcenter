@@ -1,0 +1,411 @@
+{
+  "project": {
+    "id": 12345,
+    "name": "Corporate Office Buildout - Phase 2",
+    "project_number": "2024-001",
+    "address": {
+      "address1": "123 Main Street",
+      "city": "Arlington",
+      "state_code": "VA"
+    },
+    "status": "Active"
+  },
+  "vendors": [
+    {
+      "id": 1001,
+      "name": "ABC Concrete, Inc.",
+      "origin_id": "QBO-501"
+    },
+    {
+      "id": 1002,
+      "name": "Premier Drywall Services",
+      "origin_id": null
+    },
+    {
+      "id": 1003,
+      "name": "Valley Electric Co.",
+      "origin_id": "QBO-503"
+    },
+    {
+      "id": 1004,
+      "name": "Capital HVAC Solutions",
+      "origin_id": null
+    },
+    {
+      "id": 1005,
+      "name": "Metro Plumbing",
+      "origin_id": null
+    }
+  ],
+  "cost_codes": [
+    {
+      "id": 101,
+      "full_code": "03-100",
+      "name": "Concrete Formwork",
+      "parent": null
+    },
+    {
+      "id": 102,
+      "full_code": "03-200",
+      "name": "Concrete Reinforcing",
+      "parent": null
+    },
+    {
+      "id": 103,
+      "full_code": "03-300",
+      "name": "Cast-in-Place Concrete",
+      "parent": null
+    },
+    {
+      "id": 201,
+      "full_code": "09-100",
+      "name": "Metal Stud Framing",
+      "parent": null
+    },
+    {
+      "id": 202,
+      "full_code": "09-200",
+      "name": "Drywall",
+      "parent": null
+    },
+    {
+      "id": 203,
+      "full_code": "09-300",
+      "name": "Painting",
+      "parent": null
+    },
+    {
+      "id": 301,
+      "full_code": "26-100",
+      "name": "Electrical Rough-In",
+      "parent": null
+    },
+    {
+      "id": 302,
+      "full_code": "26-200",
+      "name": "Electrical Finish",
+      "parent": null
+    },
+    {
+      "id": 401,
+      "full_code": "23-100",
+      "name": "HVAC Ductwork",
+      "parent": null
+    },
+    {
+      "id": 501,
+      "full_code": "22-100",
+      "name": "Plumbing Rough-In",
+      "parent": null
+    }
+  ],
+  "subcontracts": [
+    {
+      "id": 5001,
+      "title": "Concrete Package",
+      "vendor": {
+        "id": 1001,
+        "name": "ABC Concrete, Inc."
+      },
+      "status": "executed",
+      "grand_total": 125000.00,
+      "approved_change_orders": 8500.00,
+      "pending_change_orders": 2500.00,
+      "bill_amount": 98500.00,
+      "paid_amount": 88650.00,
+      "retention_amount": 9850.00,
+      "executed_date": "2024-02-15",
+      "line_items": [
+        {"cost_code": {"full_code": "03-100"}},
+        {"cost_code": {"full_code": "03-200"}},
+        {"cost_code": {"full_code": "03-300"}}
+      ]
+    },
+    {
+      "id": 5002,
+      "title": "Drywall & Framing",
+      "vendor": {
+        "id": 1002,
+        "name": "Premier Drywall Services"
+      },
+      "status": "executed",
+      "grand_total": 87500.00,
+      "approved_change_orders": 4200.00,
+      "pending_change_orders": 0.00,
+      "bill_amount": 72500.00,
+      "paid_amount": 65250.00,
+      "retention_amount": 7250.00,
+      "executed_date": "2024-03-01",
+      "line_items": [
+        {"cost_code": {"full_code": "09-100"}},
+        {"cost_code": {"full_code": "09-200"}}
+      ]
+    },
+    {
+      "id": 5003,
+      "title": "Electrical Installation",
+      "vendor": {
+        "id": 1003,
+        "name": "Valley Electric Co."
+      },
+      "status": "executed",
+      "grand_total": 156000.00,
+      "approved_change_orders": 12000.00,
+      "pending_change_orders": 5500.00,
+      "bill_amount": 134400.00,
+      "paid_amount": 120960.00,
+      "retention_amount": 13440.00,
+      "executed_date": "2024-02-20",
+      "line_items": [
+        {"cost_code": {"full_code": "26-100"}},
+        {"cost_code": {"full_code": "26-200"}}
+      ]
+    },
+    {
+      "id": 5004,
+      "title": "HVAC Systems",
+      "vendor": {
+        "id": 1004,
+        "name": "Capital HVAC Solutions"
+      },
+      "status": "executed",
+      "grand_total": 98000.00,
+      "approved_change_orders": 3500.00,
+      "pending_change_orders": 1200.00,
+      "bill_amount": 81200.00,
+      "paid_amount": 73080.00,
+      "retention_amount": 8120.00,
+      "executed_date": "2024-03-10",
+      "line_items": [
+        {"cost_code": {"full_code": "23-100"}}
+      ]
+    }
+  ],
+  "purchase_orders": [
+    {
+      "id": 6001,
+      "title": "Plumbing Fixtures",
+      "vendor": {
+        "id": 1005,
+        "name": "Metro Plumbing"
+      },
+      "status": "approved",
+      "grand_total": 24500.00,
+      "approved_change_orders": 0.00,
+      "pending_change_orders": 0.00,
+      "bill_amount": 24500.00,
+      "paid_amount": 24500.00,
+      "line_items": [
+        {"cost_code": {"full_code": "22-100"}}
+      ]
+    }
+  ],
+  "requisitions": [
+    {
+      "id": 7001,
+      "number": "PAY-001",
+      "vendor": {"name": "ABC Concrete, Inc."},
+      "amount": 45000.00,
+      "retention": 4500.00,
+      "status": "paid",
+      "invoice_date": "2024-04-15",
+      "payment_date": "2024-05-01",
+      "payment_amount": 40500.00
+    },
+    {
+      "id": 7002,
+      "number": "PAY-002",
+      "vendor": {"name": "ABC Concrete, Inc."},
+      "amount": 53500.00,
+      "retention": 5350.00,
+      "status": "paid",
+      "invoice_date": "2024-05-20",
+      "payment_date": "2024-06-05",
+      "payment_amount": 48150.00
+    },
+    {
+      "id": 7003,
+      "number": "PAY-001",
+      "vendor": {"name": "Premier Drywall Services"},
+      "amount": 35000.00,
+      "retention": 3500.00,
+      "status": "paid",
+      "invoice_date": "2024-05-01",
+      "payment_date": "2024-05-15",
+      "payment_amount": 31500.00
+    },
+    {
+      "id": 7004,
+      "number": "PAY-002",
+      "vendor": {"name": "Premier Drywall Services"},
+      "amount": 37500.00,
+      "retention": 3750.00,
+      "status": "approved",
+      "invoice_date": "2024-06-01",
+      "payment_date": null,
+      "payment_amount": 0.00
+    },
+    {
+      "id": 7005,
+      "number": "PAY-001",
+      "vendor": {"name": "Valley Electric Co."},
+      "amount": 78000.00,
+      "retention": 7800.00,
+      "status": "paid",
+      "invoice_date": "2024-05-10",
+      "payment_date": "2024-05-25",
+      "payment_amount": 70200.00
+    },
+    {
+      "id": 7006,
+      "number": "PAY-002",
+      "vendor": {"name": "Valley Electric Co."},
+      "amount": 56400.00,
+      "retention": 5640.00,
+      "status": "approved",
+      "invoice_date": "2024-06-15",
+      "payment_date": null,
+      "payment_amount": 0.00
+    }
+  ],
+  "change_orders": [
+    {
+      "id": 8001,
+      "number": "CO-001",
+      "vendor": {"name": "ABC Concrete, Inc."},
+      "amount": 8500.00,
+      "title": "Additional Foundation Work",
+      "status": "approved",
+      "created_at": "2024-04-01",
+      "approved_date": "2024-04-05",
+      "line_items": [{"cost_code": {"full_code": "03-300"}}]
+    },
+    {
+      "id": 8002,
+      "number": "CO-001",
+      "vendor": {"name": "Premier Drywall Services"},
+      "amount": 4200.00,
+      "title": "Extended Wall Coverage",
+      "status": "approved",
+      "created_at": "2024-05-10",
+      "approved_date": "2024-05-12",
+      "line_items": [{"cost_code": {"full_code": "09-200"}}]
+    },
+    {
+      "id": 8003,
+      "number": "CO-001",
+      "vendor": {"name": "Valley Electric Co."},
+      "amount": 12000.00,
+      "title": "Additional Circuits for Server Room",
+      "status": "approved",
+      "created_at": "2024-05-20",
+      "approved_date": "2024-05-22",
+      "line_items": [{"cost_code": {"full_code": "26-100"}}]
+    },
+    {
+      "id": 8004,
+      "number": "CO-002",
+      "vendor": {"name": "Valley Electric Co."},
+      "amount": 5500.00,
+      "title": "Emergency Lighting Upgrade",
+      "status": "pending",
+      "created_at": "2024-06-10",
+      "approved_date": null,
+      "line_items": [{"cost_code": {"full_code": "26-200"}}]
+    },
+    {
+      "id": 8005,
+      "number": "CO-001",
+      "vendor": {"name": "Capital HVAC Solutions"},
+      "amount": 3500.00,
+      "title": "VAV Box Additions",
+      "status": "approved",
+      "created_at": "2024-05-25",
+      "approved_date": "2024-05-28",
+      "line_items": [{"cost_code": {"full_code": "23-100"}}]
+    }
+  ],
+  "budget_items": [
+    {
+      "cost_code": {"full_code": "03-100", "name": "Concrete Formwork"},
+      "description": "Concrete Formwork",
+      "original_budget_amount": 50000.00,
+      "approved_cos": 2000.00,
+      "revised_budget": 52000.00,
+      "pending_changes": 0.00,
+      "committed_costs": 48000.00,
+      "direct_costs": 1500.00,
+      "job_to_date_costs": 49500.00,
+      "projected_costs": 51000.00
+    },
+    {
+      "cost_code": {"full_code": "03-200", "name": "Concrete Reinforcing"},
+      "description": "Concrete Reinforcing",
+      "original_budget_amount": 35000.00,
+      "approved_cos": 3000.00,
+      "revised_budget": 38000.00,
+      "pending_changes": 0.00,
+      "committed_costs": 37000.00,
+      "direct_costs": 500.00,
+      "job_to_date_costs": 37500.00,
+      "projected_costs": 38000.00
+    },
+    {
+      "cost_code": {"full_code": "09-200", "name": "Drywall"},
+      "description": "Drywall",
+      "original_budget_amount": 65000.00,
+      "approved_cos": 4200.00,
+      "revised_budget": 69200.00,
+      "pending_changes": 0.00,
+      "committed_costs": 68000.00,
+      "direct_costs": 2000.00,
+      "job_to_date_costs": 70000.00,
+      "projected_costs": 72000.00
+    },
+    {
+      "cost_code": {"full_code": "26-100", "name": "Electrical Rough-In"},
+      "description": "Electrical Rough-In",
+      "original_budget_amount": 100000.00,
+      "approved_cos": 12000.00,
+      "revised_budget": 112000.00,
+      "pending_changes": 5500.00,
+      "committed_costs": 108000.00,
+      "direct_costs": 3000.00,
+      "job_to_date_costs": 105000.00,
+      "projected_costs": 115000.00
+    }
+  ],
+  "prime_contracts": [
+    {
+      "id": 9001,
+      "title": "Corporate Office Buildout - Phase 2",
+      "number": "PC-2024-001",
+      "status": "executed",
+      "grand_total": 850000.00,
+      "approved_change_orders": 45000.00,
+      "billing_amount": 650000.00,
+      "received_amount": 585000.00,
+      "retention_amount": 65000.00
+    }
+  ],
+  "direct_costs": [
+    {
+      "id": 10001,
+      "vendor": {"name": "Building Supply Co."},
+      "amount": 3500.00,
+      "cost_code": {"full_code": "03-100"},
+      "description": "Additional formwork materials",
+      "invoice_number": "INV-2024-0542",
+      "invoice_date": "2024-04-20"
+    },
+    {
+      "id": 10002,
+      "vendor": null,
+      "amount": 1200.00,
+      "cost_code": {"full_code": "26-100"},
+      "description": "Misc electrical supplies",
+      "invoice_number": null,
+      "created_at": "2024-05-15"
+    }
+  ]
+}

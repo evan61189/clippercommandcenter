@@ -1,0 +1,29 @@
+# Core dependencies
+anthropic>=0.18.0          # Claude API SDK
+requests>=2.31.0           # HTTP for Procore API
+pydantic>=2.5.0            # Data validation models
+click>=8.1.0               # CLI framework
+python-dotenv>=1.0.0       # Environment variable management
+rich>=13.7.0               # Pretty console output / progress bars
+
+# Fuzzy matching
+fuzzywuzzy>=0.18.0         # Fuzzy string matching for vendor names
+python-Levenshtein>=0.23.0 # Speed up fuzzywuzzy
+
+# Report generation
+openpyxl>=3.1.0            # Excel report generation
+reportlab>=4.0.0           # PDF generation (primary)
+# weasyprint>=60.0         # PDF generation (alternative, requires system deps)
+
+# QuickBooks (optional - can use raw API)
+# intuit-oauth>=1.0.0      # QuickBooks OAuth helper
+# python-quickbooks>=0.9.0 # QBO API wrapper
+
+# Testing
+pytest>=7.4.0              # Testing framework
+pytest-cov>=4.1.0          # Coverage reporting
+
+# Development
+black>=23.0.0              # Code formatting
+isort>=5.12.0              # Import sorting
+mypy>=1.7.0                # Type checking
