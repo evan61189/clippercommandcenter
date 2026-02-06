@@ -1416,10 +1416,15 @@ export const handler: Handler = async (event) => {
       try {
         // First ensure project exists
         console.log('Upserting project:', projectId);
+
+        // Procore IDs can be very large - check if it fits in PostgreSQL INTEGER range
+        const procoreId = procoreData.project?.id;
+        const safeProoreId = (procoreId && procoreId <= 2147483647) ? procoreId : null;
+
         const { error: projectError } = await supabase.from('projects').upsert(
           {
             id: projectId,
-            procore_id: procoreData.project?.id || null,
+            procore_id: safeProoreId,
             name: projectName,
             project_number: procoreData.project?.project_number || null,
             created_at: new Date().toISOString(),
