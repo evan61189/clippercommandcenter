@@ -130,30 +130,7 @@ export default function Dashboard() {
   }
 
   const bothConnected = connectionStatus.procore && connectionStatus.quickbooks
-  const showDemo = !projects || projects.length === 0
-
-  const demoProjects = [
-    {
-      id: 'demo-1',
-      name: 'Corporate Office Buildout - Phase 2',
-      project_number: '2024-001',
-      status: 'active',
-      total_committed: 491000,
-      estimated_exposure: 15500,
-      warning_items: 5,
-      critical_items: 2,
-    },
-    {
-      id: 'demo-2',
-      name: 'Tech Campus Building A',
-      project_number: '2024-002',
-      status: 'active',
-      total_committed: 2450000,
-      estimated_exposure: 45000,
-      warning_items: 8,
-      critical_items: 1,
-    },
-  ]
+  const hasProjects = projects && projects.length > 0
 
   return (
     <div className="space-y-8">
@@ -238,84 +215,67 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Demo Banner */}
-      {showDemo && bothConnected && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <div className="flex items-center">
-            <AlertCircle className="w-5 h-5 text-blue-500 mr-2" />
-            <p className="text-sm text-blue-700">
-              <strong>No reports yet.</strong> Click "Run Reconciliation" to analyze
-              your first project.
-            </p>
-          </div>
-        </div>
-      )}
-
       {projectsLoading || statsLoading ? (
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-procore-blue"></div>
         </div>
       ) : (
         <>
-          {/* Stats Cards */}
+          {/* Stats Cards - Only show real data */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <StatsCard
-              title="Active Projects"
-              value={showDemo ? '2' : String(stats?.projectCount || 0)}
+              title="Reconciled Projects"
+              value={String(stats?.projectCount || 0)}
               icon={Building2}
               color="blue"
             />
             <StatsCard
-              title="Open Items"
-              value={showDemo ? '12' : String(stats?.openItemsCount || 0)}
+              title="Open Closeout Items"
+              value={String(stats?.openItemsCount || 0)}
               icon={CheckCircle}
               color="yellow"
             />
             <StatsCard
               title="Warnings"
-              value={showDemo ? '13' : String(stats?.totalWarnings || 0)}
+              value={String(stats?.totalWarnings || 0)}
               icon={AlertTriangle}
               color="yellow"
             />
             <StatsCard
               title="Critical Issues"
-              value={showDemo ? '3' : String(stats?.totalCritical || 0)}
+              value={String(stats?.totalCritical || 0)}
               icon={AlertCircle}
               color="red"
             />
           </div>
 
-          {/* Total Exposure */}
-          <div className="card">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-medium text-gray-900">
-                  Total Estimated Exposure
-                </h3>
-                <p className="text-sm text-gray-500">
-                  Combined financial risk across all projects
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-3xl font-bold text-red-600">
-                  {formatCurrency(showDemo ? 60500 : stats?.totalExposure || 0)}
-                </p>
+          {/* Total Exposure - Only show if there are projects */}
+          {hasProjects && (
+            <div className="card">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-medium text-gray-900">
+                    Total Estimated Exposure
+                  </h3>
+                  <p className="text-sm text-gray-500">
+                    Combined financial risk across all reconciled projects
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-3xl font-bold text-red-600">
+                    {formatCurrency(stats?.totalExposure || 0)}
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* Projects List */}
           <div>
             <h2 className="text-lg font-semibold text-gray-900 mb-4">
-              Recent Reports
+              Reconciliation Reports
             </h2>
-            {showDemo ? (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {demoProjects.map((project) => (
-                  <ProjectCard key={project.id} project={project} isDemo />
-                ))}
-              </div>
-            ) : projects && projects.length > 0 ? (
+            {hasProjects ? (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {projects.map((project) => (
                   <ProjectCard key={project.id} project={project} />
@@ -324,17 +284,29 @@ export default function Dashboard() {
             ) : (
               <div className="card text-center py-12">
                 <Building2 className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900">No Reports Yet</h3>
+                <h3 className="text-lg font-medium text-gray-900">No Reconciliation Reports Yet</h3>
                 <p className="text-gray-500 mt-1 mb-4">
-                  Run your first reconciliation to see results here
+                  {bothConnected
+                    ? 'Run your first reconciliation to see results here'
+                    : 'Connect your Procore and QuickBooks accounts to get started'}
                 </p>
-                <Link
-                  to="/run"
-                  className="inline-flex items-center px-4 py-2 bg-procore-blue text-white rounded-lg hover:bg-blue-700"
-                >
-                  <Play className="w-4 h-4 mr-2" />
-                  Run Reconciliation
-                </Link>
+                {bothConnected ? (
+                  <Link
+                    to="/run"
+                    className="inline-flex items-center px-4 py-2 bg-procore-blue text-white rounded-lg hover:bg-blue-700"
+                  >
+                    <Play className="w-4 h-4 mr-2" />
+                    Run Reconciliation
+                  </Link>
+                ) : (
+                  <Link
+                    to="/settings"
+                    className="inline-flex items-center px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+                  >
+                    <Settings className="w-4 h-4 mr-2" />
+                    Connect Accounts
+                  </Link>
+                )}
               </div>
             )}
           </div>
