@@ -11,6 +11,7 @@ import RunReconciliation from './pages/RunReconciliation'
 import Privacy from './pages/Privacy'
 import Terms from './pages/Terms'
 import Login from './pages/Login'
+import ResetPassword from './pages/ResetPassword'
 
 function AppLayout() {
   const { user, signOut } = useAuth()
@@ -89,6 +90,7 @@ function AppLayout() {
         <Routes>
           {/* Public routes */}
           <Route path="/login" element={<Login />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/terms" element={<Terms />} />
 
