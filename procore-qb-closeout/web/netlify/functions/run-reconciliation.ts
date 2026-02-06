@@ -132,7 +132,8 @@ async function paginatedQBQuery(baseQuery: string, entityName: string, tokens: Q
   return allData;
 }
 
-async function fetchQuickBooksData(userId: string): Promise<any> {
+// Fetch only QB vendors (first step in targeted approach)
+async function fetchQBVendors(userId: string): Promise<{ vendors: any[]; tokens: QBTokenData }> {
   console.log('Getting QB tokens for userId:', userId);
   const tokens = await getQBTokens(userId);
   if (!tokens) {
@@ -141,24 +142,63 @@ async function fetchQuickBooksData(userId: string): Promise<any> {
   }
   console.log('QB tokens found, realm_id:', tokens.realm_id);
 
-  console.log('Fetching QuickBooks data internally...');
+  console.log('Fetching QuickBooks vendors...');
+  const vendors = await paginatedQBQuery('SELECT * FROM Vendor WHERE Active = true', 'Vendor', tokens, userId);
+  console.log(`QB Vendors fetched: ${vendors.length}`);
 
-  try {
-    const [vendors, bills, billPayments, invoices, paymentsReceived] = await Promise.all([
-      paginatedQBQuery('SELECT * FROM Vendor WHERE Active = true', 'Vendor', tokens, userId),
-      paginatedQBQuery('SELECT * FROM Bill', 'Bill', tokens, userId),
-      paginatedQBQuery('SELECT * FROM BillPayment', 'BillPayment', tokens, userId),
-      paginatedQBQuery('SELECT * FROM Invoice', 'Invoice', tokens, userId),
-      paginatedQBQuery('SELECT * FROM Payment', 'Payment', tokens, userId),
-    ]);
+  return { vendors, tokens };
+}
 
-    console.log(`QB Data fetched: ${vendors.length} vendors, ${bills.length} bills, ${invoices.length} invoices`);
-
-    return { vendors, bills, billPayments, invoices, paymentsReceived };
-  } catch (error: any) {
-    console.error('Error fetching QB data:', error.message);
-    throw error;
+// Fetch QB bills only for specific vendor IDs (targeted approach)
+async function fetchQBBillsForVendors(
+  vendorIds: string[],
+  tokens: QBTokenData,
+  userId: string
+): Promise<any[]> {
+  if (vendorIds.length === 0) {
+    console.log('No vendor IDs to fetch bills for');
+    return [];
   }
+
+  console.log(`Fetching QB bills for ${vendorIds.length} project vendors...`);
+
+  // QuickBooks doesn't support IN clause for VendorRef, so we need to fetch all bills
+  // and filter. But we can still optimize by only processing relevant bills in memory.
+  // If there are very few vendors, we could do multiple queries with OR.
+
+  if (vendorIds.length <= 10) {
+    // For small number of vendors, use OR queries
+    const vendorConditions = vendorIds.map(id => `VendorRef = '${id}'`).join(' OR ');
+    const query = `SELECT * FROM Bill WHERE ${vendorConditions}`;
+    console.log('Using targeted bill query for', vendorIds.length, 'vendors');
+    return await paginatedQBQuery(query, 'Bill', tokens, userId);
+  } else {
+    // For larger number of vendors, fetch all bills and filter in memory
+    // This is still more efficient than processing 1700+ bills when we only need 50
+    console.log('Fetching all bills and filtering for', vendorIds.length, 'project vendors');
+    const allBills = await paginatedQBQuery('SELECT * FROM Bill', 'Bill', tokens, userId);
+    const vendorIdSet = new Set(vendorIds);
+    const filteredBills = allBills.filter((bill: any) => {
+      const billVendorId = bill.VendorRef?.value;
+      return billVendorId && vendorIdSet.has(String(billVendorId));
+    });
+    console.log(`Filtered ${allBills.length} bills down to ${filteredBills.length} for project vendors`);
+    return filteredBills;
+  }
+}
+
+// Fetch other QB data (invoices, payments) - only when needed for AR
+async function fetchQBInvoicesAndPayments(
+  tokens: QBTokenData,
+  userId: string
+): Promise<{ invoices: any[]; paymentsReceived: any[] }> {
+  console.log('Fetching QB invoices and payments...');
+  const [invoices, paymentsReceived] = await Promise.all([
+    paginatedQBQuery('SELECT * FROM Invoice', 'Invoice', tokens, userId),
+    paginatedQBQuery('SELECT * FROM Payment', 'Payment', tokens, userId),
+  ]);
+  console.log(`QB AR data: ${invoices.length} invoices, ${paymentsReceived.length} payments`);
+  return { invoices, paymentsReceived };
 }
 
 // ============== Type Definitions ==============
@@ -1378,39 +1418,33 @@ export const handler: Handler = async (event) => {
 
     const projectName = procoreData.project?.name || 'Unknown Project';
 
-    // Fetch QuickBooks data internally (avoids payload size limits)
-    console.log('Fetching QuickBooks data...');
-    const qbData = await fetchQuickBooksData(userId);
-
-    // Normalize all data
+    // STEP 1: Normalize Procore data first (before fetching QB data)
     const commitments = normalizeCommitments(procoreData);
     const procoreInvoices = normalizeProcoreInvoices(procoreData);
     const paymentApps = normalizePaymentApps(procoreData);
     const directCosts = normalizeDirectCosts(procoreData);
 
-    const qbBills = normalizeQBBills(qbData);
-    const qbBillPayments = normalizeQBBillPayments(qbData);
-    const qbInvoices = normalizeQBInvoices(qbData);
-    const qbPayments = normalizeQBPayments(qbData);
-    const qbVendors = qbData.vendors || [];
+    console.log(`Procore data: ${commitments.length} commitments, ${procoreInvoices.length} invoices, ${paymentApps.length} pay apps, ${directCosts.length} direct costs`);
 
-    console.log(`Reconciling: ${commitments.length} commitments, ${procoreInvoices.length} invoices, ${paymentApps.length} pay apps, ${directCosts.length} direct costs`);
-    console.log(`QB data: ${qbBills.length} bills, ${qbInvoices.length} invoices`);
-
-    // Collect all unique Procore vendor names for AI matching
+    // STEP 2: Collect all unique Procore vendor names
     const allProcoreVendors: string[] = [
       ...commitments.map(c => c.vendor),
       ...procoreInvoices.map(inv => inv.vendor),
       ...directCosts.map(dc => dc.vendor).filter(Boolean) as string[],
     ];
+    const uniqueProcoreVendors = [...new Set(allProcoreVendors)].filter(v => v && v !== 'Unknown' && v !== 'Unknown Vendor');
+    console.log(`Found ${uniqueProcoreVendors.length} unique Procore vendors`);
 
-    // Use AI to match vendors (this is the key improvement)
+    // STEP 3: Fetch only QB vendors (lightweight query)
+    console.log('Fetching QuickBooks vendors...');
+    const { vendors: qbVendors, tokens: qbTokens } = await fetchQBVendors(userId);
+
+    // STEP 4: Use AI to match vendors
     console.log('Starting AI vendor matching...');
-    const aiVendorMap = await matchVendorsWithAI(allProcoreVendors, qbVendors);
+    const aiVendorMap = await matchVendorsWithAI(uniqueProcoreVendors, qbVendors);
     console.log(`AI vendor matching complete: ${aiVendorMap.size} matches found`);
 
-    // Build set of QB vendor IDs that are relevant to this project
-    // (vendors that have commitments, invoices, or direct costs in Procore)
+    // STEP 5: Build set of QB vendor IDs that are relevant to this project
     const projectVendorIds = new Set<string>();
 
     // Add vendors from commitments (using AI-enhanced matching)
@@ -1434,6 +1468,27 @@ export const handler: Handler = async (event) => {
     }
 
     console.log(`Found ${projectVendorIds.size} QB vendors relevant to this project`);
+
+    // STEP 6: Fetch only QB bills for project vendors (targeted fetch)
+    const projectVendorIdArray = Array.from(projectVendorIds);
+    const qbBillsRaw = await fetchQBBillsForVendors(projectVendorIdArray, qbTokens, userId);
+
+    // STEP 7: Fetch AR data (invoices and payments) - only if we have payment apps
+    let qbInvoicesRaw: any[] = [];
+    let qbPaymentsRaw: any[] = [];
+    if (paymentApps.length > 0) {
+      const arData = await fetchQBInvoicesAndPayments(qbTokens, userId);
+      qbInvoicesRaw = arData.invoices;
+      qbPaymentsRaw = arData.paymentsReceived;
+    }
+
+    // Normalize QB data
+    const qbBills = normalizeQBBills({ bills: qbBillsRaw });
+    const qbBillPayments: QBBillPayment[] = []; // Not needed for targeted matching
+    const qbInvoices = normalizeQBInvoices({ invoices: qbInvoicesRaw });
+    const qbPayments = normalizeQBPayments({ paymentsReceived: qbPaymentsRaw });
+
+    console.log(`QB data for project: ${qbBills.length} bills, ${qbInvoices.length} invoices`);
 
     // Run all matching
     const allResults: MatchResult[] = [];
