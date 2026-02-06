@@ -37,17 +37,22 @@ export default function Dashboard() {
   })
   const [checkingConnection, setCheckingConnection] = useState(true)
 
-  const { data: projects, isLoading: projectsLoading } = useQuery({
+  const { data: projects, isLoading: projectsLoading, refetch: refetchProjects } = useQuery({
     queryKey: ['projects'],
     queryFn: getProjects,
     enabled: isSupabaseConfigured,
   })
 
-  const { data: stats, isLoading: statsLoading } = useQuery({
+  const { data: stats, isLoading: statsLoading, refetch: refetchStats } = useQuery({
     queryKey: ['dashboard-stats'],
     queryFn: getDashboardStats,
     enabled: isSupabaseConfigured,
   })
+
+  function handleProjectDeleted() {
+    refetchProjects()
+    refetchStats()
+  }
 
   // Show setup screen if Supabase is not configured
   if (!isSupabaseConfigured) {
@@ -278,7 +283,7 @@ export default function Dashboard() {
             {hasProjects ? (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {projects.map((project) => (
-                  <ProjectCard key={project.id} project={project} />
+                  <ProjectCard key={project.id} project={project} onDeleted={handleProjectDeleted} />
                 ))}
               </div>
             ) : (
