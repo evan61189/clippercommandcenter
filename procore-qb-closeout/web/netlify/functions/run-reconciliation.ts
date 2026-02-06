@@ -1415,13 +1415,25 @@ export const handler: Handler = async (event) => {
     if (projectId && userId) {
       try {
         // First ensure project exists
-        await supabase.from('projects').upsert({
-          id: projectId,
-          procore_id: procoreData.project?.id,
-          name: projectName,
-          project_number: procoreData.project?.project_number,
-          updated_at: new Date().toISOString(),
-        });
+        console.log('Upserting project:', projectId);
+        const { error: projectError } = await supabase.from('projects').upsert(
+          {
+            id: projectId,
+            procore_id: procoreData.project?.id || null,
+            name: projectName,
+            project_number: procoreData.project?.project_number || null,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'id' }
+        );
+
+        if (projectError) {
+          console.error('Error upserting project:', projectError);
+          // Don't fail the whole request, but report ID won't be saved
+        } else {
+          console.log('Project upserted successfully');
+        }
 
         // Insert report
         console.log('Saving report to Supabase, projectId:', projectId);
