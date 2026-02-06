@@ -972,34 +972,43 @@ function matchDirectCostsToBills(
   return results;
 }
 
-// Find unmatched QB bills
-function findUnmatchedQBBills(qbBills: QBBill[], matchedIds: Set<string>): MatchResult[] {
+// Find unmatched QB bills - only for vendors that exist in the Procore project
+function findUnmatchedQBBills(
+  qbBills: QBBill[],
+  matchedIds: Set<string>,
+  projectVendorIds: Set<string>,
+  qbVendors: any[]
+): MatchResult[] {
   const results: MatchResult[] = [];
 
+  // Only look at bills from vendors in the project (not all QB bills)
   for (const bill of qbBills) {
-    if (!matchedIds.has(bill.id)) {
-      results.push({
-        id: generateId(),
-        matchType: 'invoice',
-        category: 'accounts_payable',
-        description: `QB Bill #${bill.docNumber || bill.id}`,
-        vendor: bill.vendor,
-        customer: null,
-        procoreRef: null,
-        qbRef: `Bill #${bill.docNumber || bill.id}`,
-        procoreValue: null,
-        qbValue: bill.amount,
-        variance: -bill.amount,
-        variancePct: -100,
-        matchConfidence: 0,
-        matchMethod: 'none',
-        severity: calculateSeverity(bill.amount, bill.amount),
-        status: 'unmatched_qb',
-        notes: 'QuickBooks bill with no matching Procore invoice or direct cost',
-        qbDate: bill.date,
-        requiresAction: bill.amount >= 500,
-      });
-    }
+    if (matchedIds.has(bill.id)) continue;
+
+    // Check if this bill's vendor is in the project
+    if (!projectVendorIds.has(bill.vendorId)) continue;
+
+    results.push({
+      id: generateId(),
+      matchType: 'invoice',
+      category: 'accounts_payable',
+      description: `QB Bill #${bill.docNumber || bill.id}`,
+      vendor: bill.vendor,
+      customer: null,
+      procoreRef: null,
+      qbRef: `Bill #${bill.docNumber || bill.id}`,
+      procoreValue: null,
+      qbValue: bill.amount,
+      variance: -bill.amount,
+      variancePct: -100,
+      matchConfidence: 0,
+      matchMethod: 'none',
+      severity: calculateSeverity(bill.amount, bill.amount),
+      status: 'unmatched_qb',
+      notes: 'QuickBooks bill from project vendor with no matching Procore invoice',
+      qbDate: bill.date,
+      requiresAction: bill.amount >= 500,
+    });
   }
 
   return results;
@@ -1261,6 +1270,32 @@ export const handler: Handler = async (event) => {
     console.log(`Reconciling: ${commitments.length} commitments, ${procoreInvoices.length} invoices, ${paymentApps.length} pay apps, ${directCosts.length} direct costs`);
     console.log(`QB data: ${qbBills.length} bills, ${qbInvoices.length} invoices`);
 
+    // Build set of QB vendor IDs that are relevant to this project
+    // (vendors that have commitments, invoices, or direct costs in Procore)
+    const projectVendorIds = new Set<string>();
+
+    // Add vendors from commitments
+    for (const c of commitments) {
+      const match = findBestVendorMatch(c.vendor, qbVendors);
+      if (match) projectVendorIds.add(match.id);
+    }
+
+    // Add vendors from invoices
+    for (const inv of procoreInvoices) {
+      const match = findBestVendorMatch(inv.vendor, qbVendors);
+      if (match) projectVendorIds.add(match.id);
+    }
+
+    // Add vendors from direct costs
+    for (const dc of directCosts) {
+      if (dc.vendor) {
+        const match = findBestVendorMatch(dc.vendor, qbVendors);
+        if (match) projectVendorIds.add(match.id);
+      }
+    }
+
+    console.log(`Found ${projectVendorIds.size} QB vendors relevant to this project`);
+
     // Run all matching
     const allResults: MatchResult[] = [];
 
@@ -1281,8 +1316,8 @@ export const handler: Handler = async (event) => {
     );
     allResults.push(...directCostResults);
 
-    // 3. Find unmatched QB bills
-    const unmatchedBillResults = findUnmatchedQBBills(qbBills, matchedQBBillIds);
+    // 3. Find unmatched QB bills (only for project vendors, not all QB bills)
+    const unmatchedBillResults = findUnmatchedQBBills(qbBills, matchedQBBillIds, projectVendorIds, qbVendors);
     allResults.push(...unmatchedBillResults);
 
     // 4. Match payment applications to QB invoices (AR)
@@ -1389,6 +1424,7 @@ export const handler: Handler = async (event) => {
         });
 
         // Insert report
+        console.log('Saving report to Supabase, projectId:', projectId);
         const { data: reportData, error: reportError } = await supabase
           .from('reconciliation_reports')
           .insert({
@@ -1408,7 +1444,12 @@ export const handler: Handler = async (event) => {
           .select()
           .single();
 
+        if (reportError) {
+          console.error('Error saving report:', reportError);
+        }
+
         if (reportData) {
+          console.log('Report saved with ID:', reportData.id);
           report.id = reportData.id;
 
           // Insert results
