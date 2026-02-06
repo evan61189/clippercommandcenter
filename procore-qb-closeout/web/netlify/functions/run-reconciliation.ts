@@ -133,24 +133,32 @@ async function paginatedQBQuery(baseQuery: string, entityName: string, tokens: Q
 }
 
 async function fetchQuickBooksData(userId: string): Promise<any> {
+  console.log('Getting QB tokens for userId:', userId);
   const tokens = await getQBTokens(userId);
   if (!tokens) {
+    console.error('No QB tokens found for userId:', userId);
     throw new Error('QuickBooks not connected. Please connect in Settings.');
   }
+  console.log('QB tokens found, realm_id:', tokens.realm_id);
 
   console.log('Fetching QuickBooks data internally...');
 
-  const [vendors, bills, billPayments, invoices, paymentsReceived] = await Promise.all([
-    paginatedQBQuery('SELECT * FROM Vendor WHERE Active = true', 'Vendor', tokens, userId),
-    paginatedQBQuery('SELECT * FROM Bill', 'Bill', tokens, userId),
-    paginatedQBQuery('SELECT * FROM BillPayment', 'BillPayment', tokens, userId),
-    paginatedQBQuery('SELECT * FROM Invoice', 'Invoice', tokens, userId),
-    paginatedQBQuery('SELECT * FROM Payment', 'Payment', tokens, userId),
-  ]);
+  try {
+    const [vendors, bills, billPayments, invoices, paymentsReceived] = await Promise.all([
+      paginatedQBQuery('SELECT * FROM Vendor WHERE Active = true', 'Vendor', tokens, userId),
+      paginatedQBQuery('SELECT * FROM Bill', 'Bill', tokens, userId),
+      paginatedQBQuery('SELECT * FROM BillPayment', 'BillPayment', tokens, userId),
+      paginatedQBQuery('SELECT * FROM Invoice', 'Invoice', tokens, userId),
+      paginatedQBQuery('SELECT * FROM Payment', 'Payment', tokens, userId),
+    ]);
 
-  console.log(`QB Data fetched: ${vendors.length} vendors, ${bills.length} bills, ${invoices.length} invoices`);
+    console.log(`QB Data fetched: ${vendors.length} vendors, ${bills.length} bills, ${invoices.length} invoices`);
 
-  return { vendors, bills, billPayments, invoices, paymentsReceived };
+    return { vendors, bills, billPayments, invoices, paymentsReceived };
+  } catch (error: any) {
+    console.error('Error fetching QB data:', error.message);
+    throw error;
+  }
 }
 
 // ============== Type Definitions ==============
@@ -283,8 +291,9 @@ function generateId(): string {
   return Math.random().toString(36).substring(2, 10);
 }
 
-function normalizeString(str: string): string {
-  return str.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
+function normalizeString(str: string | number | undefined | null): string {
+  if (str === null || str === undefined) return '';
+  return String(str).toLowerCase().trim().replace(/[^a-z0-9]/g, '');
 }
 
 function fuzzyMatch(str1: string, str2: string): number {
@@ -716,7 +725,9 @@ function matchPaymentAppsToInvoices(
 
       // App number in doc number
       if (app.number && inv.docNumber) {
-        if (inv.docNumber.includes(app.number) || app.number.includes(inv.docNumber)) {
+        const appNum = String(app.number);
+        const invNum = String(inv.docNumber);
+        if (invNum.includes(appNum) || appNum.includes(invNum)) {
           score += 20;
         }
       }
