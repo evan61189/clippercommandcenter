@@ -591,8 +591,17 @@ async function matchVendorsWithAI(
 ): Promise<Map<string, { name: string; id: string; score: number }>> {
   const vendorMap = new Map<string, { name: string; id: string; score: number }>();
 
-  if (!ANTHROPIC_API_KEY || procoreVendors.length === 0 || qbVendors.length === 0) {
-    console.log('AI vendor matching skipped - no API key or empty vendor lists');
+  // Debug logging for API key
+  console.log(`ANTHROPIC_API_KEY present: ${!!ANTHROPIC_API_KEY}, length: ${ANTHROPIC_API_KEY?.length || 0}`);
+  console.log(`Procore vendors: ${procoreVendors.length}, QB vendors: ${qbVendors.length}`);
+
+  if (!ANTHROPIC_API_KEY) {
+    console.log('AI vendor matching skipped - ANTHROPIC_API_KEY not set in environment');
+    return vendorMap;
+  }
+
+  if (procoreVendors.length === 0 || qbVendors.length === 0) {
+    console.log('AI vendor matching skipped - empty vendor lists');
     return vendorMap;
   }
 
