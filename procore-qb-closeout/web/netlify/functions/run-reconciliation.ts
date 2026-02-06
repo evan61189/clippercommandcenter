@@ -413,7 +413,9 @@ function normalizeCommitments(procoreData: any): ProcoreCommitment[] {
   // Process subcontracts
   for (const sub of procoreData.commitments?.subcontracts || []) {
     // Try multiple possible vendor name locations
-    const vendorName = sub.vendor?.name
+    // Procore uses vendor.company for the company name
+    const vendorName = sub.vendor?.company
+      || sub.vendor?.name
       || sub.contract_company?.name
       || sub.contractor?.name
       || sub.company?.name
@@ -441,7 +443,9 @@ function normalizeCommitments(procoreData: any): ProcoreCommitment[] {
 
   // Process purchase orders
   for (const po of procoreData.commitments?.purchaseOrders || []) {
-    const poVendorName = po.vendor?.name
+    // Procore uses vendor.company for the company name
+    const poVendorName = po.vendor?.company
+      || po.vendor?.name
       || po.contract_company?.name
       || po.contractor?.name
       || po.company?.name
@@ -487,7 +491,10 @@ function normalizeProcoreInvoices(procoreData: any): ProcoreInvoice[] {
 
   for (const inv of procoreData.subInvoices || []) {
     // Try multiple possible vendor name locations
-    const vendorName = inv.vendor?.name
+    // Procore uses vendor_name as a top-level field on invoices
+    const vendorName = inv.vendor_name
+      || inv.vendor?.company
+      || inv.vendor?.name
       || inv.origin_data?.vendor_name
       || inv.contract?.vendor?.name
       || inv.commitment?.vendor?.name
