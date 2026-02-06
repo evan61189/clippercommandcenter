@@ -396,11 +396,34 @@ function calculateSeverity(variance: number, baseAmount: number): 'info' | 'warn
 function normalizeCommitments(procoreData: any): ProcoreCommitment[] {
   const commitments: ProcoreCommitment[] = [];
 
+  // Debug: Log first subcontract to see structure
+  const firstSub = procoreData.commitments?.subcontracts?.[0];
+  if (firstSub) {
+    console.log('Sample subcontract structure:', JSON.stringify({
+      id: firstSub.id,
+      vendor: firstSub.vendor,
+      contract_company: firstSub.contract_company,
+      contractor: firstSub.contractor,
+      company: firstSub.company,
+      // Check all top-level keys
+      keys: Object.keys(firstSub).slice(0, 20)
+    }, null, 2));
+  }
+
   // Process subcontracts
   for (const sub of procoreData.commitments?.subcontracts || []) {
+    // Try multiple possible vendor name locations
+    const vendorName = sub.vendor?.name
+      || sub.contract_company?.name
+      || sub.contractor?.name
+      || sub.company?.name
+      || (typeof sub.vendor === 'string' ? sub.vendor : null)
+      || (typeof sub.contract_company === 'string' ? sub.contract_company : null)
+      || 'Unknown Vendor';
+
     commitments.push({
       id: String(sub.id),
-      vendor: sub.vendor?.name || sub.contract_company?.name || 'Unknown Vendor',
+      vendor: vendorName,
       vendorId: String(sub.vendor?.id || sub.contract_company?.id || ''),
       type: 'subcontract',
       number: sub.number || '',
@@ -418,9 +441,16 @@ function normalizeCommitments(procoreData: any): ProcoreCommitment[] {
 
   // Process purchase orders
   for (const po of procoreData.commitments?.purchaseOrders || []) {
+    const poVendorName = po.vendor?.name
+      || po.contract_company?.name
+      || po.contractor?.name
+      || po.company?.name
+      || (typeof po.vendor === 'string' ? po.vendor : null)
+      || 'Unknown Vendor';
+
     commitments.push({
       id: String(po.id),
-      vendor: po.vendor?.name || po.contract_company?.name || 'Unknown Vendor',
+      vendor: poVendorName,
       vendorId: String(po.vendor?.id || po.contract_company?.id || ''),
       type: 'purchase_order',
       number: po.number || '',
@@ -442,11 +472,32 @@ function normalizeCommitments(procoreData: any): ProcoreCommitment[] {
 function normalizeProcoreInvoices(procoreData: any): ProcoreInvoice[] {
   const invoices: ProcoreInvoice[] = [];
 
+  // Debug: Log first invoice to see structure
+  const firstInv = procoreData.subInvoices?.[0];
+  if (firstInv) {
+    console.log('Sample invoice structure:', JSON.stringify({
+      id: firstInv.id,
+      vendor: firstInv.vendor,
+      origin_data: firstInv.origin_data,
+      contract: firstInv.contract,
+      commitment: firstInv.commitment,
+      keys: Object.keys(firstInv).slice(0, 20)
+    }, null, 2));
+  }
+
   for (const inv of procoreData.subInvoices || []) {
+    // Try multiple possible vendor name locations
+    const vendorName = inv.vendor?.name
+      || inv.origin_data?.vendor_name
+      || inv.contract?.vendor?.name
+      || inv.commitment?.vendor?.name
+      || (typeof inv.vendor === 'string' ? inv.vendor : null)
+      || 'Unknown';
+
     invoices.push({
       id: String(inv.id),
       commitmentId: String(inv.contract_id || inv.commitment_id || ''),
-      vendor: inv.vendor?.name || inv.origin_data?.vendor_name || 'Unknown',
+      vendor: vendorName,
       number: inv.number || inv.invoice_number || '',
       status: inv.status || '',
       amount: parseFloat(inv.amount || inv.total_amount || inv.payment_due || 0),

@@ -223,36 +223,20 @@ export async function getCommitmentsForReport(reportId: string) {
   return data as Commitment[]
 }
 
-// Delete a project and all its associated data
+// Delete a project and all its associated data (via server-side function to bypass RLS)
 export async function deleteProject(projectId: string) {
-  // First get all reports for this project
-  const { data: reports } = await supabase
-    .from('reconciliation_reports')
-    .select('id')
-    .eq('project_id', projectId)
+  const response = await fetch('/.netlify/functions/delete-report', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ projectId }),
+  })
 
-  // Delete associated data for each report
-  for (const report of reports || []) {
-    await supabase.from('reconciliation_results').delete().eq('report_id', report.id)
-    await supabase.from('closeout_items').delete().eq('report_id', report.id)
-    await supabase.from('commitments').delete().eq('report_id', report.id)
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.error || 'Failed to delete project')
   }
-
-  // Delete all reports for this project
-  const { error: reportsError } = await supabase
-    .from('reconciliation_reports')
-    .delete()
-    .eq('project_id', projectId)
-
-  if (reportsError) throw reportsError
-
-  // Delete the project itself
-  const { error: projectError } = await supabase
-    .from('projects')
-    .delete()
-    .eq('id', projectId)
-
-  if (projectError) throw projectError
 
   return true
 }
