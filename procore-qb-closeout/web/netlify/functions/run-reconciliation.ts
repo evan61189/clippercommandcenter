@@ -9,6 +9,150 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 // Anthropic API for AI analysis
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
+// QuickBooks API configuration
+const QBO_BASE_URL = 'https://quickbooks.api.intuit.com';
+const QBO_TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
+
+interface QBTokenData {
+  access_token: string;
+  refresh_token: string;
+  realm_id: string;
+  expires_at?: string;
+}
+
+async function getQBTokens(userId: string): Promise<QBTokenData | null> {
+  const { data, error } = await supabase
+    .from('api_credentials')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('provider', 'quickbooks')
+    .single();
+
+  if (error || !data) return null;
+  return data.credentials as QBTokenData;
+}
+
+async function refreshQBToken(tokens: QBTokenData, userId: string): Promise<QBTokenData | null> {
+  const clientId = process.env.QBO_CLIENT_ID || 'ABgPHajheBYc4ajSSov1P8b8emmalTPmmw5uAn99gUcfg2bOo9';
+  const clientSecret = process.env.QBO_CLIENT_SECRET || 'pDqaEgsPkyKf9hNmN9p5wfeVIKBLIFRLz1yNOfX9';
+
+  if (!clientId || !clientSecret) return null;
+
+  const auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+
+  const response = await fetch(QBO_TOKEN_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${auth}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Accept: 'application/json',
+    },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: tokens.refresh_token,
+    }),
+  });
+
+  if (!response.ok) return null;
+
+  const data = await response.json();
+  const newTokens: QBTokenData = {
+    ...tokens,
+    access_token: data.access_token,
+    refresh_token: data.refresh_token || tokens.refresh_token,
+    expires_at: new Date(Date.now() + data.expires_in * 1000).toISOString(),
+  };
+
+  await supabase
+    .from('api_credentials')
+    .update({ credentials: newTokens, updated_at: new Date().toISOString() })
+    .eq('user_id', userId)
+    .eq('provider', 'quickbooks');
+
+  return newTokens;
+}
+
+async function qbRequest(endpoint: string, tokens: QBTokenData, userId: string): Promise<any> {
+  // Proactive token refresh
+  if (tokens.expires_at) {
+    const expiresAt = new Date(tokens.expires_at);
+    const now = new Date();
+    if (expiresAt.getTime() - now.getTime() < 5 * 60 * 1000) {
+      const newTokens = await refreshQBToken(tokens, userId);
+      if (newTokens) tokens = newTokens;
+    }
+  }
+
+  const url = `${QBO_BASE_URL}/v3/company/${tokens.realm_id}/${endpoint}`;
+
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${tokens.access_token}`,
+      Accept: 'application/json',
+    },
+  });
+
+  if (response.status === 401) {
+    const newTokens = await refreshQBToken(tokens, userId);
+    if (newTokens) {
+      return qbRequest(endpoint, newTokens, userId);
+    }
+    throw new Error('QuickBooks authentication failed');
+  }
+
+  if (!response.ok) {
+    throw new Error(`QuickBooks API error: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+async function qbQuery(query: string, tokens: QBTokenData, userId: string): Promise<any> {
+  const encoded = encodeURIComponent(query);
+  const response = await qbRequest(`query?query=${encoded}`, tokens, userId);
+  return response.QueryResponse || {};
+}
+
+async function paginatedQBQuery(baseQuery: string, entityName: string, tokens: QBTokenData, userId: string): Promise<any[]> {
+  const allData: any[] = [];
+  let startPos = 1;
+  const maxResults = 1000;
+
+  while (true) {
+    const query = `${baseQuery} STARTPOSITION ${startPos} MAXRESULTS ${maxResults}`;
+    const response = await qbQuery(query, tokens, userId);
+    const entities = response[entityName] || [];
+
+    if (entities.length === 0) break;
+    allData.push(...entities);
+    if (entities.length < maxResults) break;
+    startPos += maxResults;
+  }
+
+  return allData;
+}
+
+async function fetchQuickBooksData(userId: string): Promise<any> {
+  const tokens = await getQBTokens(userId);
+  if (!tokens) {
+    throw new Error('QuickBooks not connected. Please connect in Settings.');
+  }
+
+  console.log('Fetching QuickBooks data internally...');
+
+  const [vendors, bills, billPayments, invoices, paymentsReceived] = await Promise.all([
+    paginatedQBQuery('SELECT * FROM Vendor WHERE Active = true', 'Vendor', tokens, userId),
+    paginatedQBQuery('SELECT * FROM Bill', 'Bill', tokens, userId),
+    paginatedQBQuery('SELECT * FROM BillPayment', 'BillPayment', tokens, userId),
+    paginatedQBQuery('SELECT * FROM Invoice', 'Invoice', tokens, userId),
+    paginatedQBQuery('SELECT * FROM Payment', 'Payment', tokens, userId),
+  ]);
+
+  console.log(`QB Data fetched: ${vendors.length} vendors, ${bills.length} bills, ${invoices.length} invoices`);
+
+  return { vendors, bills, billPayments, invoices, paymentsReceived };
+}
+
 // ============== Type Definitions ==============
 
 interface ProcoreCommitment {
@@ -1075,17 +1219,21 @@ export const handler: Handler = async (event) => {
   }
 
   try {
-    const { procoreData, qbData, projectId, userId } = JSON.parse(event.body || '{}');
+    const { procoreData, projectId, userId } = JSON.parse(event.body || '{}');
 
-    if (!procoreData || !qbData) {
+    if (!procoreData || !userId) {
       return {
         statusCode: 400,
         headers,
-        body: JSON.stringify({ error: 'Both Procore and QuickBooks data required' }),
+        body: JSON.stringify({ error: 'Procore data and userId required' }),
       };
     }
 
     const projectName = procoreData.project?.name || 'Unknown Project';
+
+    // Fetch QuickBooks data internally (avoids payload size limits)
+    console.log('Fetching QuickBooks data...');
+    const qbData = await fetchQuickBooksData(userId);
 
     // Normalize all data
     const commitments = normalizeCommitments(procoreData);
