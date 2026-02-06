@@ -544,18 +544,143 @@ function findBestVendorMatch(
   return best;
 }
 
+// AI-powered vendor matching using Claude
+async function matchVendorsWithAI(
+  procoreVendors: string[],
+  qbVendors: { DisplayName: string; Id: string }[]
+): Promise<Map<string, { name: string; id: string; score: number }>> {
+  const vendorMap = new Map<string, { name: string; id: string; score: number }>();
+
+  if (!ANTHROPIC_API_KEY || procoreVendors.length === 0 || qbVendors.length === 0) {
+    console.log('AI vendor matching skipped - no API key or empty vendor lists');
+    return vendorMap;
+  }
+
+  // Get unique Procore vendors
+  const uniqueProcoreVendors = [...new Set(procoreVendors)].filter(v => v && v !== 'Unknown' && v !== 'Unknown Vendor');
+
+  if (uniqueProcoreVendors.length === 0) {
+    return vendorMap;
+  }
+
+  // Prepare QB vendor list (just names for the prompt)
+  const qbVendorList = qbVendors.map(v => v.DisplayName).slice(0, 200); // Limit to prevent token overflow
+
+  console.log(`AI matching ${uniqueProcoreVendors.length} Procore vendors against ${qbVendorList.length} QB vendors`);
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 2048,
+        messages: [
+          {
+            role: 'user',
+            content: `You are matching vendor names between two systems (Procore and QuickBooks).
+Find the best match for each Procore vendor in the QuickBooks list. Consider:
+- Company name variations (Inc, LLC, Corp, etc.)
+- Abbreviations and acronyms
+- Minor spelling differences
+- "DBA" or trade names
+- First/last name order for individuals
+
+Procore Vendors:
+${uniqueProcoreVendors.map((v, i) => `${i + 1}. ${v}`).join('\n')}
+
+QuickBooks Vendors:
+${qbVendorList.map((v, i) => `${i + 1}. ${v}`).join('\n')}
+
+Return ONLY a JSON array of matches. For each Procore vendor, provide the matching QB vendor name or null if no match.
+Format: [{"procore": "Procore Vendor Name", "qb": "QuickBooks Vendor Name", "confidence": 85}]
+Only include matches with confidence >= 60. Use confidence 100 for exact/near-exact matches, 80-99 for clear matches with minor differences, 60-79 for likely matches.
+Return ONLY the JSON array, no other text.`,
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      console.error('AI vendor matching API error:', response.status);
+      return vendorMap;
+    }
+
+    const data = await response.json();
+    const content = data.content?.[0]?.text || '';
+
+    // Parse the JSON response
+    try {
+      // Extract JSON array from response (handle potential markdown code blocks)
+      const jsonMatch = content.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) {
+        console.error('No JSON array found in AI response');
+        return vendorMap;
+      }
+
+      const matches = JSON.parse(jsonMatch[0]);
+      console.log(`AI found ${matches.length} vendor matches`);
+
+      for (const match of matches) {
+        if (match.procore && match.qb && match.confidence >= 60) {
+          // Find the QB vendor ID
+          const qbVendor = qbVendors.find(
+            v => v.DisplayName.toLowerCase() === match.qb.toLowerCase()
+          );
+          if (qbVendor) {
+            vendorMap.set(match.procore, {
+              name: qbVendor.DisplayName,
+              id: qbVendor.Id,
+              score: match.confidence,
+            });
+          }
+        }
+      }
+
+      console.log(`AI vendor map has ${vendorMap.size} entries`);
+    } catch (parseError) {
+      console.error('Error parsing AI vendor response:', parseError);
+    }
+  } catch (error) {
+    console.error('AI vendor matching error:', error);
+  }
+
+  return vendorMap;
+}
+
+// Enhanced vendor matching - tries AI first, falls back to fuzzy
+function findVendorMatch(
+  procoreVendor: string,
+  qbVendors: { DisplayName: string; Id: string }[],
+  aiVendorMap: Map<string, { name: string; id: string; score: number }>
+): { name: string; id: string; score: number } | null {
+  // First check AI matches
+  const aiMatch = aiVendorMap.get(procoreVendor);
+  if (aiMatch) {
+    return aiMatch;
+  }
+
+  // Fall back to fuzzy matching
+  return findBestVendorMatch(procoreVendor, qbVendors);
+}
+
 // Match Procore sub invoices to QuickBooks bills
 function matchInvoicesToBills(
   procoreInvoices: ProcoreInvoice[],
   qbBills: QBBill[],
-  qbVendors: any[]
+  qbVendors: any[],
+  aiVendorMap: Map<string, { name: string; id: string; score: number }>
 ): { results: MatchResult[]; matchedQBBillIds: Set<string> } {
   const results: MatchResult[] = [];
   const matchedQBBillIds = new Set<string>();
   const matchedProcoreIds = new Set<string>();
 
   for (const pInv of procoreInvoices) {
-    const vendorMatch = findBestVendorMatch(pInv.vendor, qbVendors);
+    const vendorMatch = findVendorMatch(pInv.vendor, qbVendors, aiVendorMap);
 
     if (!vendorMatch) {
       results.push({
@@ -826,7 +951,8 @@ function matchDirectCostsToBills(
   directCosts: ProcoreDirectCost[],
   qbBills: QBBill[],
   matchedBillIds: Set<string>,
-  qbVendors: any[]
+  qbVendors: any[],
+  aiVendorMap: Map<string, { name: string; id: string; score: number }>
 ): MatchResult[] {
   const results: MatchResult[] = [];
 
@@ -856,7 +982,7 @@ function matchDirectCostsToBills(
       continue;
     }
 
-    const vendorMatch = findBestVendorMatch(dc.vendor, qbVendors);
+    const vendorMatch = findVendorMatch(dc.vendor, qbVendors, aiVendorMap);
 
     if (!vendorMatch) {
       results.push({
@@ -1018,7 +1144,8 @@ function findUnmatchedQBBills(
 function reconcileVendorTotals(
   commitments: ProcoreCommitment[],
   qbBills: QBBill[],
-  qbVendors: any[]
+  qbVendors: any[],
+  aiVendorMap: Map<string, { name: string; id: string; score: number }>
 ): MatchResult[] {
   const results: MatchResult[] = [];
 
@@ -1042,7 +1169,7 @@ function reconcileVendorTotals(
     const procoreBilled = comms.reduce((sum, c) => sum + c.billedToDate, 0);
     const vendorName = comms[0].vendor;
 
-    const vendorMatch = findBestVendorMatch(vendorName, qbVendors);
+    const vendorMatch = findVendorMatch(vendorName, qbVendors, aiVendorMap);
 
     if (!vendorMatch) {
       results.push({
@@ -1270,26 +1397,38 @@ export const handler: Handler = async (event) => {
     console.log(`Reconciling: ${commitments.length} commitments, ${procoreInvoices.length} invoices, ${paymentApps.length} pay apps, ${directCosts.length} direct costs`);
     console.log(`QB data: ${qbBills.length} bills, ${qbInvoices.length} invoices`);
 
+    // Collect all unique Procore vendor names for AI matching
+    const allProcoreVendors: string[] = [
+      ...commitments.map(c => c.vendor),
+      ...procoreInvoices.map(inv => inv.vendor),
+      ...directCosts.map(dc => dc.vendor).filter(Boolean) as string[],
+    ];
+
+    // Use AI to match vendors (this is the key improvement)
+    console.log('Starting AI vendor matching...');
+    const aiVendorMap = await matchVendorsWithAI(allProcoreVendors, qbVendors);
+    console.log(`AI vendor matching complete: ${aiVendorMap.size} matches found`);
+
     // Build set of QB vendor IDs that are relevant to this project
     // (vendors that have commitments, invoices, or direct costs in Procore)
     const projectVendorIds = new Set<string>();
 
-    // Add vendors from commitments
+    // Add vendors from commitments (using AI-enhanced matching)
     for (const c of commitments) {
-      const match = findBestVendorMatch(c.vendor, qbVendors);
+      const match = findVendorMatch(c.vendor, qbVendors, aiVendorMap);
       if (match) projectVendorIds.add(match.id);
     }
 
     // Add vendors from invoices
     for (const inv of procoreInvoices) {
-      const match = findBestVendorMatch(inv.vendor, qbVendors);
+      const match = findVendorMatch(inv.vendor, qbVendors, aiVendorMap);
       if (match) projectVendorIds.add(match.id);
     }
 
     // Add vendors from direct costs
     for (const dc of directCosts) {
       if (dc.vendor) {
-        const match = findBestVendorMatch(dc.vendor, qbVendors);
+        const match = findVendorMatch(dc.vendor, qbVendors, aiVendorMap);
         if (match) projectVendorIds.add(match.id);
       }
     }
@@ -1303,7 +1442,8 @@ export const handler: Handler = async (event) => {
     const { results: invoiceResults, matchedQBBillIds } = matchInvoicesToBills(
       procoreInvoices,
       qbBills,
-      qbVendors
+      qbVendors,
+      aiVendorMap
     );
     allResults.push(...invoiceResults);
 
@@ -1312,7 +1452,8 @@ export const handler: Handler = async (event) => {
       directCosts,
       qbBills,
       matchedQBBillIds,
-      qbVendors
+      qbVendors,
+      aiVendorMap
     );
     allResults.push(...directCostResults);
 
@@ -1325,7 +1466,7 @@ export const handler: Handler = async (event) => {
     allResults.push(...paymentAppResults);
 
     // 5. Vendor-level totals
-    const vendorTotalResults = reconcileVendorTotals(commitments, qbBills, qbVendors);
+    const vendorTotalResults = reconcileVendorTotals(commitments, qbBills, qbVendors, aiVendorMap);
     allResults.push(...vendorTotalResults);
 
     // Generate closeout items
@@ -1416,10 +1557,15 @@ export const handler: Handler = async (event) => {
       try {
         // First ensure project exists
         console.log('Upserting project:', projectId);
+
+        // Procore IDs can be very large - check if it fits in PostgreSQL INTEGER range
+        const procoreId = procoreData.project?.id;
+        const safeProoreId = (procoreId && procoreId <= 2147483647) ? procoreId : null;
+
         const { error: projectError } = await supabase.from('projects').upsert(
           {
             id: projectId,
-            procore_id: procoreData.project?.id || null,
+            procore_id: safeProoreId,
             name: projectName,
             project_number: procoreData.project?.project_number || null,
             created_at: new Date().toISOString(),
