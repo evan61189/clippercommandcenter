@@ -208,7 +208,7 @@ export const handler: Handler = async (event) => {
 
       case 'getAccounts':
         result = await paginatedQuery(
-          "SELECT * FROM Account WHERE Active = true AND (AccountType = 'Expense' OR AccountType = 'Cost of Goods Sold')",
+          "SELECT * FROM Account WHERE Active = true AND AccountType IN ('Expense', 'Cost of Goods Sold')",
           'Account',
           tokens,
           userId
@@ -257,7 +257,7 @@ export const handler: Handler = async (event) => {
           qboRequest(`companyinfo/${tokens.realm_id}`, tokens, userId).then(r => r.CompanyInfo),
           paginatedQuery('SELECT * FROM Vendor WHERE Active = true', 'Vendor', tokens, userId),
           paginatedQuery(
-            "SELECT * FROM Account WHERE Active = true AND (AccountType = 'Expense' OR AccountType = 'Cost of Goods Sold')",
+            "SELECT * FROM Account WHERE Active = true AND AccountType IN ('Expense', 'Cost of Goods Sold')",
             'Account',
             tokens,
             userId
