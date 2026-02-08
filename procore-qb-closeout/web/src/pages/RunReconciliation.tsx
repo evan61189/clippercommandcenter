@@ -621,11 +621,11 @@ export default function RunReconciliation() {
                     title="Subcontractor Invoices"
                     data={procoreData.subInvoices || []}
                     columns={[
-                      { key: 'invoice_number', label: 'Invoice #' },
+                      { key: 'invoice_number', label: 'Invoice #', format: (v, item) => v || item?.number || '-' },
                       { key: 'vendor_name', label: 'Subcontractor' },
                       { key: 'status', label: 'Status' },
-                      { key: 'net_amount', label: 'Net Amount', format: (v, item) => {
-                        const amount = v || item?.amount || item?.payment_due || 0
+                      { key: 'payment_due', label: 'Net Amount', format: (v, item) => {
+                        const amount = v || item?.current_payment_due || item?.amount || item?.total_amount || 0
                         return `$${Number(amount).toLocaleString()}`
                       }},
                       { key: 'billing_date', label: 'Billing Date' },
@@ -638,11 +638,11 @@ export default function RunReconciliation() {
                     data={procoreData.paymentApplications || []}
                     columns={[
                       { key: 'number', label: 'App #' },
-                      { key: 'prime_contract_title', label: 'Prime Contract', format: (v, item) => v || item?.contract?.title || '-' },
+                      { key: 'prime_contract', label: 'Prime Contract', format: (v, item) => v?.title || item?.contract?.title || item?.prime_contract_title || '-' },
                       { key: 'status', label: 'Status' },
                       { key: 'billing_date', label: 'Billing Date' },
-                      { key: 'revised_contract_amount', label: 'Revised Contract Amount', format: (v, item) => {
-                        const amount = v || item?.contract?.revised_value || item?.total_amount || 0
+                      { key: 'total_claimed_amount', label: 'Amount Claimed', format: (v, item) => {
+                        const amount = v || item?.amount || item?.total_amount || item?.approved_amount || 0
                         return `$${Number(amount).toLocaleString()}`
                       }},
                     ]}
