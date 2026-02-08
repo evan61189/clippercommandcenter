@@ -4,13 +4,17 @@ import { useState } from 'react'
 import {
   ArrowLeft,
   AlertCircle,
+  AlertTriangle,
   FileText,
   CheckCircle,
+  RefreshCw,
+  Loader2,
 } from 'lucide-react'
 import {
   getReport,
   getResultsForReport,
   getCloseoutItemsForReport,
+  getCommitmentsForReport,
 } from '../lib/supabase'
 import {
   formatCurrency,
@@ -21,29 +25,51 @@ import {
   getPriorityColor,
 } from '../lib/utils'
 
-type TabType = 'summary' | 'commitments' | 'invoices' | 'change_orders' | 'retention' | 'budget' | 'closeout'
+type TabType = 'summary' | 'sub_invoices' | 'owner_invoices' | 'direct_costs' | 'warnings' | 'closeout'
 
 export default function ReportDetail() {
   const { reportId } = useParams<{ reportId: string }>()
   const [activeTab, setActiveTab] = useState<TabType>('summary')
+  const [isUpdating, setIsUpdating] = useState(false)
 
-  const { data: report, isLoading: reportLoading } = useQuery({
+  const { data: report, isLoading: reportLoading, refetch: refetchReport } = useQuery({
     queryKey: ['report', reportId],
     queryFn: () => getReport(reportId!),
     enabled: !!reportId,
   })
 
-  const { data: results, isLoading: resultsLoading } = useQuery({
+  const { data: results, isLoading: resultsLoading, refetch: refetchResults } = useQuery({
     queryKey: ['report-results', reportId],
     queryFn: () => getResultsForReport(reportId!),
     enabled: !!reportId,
   })
 
-  const { data: closeoutItems, isLoading: closeoutLoading } = useQuery({
+  const { data: closeoutItems, isLoading: closeoutLoading, refetch: refetchCloseout } = useQuery({
     queryKey: ['report-closeout', reportId],
     queryFn: () => getCloseoutItemsForReport(reportId!),
     enabled: !!reportId,
   })
+
+  const { data: commitments } = useQuery({
+    queryKey: ['report-commitments', reportId],
+    queryFn: () => getCommitmentsForReport(reportId!),
+    enabled: !!reportId,
+  })
+
+  async function handleUpdate() {
+    // TODO: Implement re-pull from Procore and QuickBooks
+    setIsUpdating(true)
+    try {
+      // For now, just refetch the data from the database
+      await Promise.all([refetchReport(), refetchResults(), refetchCloseout()])
+      alert('Report data refreshed. Full re-pull from Procore/QuickBooks coming soon.')
+    } catch (error) {
+      console.error('Error updating report:', error)
+      alert('Failed to update report.')
+    } finally {
+      setIsUpdating(false)
+    }
+  }
 
   if (reportLoading || resultsLoading || closeoutLoading) {
     return (
@@ -66,21 +92,23 @@ export default function ReportDetail() {
   }
 
   // Filter results by type
-  const commitmentResults = results?.filter(r => r.item_type === 'commitment') || []
-  const invoiceResults = results?.filter(r => r.item_type === 'invoice') || []
-  const changeOrderResults = results?.filter(r => r.item_type === 'change_order') || []
-  const retentionResults = results?.filter(r => r.item_type === 'retention') || []
-  const budgetResults = results?.filter(r => r.item_type === 'budget') || []
+  const subInvoiceResults = results?.filter(r => r.item_type === 'invoice') || []
+  const ownerInvoiceResults = results?.filter(r => r.item_type === 'payment_app') || []
+  const directCostResults = results?.filter(r => r.item_type === 'direct_cost') || []
+
+  // Generate warnings based on the data
+  const warnings = generateWarnings(results || [], commitments || [], report)
 
   const tabs = [
     { id: 'summary' as TabType, label: 'Summary', count: null },
-    { id: 'commitments' as TabType, label: 'Commitments', count: commitmentResults.length },
-    { id: 'invoices' as TabType, label: 'Invoices', count: invoiceResults.length },
-    { id: 'change_orders' as TabType, label: 'Change Orders', count: changeOrderResults.length },
-    { id: 'retention' as TabType, label: 'Retention', count: retentionResults.length },
-    { id: 'budget' as TabType, label: 'Budget', count: budgetResults.length },
+    { id: 'sub_invoices' as TabType, label: 'Sub Invoices', count: subInvoiceResults.length },
+    { id: 'owner_invoices' as TabType, label: 'Owner Invoices', count: ownerInvoiceResults.length },
+    { id: 'direct_costs' as TabType, label: 'Direct Costs', count: directCostResults.length },
+    { id: 'warnings' as TabType, label: 'Warnings', count: warnings.length },
     { id: 'closeout' as TabType, label: 'Closeout Items', count: closeoutItems?.length || 0 },
   ]
+
+  const projectName = report.projects?.name || 'Unknown Project'
 
   return (
     <div className="space-y-6">
@@ -98,17 +126,29 @@ export default function ReportDetail() {
         <div className="flex items-start justify-between">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">
-              Closeout Reconciliation Report
+              Closeout Reconciliation Report - {projectName}
             </h1>
             <p className="text-gray-500 mt-1">
-              {report.projects?.name}
-              {' · '}
               Generated {formatDateTime(report.generated_at)}
             </p>
           </div>
-          <span className={`badge ${report.status === 'complete' ? 'badge-info' : 'badge-warning'}`}>
-            {report.status}
-          </span>
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={handleUpdate}
+              disabled={isUpdating}
+              className="flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+            >
+              {isUpdating ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4 mr-2" />
+              )}
+              Update
+            </button>
+            <span className={`badge ${report.status === 'complete' ? 'badge-info' : 'badge-warning'}`}>
+              {report.status}
+            </span>
+          </div>
         </div>
 
         {/* Key Metrics */}
@@ -211,24 +251,20 @@ export default function ReportDetail() {
           </div>
         )}
 
-        {activeTab === 'commitments' && (
-          <ResultsTable results={commitmentResults} />
+        {activeTab === 'sub_invoices' && (
+          <ResultsTable results={subInvoiceResults} title="Subcontractor Invoices" />
         )}
 
-        {activeTab === 'invoices' && (
-          <ResultsTable results={invoiceResults} />
+        {activeTab === 'owner_invoices' && (
+          <ResultsTable results={ownerInvoiceResults} title="Owner Invoices" />
         )}
 
-        {activeTab === 'change_orders' && (
-          <ResultsTable results={changeOrderResults} />
+        {activeTab === 'direct_costs' && (
+          <ResultsTable results={directCostResults} title="Direct Costs" />
         )}
 
-        {activeTab === 'retention' && (
-          <ResultsTable results={retentionResults} />
-        )}
-
-        {activeTab === 'budget' && (
-          <ResultsTable results={budgetResults} />
+        {activeTab === 'warnings' && (
+          <WarningsTable warnings={warnings} />
         )}
 
         {activeTab === 'closeout' && (
@@ -239,17 +275,152 @@ export default function ReportDetail() {
   )
 }
 
-function ResultsTable({ results }: { results: any[] }) {
+// Warning types based on requirements
+interface Warning {
+  id: string
+  type: string
+  severity: 'warning' | 'critical'
+  message: string
+  details?: string
+  vendor?: string
+}
+
+function generateWarnings(results: any[], commitments: any[], _report: any): Warning[] {
+  const warnings: Warning[] = []
+  let warningId = 0
+
+  // Check for Owner Invoices not in Approved status
+  const unapprovedOwnerInvoices = results.filter(
+    r => r.item_type === 'payment_app' && r.notes?.toLowerCase().includes('not approved')
+  )
+  if (unapprovedOwnerInvoices.length > 0) {
+    warnings.push({
+      id: String(++warningId),
+      type: 'owner_invoice_status',
+      severity: 'warning',
+      message: 'There are Owner Invoices that are not in the Approved status',
+      details: `${unapprovedOwnerInvoices.length} owner invoice(s) pending approval`,
+    })
+  }
+
+  // Check for Sub Invoices not in Approved status
+  const unapprovedSubInvoices = results.filter(
+    r => r.item_type === 'invoice' && r.notes?.toLowerCase().includes('not approved')
+  )
+  if (unapprovedSubInvoices.length > 0) {
+    warnings.push({
+      id: String(++warningId),
+      type: 'sub_invoice_status',
+      severity: 'warning',
+      message: 'There are Subcontractor Invoices that are not in the Approved status',
+      details: `${unapprovedSubInvoices.length} sub invoice(s) pending approval`,
+    })
+  }
+
+  // Check for invoices not pushed to ERP
+  const unpushedOwnerInvoices = results.filter(
+    r => r.item_type === 'payment_app' && !r.qb_ref
+  )
+  if (unpushedOwnerInvoices.length > 0) {
+    warnings.push({
+      id: String(++warningId),
+      type: 'owner_invoice_erp',
+      severity: 'warning',
+      message: 'There are Approved Owner Invoices that were not pushed to the Procore ERP system',
+      details: `${unpushedOwnerInvoices.length} owner invoice(s) not in QuickBooks`,
+    })
+  }
+
+  const unpushedSubInvoices = results.filter(
+    r => r.item_type === 'invoice' && !r.qb_ref
+  )
+  if (unpushedSubInvoices.length > 0) {
+    warnings.push({
+      id: String(++warningId),
+      type: 'sub_invoice_erp',
+      severity: 'warning',
+      message: 'There are Approved Subcontractor Invoices that were not pushed to the Procore ERP system',
+      details: `${unpushedSubInvoices.length} sub invoice(s) not in QuickBooks`,
+    })
+  }
+
+  // Check for commitments not in proper status
+  const uncommittedContracts = commitments?.filter(
+    c => !['approved', 'void', 'terminated'].includes(c.status?.toLowerCase())
+  )
+  if (uncommittedContracts && uncommittedContracts.length > 0) {
+    warnings.push({
+      id: String(++warningId),
+      type: 'commitment_status',
+      severity: 'warning',
+      message: 'There are Commitments that are not in the Approved, Void, or Terminated status',
+      details: `${uncommittedContracts.length} commitment(s) in pending status`,
+    })
+  }
+
+  // Check for overbilled commitments
+  const overbilledCommitments = commitments?.filter(
+    c => c.billed_to_date > c.current_value
+  )
+  if (overbilledCommitments && overbilledCommitments.length > 0) {
+    for (const c of overbilledCommitments) {
+      warnings.push({
+        id: String(++warningId),
+        type: 'overbilled',
+        severity: 'critical',
+        message: 'Subcontractor has invoiced for more than their Contract Amount',
+        details: `Billed: ${formatCurrency(c.billed_to_date)} vs Contract: ${formatCurrency(c.current_value)}`,
+        vendor: c.vendor,
+      })
+    }
+  }
+
+  // Check for overpaid commitments
+  const overpaidCommitments = commitments?.filter(
+    c => c.paid_to_date > c.billed_to_date
+  )
+  if (overpaidCommitments && overpaidCommitments.length > 0) {
+    for (const c of overpaidCommitments) {
+      warnings.push({
+        id: String(++warningId),
+        type: 'overpaid',
+        severity: 'critical',
+        message: 'Subcontractor has been paid more than their total Invoiced Amount',
+        details: `Paid: ${formatCurrency(c.paid_to_date)} vs Invoiced: ${formatCurrency(c.billed_to_date)}`,
+        vendor: c.vendor,
+      })
+    }
+  }
+
+  // Check for missing payroll in direct costs
+  const hasPayrollEntry = results.some(
+    r => r.item_type === 'direct_cost' && r.item_description?.toLowerCase().includes('payroll')
+  )
+  if (!hasPayrollEntry && results.some(r => r.item_type === 'direct_cost')) {
+    warnings.push({
+      id: String(++warningId),
+      type: 'missing_payroll',
+      severity: 'warning',
+      message: 'Missing Payroll Entry in Direct Costs',
+      details: 'No payroll-related direct cost entries found for this project',
+    })
+  }
+
+  return warnings
+}
+
+function ResultsTable({ results, title }: { results: any[]; title?: string }) {
   if (results.length === 0) {
     return (
       <div className="text-center py-8">
-        <p className="text-gray-500">No results in this category</p>
+        <p className="text-gray-500">No {title?.toLowerCase() || 'results'} in this category</p>
       </div>
     )
   }
 
   return (
     <div className="overflow-x-auto">
+      {title && <h3 className="text-lg font-medium mb-4">{title}</h3>}
       <table className="min-w-full divide-y divide-gray-200">
         <thead>
           <tr>
@@ -294,6 +465,70 @@ function ResultsTable({ results }: { results: any[] }) {
           ))}
         </tbody>
       </table>
+    </div>
+  )
+}
+
+function WarningsTable({ warnings }: { warnings: Warning[] }) {
+  if (warnings.length === 0) {
+    return (
+      <div className="text-center py-8">
+        <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-4" />
+        <p className="text-gray-500">No warnings found</p>
+        <p className="text-sm text-gray-400 mt-1">All checks passed successfully</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <h3 className="text-lg font-medium">Reconciliation Warnings ({warnings.length})</h3>
+      <div className="space-y-3">
+        {warnings.map((warning) => (
+          <div
+            key={warning.id}
+            className={`p-4 rounded-lg border ${
+              warning.severity === 'critical'
+                ? 'bg-red-50 border-red-200'
+                : 'bg-yellow-50 border-yellow-200'
+            }`}
+          >
+            <div className="flex items-start">
+              {warning.severity === 'critical' ? (
+                <AlertCircle className="w-5 h-5 text-red-500 mt-0.5 mr-3 flex-shrink-0" />
+              ) : (
+                <AlertTriangle className="w-5 h-5 text-yellow-500 mt-0.5 mr-3 flex-shrink-0" />
+              )}
+              <div className="flex-1">
+                <p className={`font-medium ${
+                  warning.severity === 'critical' ? 'text-red-800' : 'text-yellow-800'
+                }`}>
+                  {warning.message}
+                </p>
+                {warning.details && (
+                  <p className={`text-sm mt-1 ${
+                    warning.severity === 'critical' ? 'text-red-700' : 'text-yellow-700'
+                  }`}>
+                    {warning.details}
+                  </p>
+                )}
+                {warning.vendor && (
+                  <p className={`text-sm mt-1 ${
+                    warning.severity === 'critical' ? 'text-red-600' : 'text-yellow-600'
+                  }`}>
+                    Vendor: {warning.vendor}
+                  </p>
+                )}
+              </div>
+              <span className={`badge ${
+                warning.severity === 'critical' ? 'badge-critical' : 'badge-warning'
+              }`}>
+                {warning.severity}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
