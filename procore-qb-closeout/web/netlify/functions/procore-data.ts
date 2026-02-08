@@ -318,15 +318,14 @@ export const handler: Handler = async (event) => {
           }
         };
 
+        // First batch: Fetch basic data and commitments/prime contracts (needed for requisitions/payment apps)
         const [
           project,
           vendors,
           costCodes,
           commitments,
           budget,
-          subInvoices,
           primeContract,
-          paymentApplications,
           changeOrders,
           directCosts
         ] = await Promise.all([
@@ -350,12 +349,8 @@ export const handler: Handler = async (event) => {
             }
             return [];
           }),
-          // Subcontractor invoices (requisitions)
-          safeRequest(() => fetchAllPages(`/rest/v1.0/requisitions`, tokens, { company_id: companyId, project_id: projectId })),
           // Prime contract (contract with owner/client)
           safeRequest(() => fetchAllPages(`/rest/v1.0/prime_contracts`, tokens, { company_id: companyId, project_id: projectId })),
-          // Payment applications (billings to owner)
-          safeRequest(() => fetchAllPages(`/rest/v1.0/payment_applications`, tokens, { company_id: companyId, project_id: projectId })),
           // Change orders
           safeRequest(async () => {
             // Commitment change orders (from subs)
@@ -367,6 +362,57 @@ export const handler: Handler = async (event) => {
           // Direct costs (expenses not tied to commitments) - use path-based project endpoint
           safeRequest(() => fetchAllPages(`/rest/v1.0/projects/${projectId}/direct_costs`, tokens, { company_id: companyId })),
         ]);
+
+        // Second batch: Fetch requisitions (sub invoices) per work order contract
+        // Procore API requires fetching requisitions per contract, not at project level
+        let subInvoices: any[] = [];
+        const allSubcontracts = commitments?.subcontracts || [];
+        console.log(`Fetching requisitions for ${allSubcontracts.length} subcontracts...`);
+
+        if (allSubcontracts.length > 0) {
+          const requisitionPromises = allSubcontracts.map((sub: any) =>
+            safeRequest(() =>
+              fetchAllPages(`/rest/v1.0/work_order_contracts/${sub.id}/requisitions`, tokens, { company_id: companyId, project_id: projectId })
+            ).then((reqs: any[]) =>
+              // Add vendor info from the parent contract to each requisition
+              reqs.map((req: any) => ({
+                ...req,
+                vendor_name: req.vendor_name || sub.vendor?.company || sub.vendor?.name || 'Unknown',
+                contract_id: sub.id,
+                contract_number: sub.number,
+              }))
+            )
+          );
+          const requisitionResults = await Promise.all(requisitionPromises);
+          subInvoices = requisitionResults.flat();
+          console.log(`Fetched ${subInvoices.length} total requisitions (sub invoices)`);
+        }
+
+        // Third batch: Fetch payment applications per prime contract
+        // Procore API requires fetching payment apps per prime contract, not at project level
+        let paymentApplications: any[] = [];
+        const allPrimeContracts = primeContract || [];
+        console.log(`Fetching payment applications for ${allPrimeContracts.length} prime contracts...`);
+
+        if (allPrimeContracts.length > 0) {
+          const paymentAppPromises = allPrimeContracts.map((pc: any) =>
+            safeRequest(() =>
+              fetchAllPages(`/rest/v1.0/prime_contracts/${pc.id}/payment_applications`, tokens, { company_id: companyId, project_id: projectId })
+            ).then((apps: any[]) =>
+              // Add prime contract info to each payment application
+              apps.map((app: any) => ({
+                ...app,
+                prime_contract_title: pc.title || pc.number || 'Prime Contract',
+                prime_contract_id: pc.id,
+                prime_contract_value: pc.grand_total || pc.revised_value || 0,
+              }))
+            )
+          );
+          const paymentAppResults = await Promise.all(paymentAppPromises);
+          paymentApplications = paymentAppResults.flat();
+          console.log(`Fetched ${paymentApplications.length} total payment applications (owner invoices)`);
+        }
+
         result = {
           project,
           vendors,
