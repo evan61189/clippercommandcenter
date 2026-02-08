@@ -1,13 +1,14 @@
 import { Routes, Route, Link, useNavigate } from 'react-router-dom'
-import { Building2, CheckCircle, Settings as SettingsIcon, Play, LogOut } from 'lucide-react'
+import { Building2, Settings as SettingsIcon, Play, LogOut, Calendar, FolderCheck } from 'lucide-react'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import Dashboard from './pages/Dashboard'
 import ProjectDetail from './pages/ProjectDetail'
 import ReportDetail from './pages/ReportDetail'
-import CloseoutItems from './pages/CloseoutItems'
 import Settings from './pages/Settings'
 import RunReconciliation from './pages/RunReconciliation'
+import MonthEndCloseouts from './pages/MonthEndCloseouts'
+import ProjectCloseouts from './pages/ProjectCloseouts'
 import Privacy from './pages/Privacy'
 import Terms from './pages/Terms'
 import Login from './pages/Login'
@@ -48,18 +49,25 @@ function AppLayout() {
                   <span>Dashboard</span>
                 </Link>
                 <Link
+                  to="/month-end-closeouts"
+                  className="flex items-center space-x-1 text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
+                >
+                  <Calendar className="w-4 h-4" />
+                  <span>Month-End Closeouts</span>
+                </Link>
+                <Link
+                  to="/project-closeouts"
+                  className="flex items-center space-x-1 text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
+                >
+                  <FolderCheck className="w-4 h-4" />
+                  <span>Project Closeouts</span>
+                </Link>
+                <Link
                   to="/run"
                   className="flex items-center space-x-1 text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
                 >
                   <Play className="w-4 h-4" />
                   <span>Run</span>
-                </Link>
-                <Link
-                  to="/closeout-items"
-                  className="flex items-center space-x-1 text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
-                >
-                  <CheckCircle className="w-4 h-4" />
-                  <span>Closeout Items</span>
                 </Link>
                 <Link
                   to="/settings"
@@ -97,9 +105,10 @@ function AppLayout() {
           {/* Protected routes */}
           <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/run" element={<ProtectedRoute><RunReconciliation /></ProtectedRoute>} />
+          <Route path="/month-end-closeouts" element={<ProtectedRoute><MonthEndCloseouts /></ProtectedRoute>} />
+          <Route path="/project-closeouts" element={<ProtectedRoute><ProjectCloseouts /></ProtectedRoute>} />
           <Route path="/project/:projectId" element={<ProtectedRoute><ProjectDetail /></ProtectedRoute>} />
           <Route path="/report/:reportId" element={<ProtectedRoute><ReportDetail /></ProtectedRoute>} />
-          <Route path="/closeout-items" element={<ProtectedRoute><CloseoutItems /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
         </Routes>
       </main>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft,
   Play,
@@ -8,7 +8,11 @@ import {
   Loader2,
   Building2,
   RefreshCw,
+  Calendar,
+  FolderCheck,
 } from 'lucide-react'
+
+type ReconciliationMode = 'month-end' | 'project-closeout' | null
 
 function getUserId(): string {
   let userId = localStorage.getItem('closeout_user_id')
@@ -28,7 +32,7 @@ interface ProcoreProject {
 
 type Step = 'select' | 'fetching_procore' | 'procore_fetched' | 'fetching_qb' | 'reconciling' | 'complete' | 'error'
 
-type DataView = 'vendors' | 'subcontracts' | 'purchaseOrders' | 'primeContract' | 'subInvoices' | 'paymentApplications' | 'changeOrders' | 'directCosts' | 'costCodes' | null
+type DataView = 'vendors' | 'subcontracts' | 'purchaseOrders' | 'primeContract' | 'subInvoices' | 'paymentApplications' | 'changeOrders' | 'subChangeOrders' | 'directCosts' | 'costCodes' | null
 
 // Simple data card button
 function DataCard({
@@ -109,6 +113,10 @@ function DataTable({
 }
 
 export default function RunReconciliation() {
+  const [searchParams] = useSearchParams()
+  const initialMode = searchParams.get('mode') as ReconciliationMode
+
+  const [mode, setMode] = useState<ReconciliationMode>(initialMode)
   const [step, setStep] = useState<Step>('select')
   const [projects, setProjects] = useState<ProcoreProject[]>([])
   const [selectedProject, setSelectedProject] = useState<ProcoreProject | null>(null)
@@ -249,18 +257,89 @@ export default function RunReconciliation() {
     )
   }
 
+  // Mode selection screen
+  if (!mode) {
+    return (
+      <div className="max-w-3xl mx-auto space-y-6">
+        <Link to="/" className="flex items-center text-gray-600 hover:text-gray-900">
+          <ArrowLeft className="w-4 h-4 mr-1" />
+          Back to Dashboard
+        </Link>
+
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Run Reconciliation</h1>
+          <p className="mt-1 text-sm text-gray-500">
+            Select the type of reconciliation you want to run
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <button
+            onClick={() => setMode('month-end')}
+            className="card hover:shadow-lg transition-shadow text-left p-6 border-2 border-transparent hover:border-blue-500"
+          >
+            <div className="flex items-center space-x-4 mb-4">
+              <div className="bg-blue-100 rounded-lg p-3">
+                <Calendar className="w-8 h-8 text-blue-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Month-End Reconciliation</h3>
+                <p className="text-sm text-gray-500">For active projects</p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-600">
+              Run reconciliation across all active projects. Typically performed during the blackout period
+              between the 26th and last day of the month.
+            </p>
+          </button>
+
+          <button
+            onClick={() => setMode('project-closeout')}
+            className="card hover:shadow-lg transition-shadow text-left p-6 border-2 border-transparent hover:border-green-500"
+          >
+            <div className="flex items-center space-x-4 mb-4">
+              <div className="bg-green-100 rounded-lg p-3">
+                <FolderCheck className="w-8 h-8 text-green-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Project Closeout</h3>
+                <p className="text-sm text-gray-500">For completed projects</p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-600">
+              Final financial reconciliation for a completed project. Ensures all records are fully
+              reconciled before project closure.
+            </p>
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  const modeTitle = mode === 'month-end' ? 'Month-End Reconciliation' : 'Project Closeout Reconciliation'
+  const modeDescription = mode === 'month-end'
+    ? 'Reconcile all active projects for month-end closeout'
+    : 'Select a project to run final closeout reconciliation'
+  const backLink = mode === 'month-end' ? '/month-end-closeouts' : '/project-closeouts'
+
   return (
     <div className="max-w-3xl mx-auto space-y-6">
-      <Link to="/" className="flex items-center text-gray-600 hover:text-gray-900">
+      <Link to={backLink} className="flex items-center text-gray-600 hover:text-gray-900">
         <ArrowLeft className="w-4 h-4 mr-1" />
-        Back to Dashboard
+        Back to {mode === 'month-end' ? 'Month-End Closeouts' : 'Project Closeouts'}
       </Link>
 
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Run Reconciliation</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Select a Procore project to reconcile with QuickBooks
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">{modeTitle}</h1>
+          <p className="mt-1 text-sm text-gray-500">{modeDescription}</p>
+        </div>
+        <button
+          onClick={() => setMode(null)}
+          className="text-sm text-gray-500 hover:text-gray-700"
+        >
+          Change Mode
+        </button>
       </div>
 
       {/* Progress Steps */}
@@ -426,9 +505,9 @@ export default function RunReconciliation() {
               />
             </div>
 
-            {/* Invoices & Payments */}
+            {/* Invoices & Billings */}
             <p className="text-xs text-gray-500 uppercase tracking-wide mb-2 mt-4">Invoices & Billings</p>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
               <DataCard
                 title="Sub Invoices"
                 count={procoreData.subInvoices?.length || 0}
@@ -438,20 +517,12 @@ export default function RunReconciliation() {
                 onSelect={() => setExpandedView(expandedView === 'subInvoices' ? null : 'subInvoices')}
               />
               <DataCard
-                title="Payment Apps"
+                title="Owner Invoices"
                 count={procoreData.paymentApplications?.length || 0}
                 bgColor="bg-green-50"
                 textColor="text-green-900"
                 isSelected={expandedView === 'paymentApplications'}
                 onSelect={() => setExpandedView(expandedView === 'paymentApplications' ? null : 'paymentApplications')}
-              />
-              <DataCard
-                title="Change Orders"
-                count={(procoreData.changeOrders?.commitment?.length || 0) + (procoreData.changeOrders?.prime?.length || 0)}
-                bgColor="bg-orange-50"
-                textColor="text-orange-900"
-                isSelected={expandedView === 'changeOrders'}
-                onSelect={() => setExpandedView(expandedView === 'changeOrders' ? null : 'changeOrders')}
               />
               <DataCard
                 title="Direct Costs"
@@ -468,6 +539,27 @@ export default function RunReconciliation() {
                 textColor="text-gray-900"
                 isSelected={expandedView === 'costCodes'}
                 onSelect={() => setExpandedView(expandedView === 'costCodes' ? null : 'costCodes')}
+              />
+            </div>
+
+            {/* Change Orders */}
+            <p className="text-xs text-gray-500 uppercase tracking-wide mb-2 mt-4">Change Orders</p>
+            <div className="grid grid-cols-2 md:grid-cols-2 gap-4 mb-4">
+              <DataCard
+                title="Prime Change Orders"
+                count={procoreData.changeOrders?.prime?.length || 0}
+                bgColor="bg-orange-50"
+                textColor="text-orange-900"
+                isSelected={expandedView === 'changeOrders'}
+                onSelect={() => setExpandedView(expandedView === 'changeOrders' ? null : 'changeOrders')}
+              />
+              <DataCard
+                title="Sub Change Orders"
+                count={procoreData.changeOrders?.commitment?.length || 0}
+                bgColor="bg-yellow-50"
+                textColor="text-yellow-900"
+                isSelected={expandedView === 'subChangeOrders'}
+                onSelect={() => setExpandedView(expandedView === 'subChangeOrders' ? null : 'subChangeOrders')}
               />
             </div>
 
@@ -492,10 +584,10 @@ export default function RunReconciliation() {
                     data={procoreData.commitments?.subcontracts || []}
                     columns={[
                       { key: 'number', label: 'Number' },
+                      { key: 'vendor', label: 'Subcontractor', format: (v) => v?.company || v?.name || '-' },
                       { key: 'title', label: 'Title' },
                       { key: 'status', label: 'Status' },
                       { key: 'grand_total', label: 'Contract Amount', format: (v) => v ? `$${Number(v).toLocaleString()}` : '-' },
-                      { key: 'executed', label: 'Executed' },
                     ]}
                   />
                 )}
@@ -505,9 +597,10 @@ export default function RunReconciliation() {
                     data={procoreData.commitments?.purchaseOrders || []}
                     columns={[
                       { key: 'number', label: 'Number' },
+                      { key: 'vendor', label: 'Subcontractor', format: (v) => v?.company || v?.name || '-' },
                       { key: 'title', label: 'Title' },
                       { key: 'status', label: 'Status' },
-                      { key: 'grand_total', label: 'Amount', format: (v) => v ? `$${Number(v).toLocaleString()}` : '-' },
+                      { key: 'grand_total', label: 'Contract Amount', format: (v) => v ? `$${Number(v).toLocaleString()}` : '-' },
                     ]}
                   />
                 )}
@@ -528,32 +621,52 @@ export default function RunReconciliation() {
                     title="Subcontractor Invoices"
                     data={procoreData.subInvoices || []}
                     columns={[
-                      { key: 'number', label: 'Invoice #' },
-                      { key: 'origin_id', label: 'Origin ID' },
+                      { key: 'invoice_number', label: 'Invoice #' },
+                      { key: 'vendor_name', label: 'Subcontractor' },
                       { key: 'status', label: 'Status' },
-                      { key: 'payment_due', label: 'Amount Due', format: (v) => v ? `$${Number(v).toLocaleString()}` : '-' },
+                      { key: 'net_amount', label: 'Net Amount', format: (v, item) => {
+                        const amount = v || item?.amount || item?.payment_due || 0
+                        return `$${Number(amount).toLocaleString()}`
+                      }},
                       { key: 'billing_date', label: 'Billing Date' },
                     ]}
                   />
                 )}
                 {expandedView === 'paymentApplications' && (
                   <DataTable
-                    title="Payment Applications (Billings to Owner)"
+                    title="Owner Invoices"
                     data={procoreData.paymentApplications || []}
                     columns={[
                       { key: 'number', label: 'App #' },
+                      { key: 'prime_contract_title', label: 'Prime Contract', format: (v, item) => v || item?.contract?.title || '-' },
                       { key: 'status', label: 'Status' },
                       { key: 'billing_date', label: 'Billing Date' },
-                      { key: 'total_amount', label: 'Total Amount', format: (v) => v ? `$${Number(v).toLocaleString()}` : '-' },
+                      { key: 'revised_contract_amount', label: 'Revised Contract Amount', format: (v, item) => {
+                        const amount = v || item?.contract?.revised_value || item?.total_amount || 0
+                        return `$${Number(amount).toLocaleString()}`
+                      }},
                     ]}
                   />
                 )}
                 {expandedView === 'changeOrders' && (
                   <DataTable
-                    title="Change Orders"
-                    data={[...(procoreData.changeOrders?.commitment || []), ...(procoreData.changeOrders?.prime || [])]}
+                    title="Prime Change Orders"
+                    data={procoreData.changeOrders?.prime || []}
                     columns={[
                       { key: 'number', label: 'CO #' },
+                      { key: 'title', label: 'Title' },
+                      { key: 'status', label: 'Status' },
+                      { key: 'grand_total', label: 'Amount', format: (v) => v ? `$${Number(v).toLocaleString()}` : '-' },
+                    ]}
+                  />
+                )}
+                {expandedView === 'subChangeOrders' && (
+                  <DataTable
+                    title="Sub Change Orders"
+                    data={procoreData.changeOrders?.commitment || []}
+                    columns={[
+                      { key: 'number', label: 'CO #' },
+                      { key: 'vendor', label: 'Subcontractor', format: (v, item) => v?.company || v?.name || item?.contract?.vendor?.company || '-' },
                       { key: 'title', label: 'Title' },
                       { key: 'status', label: 'Status' },
                       { key: 'grand_total', label: 'Amount', format: (v) => v ? `$${Number(v).toLocaleString()}` : '-' },
@@ -567,7 +680,6 @@ export default function RunReconciliation() {
                     columns={[
                       { key: 'description', label: 'Description' },
                       { key: 'direct_cost_date', label: 'Date' },
-                      { key: 'invoice_number', label: 'Invoice #' },
                       { key: 'amount', label: 'Amount', format: (v) => v ? `$${Number(v).toLocaleString()}` : '-' },
                       { key: 'status', label: 'Status' },
                     ]}
