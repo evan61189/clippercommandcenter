@@ -374,13 +374,19 @@ export const handler: Handler = async (event) => {
             return reqs;
           }),
           // Prime contract (contract with owner/client)
-          safeRequest(() => fetchAllPages(`/rest/v1.0/prime_contracts`, tokens, { company_id: companyId, project_id: projectId })),
-          // Payment applications (billings to owner) - try v1.1 API with query params
+          safeRequest(async () => {
+            const pcs = await fetchAllPages(`/rest/v1.0/prime_contracts`, tokens, { company_id: companyId, project_id: projectId });
+            console.log(`Found ${pcs.length} prime contracts`);
+            return pcs;
+          }),
+          // Payment applications (billings to owner) - try v1.1 API, then fall back to per-contract
           safeRequest(async () => {
             console.log('Fetching payment applications with v1.1 API...');
-            const apps = await fetchAllPages(`/rest/v1.1/payment_applications`, tokens, { company_id: companyId, project_id: projectId });
+            let apps = await fetchAllPages(`/rest/v1.1/payment_applications`, tokens, { company_id: companyId, project_id: projectId });
             console.log(`Payment applications v1.1 returned ${apps.length} items`);
-            // Debug: Log first payment app to see actual field structure
+
+            // If v1.1 returns 0, will try per prime contract after primeContract is resolved
+            // For now, just return what we have
             if (apps.length > 0) {
               console.log('DEBUG - First payment app keys:', Object.keys(apps[0]));
               console.log('DEBUG - First payment app sample:', JSON.stringify({
@@ -392,6 +398,7 @@ export const handler: Handler = async (event) => {
                 total_claimed_amount: apps[0].total_claimed_amount,
                 approved_amount: apps[0].approved_amount,
                 billing_date: apps[0].billing_date,
+                summary: apps[0].summary,
               }, null, 2));
             }
             return apps;
@@ -411,6 +418,32 @@ export const handler: Handler = async (event) => {
         console.log(`Fetched ${subInvoices?.length || 0} requisitions (sub invoices)`);
         console.log(`Fetched ${paymentApplications?.length || 0} payment applications (owner invoices)`);
 
+        // If v1.1 payment applications returned 0, try fetching per prime contract
+        let finalPaymentApps = paymentApplications;
+        if ((!paymentApplications || paymentApplications.length === 0) && primeContract && primeContract.length > 0) {
+          console.log(`Trying to fetch payment apps per prime contract (${primeContract.length} contracts)...`);
+          const perContractApps: any[] = [];
+          for (const pc of primeContract) {
+            try {
+              const apps = await fetchAllPages(`/rest/v1.1/prime_contracts/${pc.id}/payment_applications`, tokens, { company_id: companyId, project_id: projectId });
+              console.log(`Prime contract ${pc.id} has ${apps.length} payment apps`);
+              // Add prime contract info to each app
+              for (const app of apps) {
+                perContractApps.push({
+                  ...app,
+                  prime_contract_title: pc.title || pc.number || 'Prime Contract',
+                  prime_contract_id: pc.id,
+                  prime_contract_value: pc.grand_total || pc.revised_value || 0,
+                });
+              }
+            } catch (err) {
+              console.log(`Failed to fetch payment apps for prime contract ${pc.id}:`, err);
+            }
+          }
+          finalPaymentApps = perContractApps;
+          console.log(`Total payment apps from per-contract fetch: ${finalPaymentApps.length}`);
+        }
+
         result = {
           project,
           vendors,
@@ -419,7 +452,7 @@ export const handler: Handler = async (event) => {
           budget,
           subInvoices,
           primeContract,
-          paymentApplications,
+          paymentApplications: finalPaymentApps,
           changeOrders,
           directCosts
         };
