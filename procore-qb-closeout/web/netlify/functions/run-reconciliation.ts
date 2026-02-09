@@ -211,15 +211,13 @@ async function fetchQBBillsForVendors(
   return filteredBills;
 }
 
-// Fetch other QB data (invoices, payments) - filtered by project customer and payment app amounts
+// Fetch other QB data (invoices, payments) - filtered by project customer
 async function fetchQBInvoicesAndPayments(
   tokens: QBTokenData,
   userId: string,
-  projectName: string,
-  paymentAppAmounts: number[]
+  projectName: string
 ): Promise<{ invoices: any[]; paymentsReceived: any[]; matchedCustomer: string | null }> {
   console.log('Fetching QB customers to find project match...');
-  console.log(`Will filter by ${paymentAppAmounts.length} Procore payment app amounts`);
 
   // First fetch all customers to find the best match for the project
   const customers = await paginatedQBQuery('SELECT * FROM Customer WHERE Active = true', 'Customer', tokens, userId);
@@ -239,30 +237,14 @@ async function fetchQBInvoicesAndPayments(
   if (bestCustomer) {
     console.log(`Matched project "${projectName}" to QB customer "${bestCustomer.DisplayName}" (score: ${bestCustomer.score})`);
 
-    // Fetch invoices only for this customer
-    let invoices = await paginatedQBQuery(
+    // Fetch ALL invoices for this customer (don't filter by amount - we want to catch discrepancies)
+    const invoices = await paginatedQBQuery(
       `SELECT * FROM Invoice WHERE CustomerRef = '${bestCustomer.Id}'`,
       'Invoice',
       tokens,
       userId
     );
-    console.log(`Found ${invoices.length} invoices for customer "${bestCustomer.DisplayName}" (before amount filter)`);
-
-    // Filter invoices by Procore payment app amounts
-    if (paymentAppAmounts.length > 0) {
-      invoices = invoices.filter((inv: any) => {
-        const invAmount = parseFloat(inv.TotalAmt || 0);
-        // Check if invoice amount matches any payment app amount (within 5% or $1)
-        for (const appAmount of paymentAppAmounts) {
-          const tolerance = Math.max(appAmount * 0.05, 1);
-          if (Math.abs(invAmount - appAmount) <= tolerance) {
-            return true;
-          }
-        }
-        return false;
-      });
-      console.log(`After amount filter: ${invoices.length} invoices match payment app amounts`);
-    }
+    console.log(`Found ${invoices.length} invoices for customer "${bestCustomer.DisplayName}"`);
 
     // Fetch payments for this customer
     const paymentsReceived = await paginatedQBQuery(
@@ -1627,13 +1609,12 @@ export const handler: Handler = async (event) => {
     const qbBillsRaw = await fetchQBBillsForVendors(projectVendorIdArray, qbTokens, userId, procoreAmounts);
 
     // STEP 8: Fetch AR data (invoices and payments) - only if we have payment apps
-    // Filter by customer matching the project name AND payment app amounts
+    // Filter by customer matching the project name (get all invoices to catch discrepancies)
     let qbInvoicesRaw: any[] = [];
     let qbPaymentsRaw: any[] = [];
     let matchedQBCustomer: string | null = null;
     if (paymentApps.length > 0) {
-      const paymentAppAmounts = paymentApps.map(app => app.approvedAmount).filter(a => a > 0);
-      const arData = await fetchQBInvoicesAndPayments(qbTokens, userId, projectName, paymentAppAmounts);
+      const arData = await fetchQBInvoicesAndPayments(qbTokens, userId, projectName);
       qbInvoicesRaw = arData.invoices;
       qbPaymentsRaw = arData.paymentsReceived;
       matchedQBCustomer = arData.matchedCustomer;
