@@ -318,6 +318,20 @@ export const handler: Handler = async (event) => {
           }
         };
 
+        // First fetch prime contracts to get their IDs for payment application filtering
+        const primeContract = await safeRequest(async () => {
+          const pcs = await fetchAllPages(`/rest/v1.0/prime_contracts`, tokens, { company_id: companyId, project_id: projectId });
+          console.log(`Found ${pcs.length} prime contracts`);
+          return pcs;
+        });
+
+        // Build set of prime contract IDs for this project
+        const primeContractIds = new Set<string>();
+        for (const pc of primeContract || []) {
+          primeContractIds.add(String(pc.id));
+        }
+        console.log(`Project has ${primeContractIds.size} prime contract IDs`);
+
         const [
           project,
           vendors,
@@ -325,7 +339,6 @@ export const handler: Handler = async (event) => {
           commitments,
           budget,
           subInvoices,
-          primeContract,
           paymentApplications,
           changeOrders,
           directCosts
@@ -373,13 +386,7 @@ export const handler: Handler = async (event) => {
             }
             return filteredReqs;
           }),
-          // Prime contract (contract with owner/client)
-          safeRequest(async () => {
-            const pcs = await fetchAllPages(`/rest/v1.0/prime_contracts`, tokens, { company_id: companyId, project_id: projectId });
-            console.log(`Found ${pcs.length} prime contracts`);
-            return pcs;
-          }),
-          // Payment applications (billings to owner) - try multiple endpoints
+          // Payment applications (billings to owner) - filter by prime contract IDs
           safeRequest(async () => {
             console.log('Fetching payment applications...');
 
@@ -398,22 +405,25 @@ export const handler: Handler = async (event) => {
               console.log(`Payment applications v1.0 returned ${apps?.length || 0} items`);
             }
 
-            // Filter to only this project's payment applications (API may return all)
+            // Filter by prime contract ID (payment apps link to prime contracts, not projects directly)
             const filteredApps = (apps || []).filter((app: any) => {
-              // Check both direct project_id and nested contract.project_id
+              // Check multiple possible locations for the contract ID
+              const contractId = String(app.prime_contract_id || app.contract_id || app.contract?.id || '');
               const appProjectId = app.project_id || app.contract?.project_id;
-              return String(appProjectId) === String(projectId);
+
+              // Match if contract ID is in our prime contracts OR if project_id matches
+              return primeContractIds.has(contractId) || String(appProjectId) === String(projectId);
             });
-            console.log(`Payment applications after project filter: ${filteredApps.length} items`);
+            console.log(`Payment applications after filter: ${filteredApps.length} items`);
 
             if (filteredApps.length > 0) {
-              console.log('DEBUG - First payment app FULL:', JSON.stringify({
+              console.log('DEBUG - First payment app:', JSON.stringify({
                 id: filteredApps[0].id,
+                prime_contract_id: filteredApps[0].prime_contract_id,
+                contract_id: filteredApps[0].contract_id,
                 project_id: filteredApps[0].project_id,
                 number: filteredApps[0].number,
                 status: filteredApps[0].status,
-                total_amount_paid: filteredApps[0].total_amount_paid,
-                total_amount_accrued_this_period: filteredApps[0].total_amount_accrued_this_period,
               }, null, 2));
             }
             return filteredApps;
