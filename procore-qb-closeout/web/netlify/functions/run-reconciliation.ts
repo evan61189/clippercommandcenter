@@ -149,12 +149,11 @@ async function fetchQBVendors(userId: string): Promise<{ vendors: any[]; tokens:
   return { vendors, tokens };
 }
 
-// Fetch QB bills only for specific vendor IDs and filter by Procore invoice amounts
+// Fetch QB bills only for specific vendor IDs (project vendors)
 async function fetchQBBillsForVendors(
   vendorIds: string[],
   tokens: QBTokenData,
-  userId: string,
-  procoreAmounts: number[]
+  userId: string
 ): Promise<any[]> {
   if (vendorIds.length === 0) {
     console.log('No vendor IDs to fetch bills for');
@@ -162,7 +161,6 @@ async function fetchQBBillsForVendors(
   }
 
   console.log(`Fetching QB bills for ${vendorIds.length} project vendors...`);
-  console.log(`Procore has ${procoreAmounts.length} invoice amounts to match against`);
 
   // QuickBooks doesn't support IN clause for VendorRef, so we need to fetch all bills
   // and filter. But we can still optimize by only processing relevant bills in memory.
@@ -187,28 +185,10 @@ async function fetchQBBillsForVendors(
     console.log(`Filtered ${allBills.length} bills down to ${vendorBills.length} for project vendors`);
   }
 
-  // Further filter: Only include bills whose amount matches a Procore invoice amount (within 5%)
-  // This prevents pulling in bills for other projects from the same vendor
-  const amountSet = new Set(procoreAmounts.map(a => Math.round(a * 100))); // Store as cents for comparison
-  const filteredBills = vendorBills.filter((bill: any) => {
-    const billAmount = parseFloat(bill.TotalAmt || 0);
-    const billCents = Math.round(billAmount * 100);
-
-    // Check for exact match or close match (within 5%)
-    if (amountSet.has(billCents)) return true;
-
-    // Check for close matches
-    for (const procoreAmount of procoreAmounts) {
-      const tolerance = procoreAmount * 0.05; // 5% tolerance
-      if (Math.abs(billAmount - procoreAmount) <= tolerance || Math.abs(billAmount - procoreAmount) < 1) {
-        return true;
-      }
-    }
-    return false;
-  });
-
-  console.log(`After amount matching: ${filteredBills.length} bills match Procore invoice amounts`);
-  return filteredBills;
+  // Don't pre-filter by amount - let matching algorithm determine matches
+  // User can then manually match unmatched items sorted by vendor
+  console.log(`Found ${vendorBills.length} bills for project vendors`);
+  return vendorBills;
 }
 
 // Fetch other QB data (invoices, payments) - filtered by project customer
@@ -1608,16 +1588,9 @@ export const handler: Handler = async (event) => {
 
     console.log(`Found ${projectVendorIds.size} QB vendors relevant to this project`);
 
-    // STEP 6: Collect Procore invoice amounts for QB bill filtering
-    const procoreAmounts: number[] = [
-      ...procoreInvoices.map(inv => inv.amount),
-      ...directCosts.map(dc => dc.amount),
-    ].filter(a => a > 0);
-    console.log(`Procore has ${procoreAmounts.length} invoice/cost amounts to match`);
-
-    // STEP 7: Fetch only QB bills for project vendors that match Procore amounts
+    // STEP 6: Fetch all QB bills for project vendors (for manual matching)
     const projectVendorIdArray = Array.from(projectVendorIds);
-    const qbBillsRaw = await fetchQBBillsForVendors(projectVendorIdArray, qbTokens, userId, procoreAmounts);
+    const qbBillsRaw = await fetchQBBillsForVendors(projectVendorIdArray, qbTokens, userId);
 
     // STEP 8: Fetch AR data (invoices and payments) - only if we have payment apps
     // Filter by customer matching the project name (get all invoices to catch discrepancies)
