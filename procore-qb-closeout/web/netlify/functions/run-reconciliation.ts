@@ -1319,11 +1319,21 @@ function findUnmatchedQBBills(
       continue;
     }
 
+    // Build detailed notes with all QB data
+    const detailParts = [
+      `Date: ${bill.date || 'N/A'}`,
+      `Due: ${bill.dueDate || 'N/A'}`,
+      `Balance: $${bill.balance?.toFixed(2) || '0.00'}`,
+    ];
+    if (bill.memo) {
+      detailParts.push(`Memo: ${bill.memo}`);
+    }
+
     results.push({
       id: generateId(),
       matchType: 'invoice',
       category: 'accounts_payable',
-      description: `QB Bill #${bill.docNumber || bill.id}`,
+      description: `QB Bill #${bill.docNumber || bill.id} - ${bill.vendor} - $${bill.amount.toFixed(2)}`,
       vendor: bill.vendor,
       customer: null,
       procoreRef: null,
@@ -1336,7 +1346,7 @@ function findUnmatchedQBBills(
       matchMethod: 'none',
       severity: calculateSeverity(bill.amount, bill.amount),
       status: 'unmatched_qb',
-      notes: 'QB bill with similar amount to an unmatched Procore invoice - needs manual review',
+      notes: `QB Only | ${detailParts.join(' | ')}`,
       qbDate: bill.date,
       requiresAction: bill.amount >= 500,
     });
