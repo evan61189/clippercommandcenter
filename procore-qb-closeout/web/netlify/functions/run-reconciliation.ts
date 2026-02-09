@@ -1257,14 +1257,36 @@ function matchDirectCostsToBills(
   return results;
 }
 
-// Find unmatched QB bills - only for vendors that exist in the Procore project
+// Find unmatched QB bills - only include bills that could plausibly match a Procore invoice
+// (same vendor, similar amount range)
 function findUnmatchedQBBills(
   qbBills: QBBill[],
   matchedIds: Set<string>,
   projectVendorIds: Set<string>,
-  qbVendors: any[]
+  qbVendors: any[],
+  procoreInvoices: ProcoreInvoice[],
+  directCosts: ProcoreDirectCost[]
 ): MatchResult[] {
   const results: MatchResult[] = [];
+
+  // Build a map of Procore amounts by vendor (lowercase)
+  const procoreAmountsByVendor = new Map<string, number[]>();
+  for (const inv of procoreInvoices) {
+    const vendorKey = inv.vendor.toLowerCase();
+    if (!procoreAmountsByVendor.has(vendorKey)) {
+      procoreAmountsByVendor.set(vendorKey, []);
+    }
+    procoreAmountsByVendor.get(vendorKey)!.push(inv.amount);
+  }
+  for (const dc of directCosts) {
+    if (dc.vendor) {
+      const vendorKey = dc.vendor.toLowerCase();
+      if (!procoreAmountsByVendor.has(vendorKey)) {
+        procoreAmountsByVendor.set(vendorKey, []);
+      }
+      procoreAmountsByVendor.get(vendorKey)!.push(dc.amount);
+    }
+  }
 
   // Only look at bills from vendors in the project (not all QB bills)
   for (const bill of qbBills) {
@@ -1272,6 +1294,30 @@ function findUnmatchedQBBills(
 
     // Check if this bill's vendor is in the project
     if (!projectVendorIds.has(bill.vendorId)) continue;
+
+    // Check if bill amount is in the range of any Procore invoice from this vendor
+    // Allow 25% tolerance or $500, whichever is greater
+    const vendorKey = bill.vendor.toLowerCase();
+    const procoreAmounts = procoreAmountsByVendor.get(vendorKey) || [];
+
+    let couldMatch = false;
+    for (const procoreAmt of procoreAmounts) {
+      const tolerance = Math.max(procoreAmt * 0.25, 500);
+      if (Math.abs(bill.amount - procoreAmt) <= tolerance) {
+        couldMatch = true;
+        break;
+      }
+    }
+
+    // Skip bills that don't have any similar Procore amounts (likely from other projects)
+    if (!couldMatch && procoreAmounts.length > 0) {
+      continue;
+    }
+
+    // If vendor has no Procore invoices at all, skip entirely (they're just in commitments)
+    if (procoreAmounts.length === 0) {
+      continue;
+    }
 
     results.push({
       id: generateId(),
@@ -1290,12 +1336,13 @@ function findUnmatchedQBBills(
       matchMethod: 'none',
       severity: calculateSeverity(bill.amount, bill.amount),
       status: 'unmatched_qb',
-      notes: 'QuickBooks bill from project vendor with no matching Procore invoice',
+      notes: 'QuickBooks bill with similar amount to a Procore invoice - needs manual review',
       qbDate: bill.date,
       requiresAction: bill.amount >= 500,
     });
   }
 
+  console.log(`Found ${results.length} unmatched QB bills that could match Procore invoices`);
   return results;
 }
 
@@ -1635,7 +1682,7 @@ export const handler: Handler = async (event) => {
     allResults.push(...directCostResults);
 
     // 3. Find unmatched QB bills (only for project vendors, not all QB bills)
-    const unmatchedBillResults = findUnmatchedQBBills(qbBills, matchedQBBillIds, projectVendorIds, qbVendors);
+    const unmatchedBillResults = findUnmatchedQBBills(qbBills, matchedQBBillIds, projectVendorIds, qbVendors, procoreInvoices, directCosts);
     allResults.push(...unmatchedBillResults);
 
     // 4. Match payment applications to QB invoices (AR)
