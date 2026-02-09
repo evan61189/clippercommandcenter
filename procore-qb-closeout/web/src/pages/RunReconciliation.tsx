@@ -755,7 +755,44 @@ export default function RunReconciliation() {
             </div>
           </div>
 
-          {/* Summary Cards */}
+          {/* Matching Summary */}
+          <div className="card">
+            <h3 className="font-medium text-gray-900 mb-4">Reconciliation Summary</h3>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              <div className="text-center p-3 bg-green-50 rounded-lg">
+                <p className="text-2xl font-semibold text-green-600">
+                  {result.matched_items || 0}
+                </p>
+                <p className="text-sm text-green-700">Matched</p>
+              </div>
+              <div className="text-center p-3 bg-yellow-50 rounded-lg">
+                <p className="text-2xl font-semibold text-yellow-600">
+                  {result.partial_matches || 0}
+                </p>
+                <p className="text-sm text-yellow-700">Partial Match</p>
+              </div>
+              <div className="text-center p-3 bg-orange-50 rounded-lg">
+                <p className="text-2xl font-semibold text-orange-600">
+                  {(result.results?.filter((r: any) => r.status === 'unmatched_procore')?.length) || 0}
+                </p>
+                <p className="text-sm text-orange-700">In Procore Only</p>
+              </div>
+              <div className="text-center p-3 bg-red-50 rounded-lg">
+                <p className="text-2xl font-semibold text-red-600">
+                  {(result.results?.filter((r: any) => r.status === 'unmatched_qb')?.length) || 0}
+                </p>
+                <p className="text-sm text-red-700">In QB Only</p>
+              </div>
+              <div className="text-center p-3 bg-blue-50 rounded-lg">
+                <p className="text-2xl font-semibold text-blue-600">
+                  {result.total_items || 0}
+                </p>
+                <p className="text-sm text-blue-700">Total Items</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Financial Summary Cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="card text-center">
               <p className="text-sm text-gray-500">Total Committed</p>
@@ -764,19 +801,41 @@ export default function RunReconciliation() {
               </p>
             </div>
             <div className="card text-center">
-              <p className="text-sm text-gray-500">Reconciled</p>
+              <p className="text-sm text-gray-500">Billed by Subs</p>
+              <p className="text-xl font-semibold text-gray-900">
+                ${(result.total_billed_by_subs || 0).toLocaleString()}
+              </p>
+            </div>
+            <div className="card text-center">
+              <p className="text-sm text-gray-500">Retention Held</p>
+              <p className="text-xl font-semibold text-gray-900">
+                ${(result.sub_retention_held || 0).toLocaleString()}
+              </p>
+            </div>
+            <div className="card text-center">
+              <p className="text-sm text-gray-500">Exposure</p>
+              <p className="text-xl font-semibold text-red-600">
+                ${(result.estimated_exposure || 0).toLocaleString()}
+              </p>
+            </div>
+          </div>
+
+          {/* Status Summary */}
+          <div className="grid grid-cols-3 gap-4">
+            <div className="card text-center border-green-200 bg-green-50">
+              <p className="text-sm text-green-700">Reconciled</p>
               <p className="text-xl font-semibold text-green-600">
                 {result.reconciled_items || 0}
               </p>
             </div>
-            <div className="card text-center">
-              <p className="text-sm text-gray-500">Warnings</p>
+            <div className="card text-center border-yellow-200 bg-yellow-50">
+              <p className="text-sm text-yellow-700">Warnings</p>
               <p className="text-xl font-semibold text-yellow-600">
                 {result.warning_items || 0}
               </p>
             </div>
-            <div className="card text-center">
-              <p className="text-sm text-gray-500">Critical</p>
+            <div className="card text-center border-red-200 bg-red-50">
+              <p className="text-sm text-red-700">Critical</p>
               <p className="text-xl font-semibold text-red-600">
                 {result.critical_items || 0}
               </p>
