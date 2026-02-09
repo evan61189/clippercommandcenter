@@ -568,7 +568,8 @@ function normalizeProcoreInvoices(procoreData: any): ProcoreInvoice[] {
       vendor: vendorName,
       number: inv.number || inv.invoice_number || '',
       status: inv.status || '',
-      amount: parseFloat(inv.amount || inv.total_amount || inv.payment_due || 0),
+      // v1.1 API uses total_claimed_amount for requisitions
+      amount: parseFloat(inv.total_claimed_amount || inv.amount || inv.total_amount || inv.payment_due || 0),
       billingDate: inv.billing_date || inv.invoice_date || '',
       paymentDue: parseFloat(inv.payment_due || inv.balance || 0),
     });
@@ -581,13 +582,23 @@ function normalizePaymentApps(procoreData: any): ProcorePaymentApp[] {
   const apps: ProcorePaymentApp[] = [];
 
   for (const app of procoreData.paymentApplications || []) {
+    // v1.0 API uses total_amount_accrued_this_period or total_amount_paid for payment applications
+    const totalAmt = parseFloat(
+      app.total_amount_accrued_this_period ||
+      app.total_amount_paid ||
+      app.total_claimed_amount ||
+      app.total_amount ||
+      app.contract?.grand_total ||
+      0
+    );
+
     apps.push({
       id: String(app.id),
       number: app.number || String(app.id),
       status: app.status || '',
       billingDate: app.billing_date || '',
-      totalAmount: parseFloat(app.total_claimed_amount || app.total_amount || 0),
-      approvedAmount: parseFloat(app.approved_amount || app.total_amount || 0),
+      totalAmount: totalAmt,
+      approvedAmount: parseFloat(app.approved_amount || totalAmt || 0),
     });
   }
 
