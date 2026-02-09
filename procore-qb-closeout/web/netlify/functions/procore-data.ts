@@ -358,17 +358,14 @@ export const handler: Handler = async (event) => {
             // Debug: Log first requisition to see actual field structure
             if (reqs.length > 0) {
               console.log('DEBUG - First requisition keys:', Object.keys(reqs[0]));
-              console.log('DEBUG - First requisition sample:', JSON.stringify({
+              console.log('DEBUG - First requisition FULL:', JSON.stringify({
                 id: reqs[0].id,
                 number: reqs[0].number,
                 invoice_number: reqs[0].invoice_number,
                 status: reqs[0].status,
-                payment_due: reqs[0].payment_due,
-                amount: reqs[0].amount,
-                total_amount: reqs[0].total_amount,
-                net_amount: reqs[0].net_amount,
-                final_payment_amount: reqs[0].final_payment_amount,
-                current_payment_due: reqs[0].current_payment_due,
+                total_claimed_amount: reqs[0].total_claimed_amount,
+                summary: reqs[0].summary,
+                payment_summary: reqs[0].payment_summary,
               }, null, 2));
             }
             return reqs;
@@ -418,15 +415,16 @@ export const handler: Handler = async (event) => {
         console.log(`Fetched ${subInvoices?.length || 0} requisitions (sub invoices)`);
         console.log(`Fetched ${paymentApplications?.length || 0} payment applications (owner invoices)`);
 
-        // If v1.1 payment applications returned 0, try fetching per prime contract
+        // If v1.1 payment applications returned 0, try fetching per prime contract with v1.0
         let finalPaymentApps = paymentApplications;
         if ((!paymentApplications || paymentApplications.length === 0) && primeContract && primeContract.length > 0) {
-          console.log(`Trying to fetch payment apps per prime contract (${primeContract.length} contracts)...`);
+          console.log(`Trying to fetch payment apps per prime contract with v1.0 (${primeContract.length} contracts)...`);
           const perContractApps: any[] = [];
           for (const pc of primeContract) {
             try {
-              const apps = await fetchAllPages(`/rest/v1.1/prime_contracts/${pc.id}/payment_applications`, tokens, { company_id: companyId, project_id: projectId });
-              console.log(`Prime contract ${pc.id} has ${apps.length} payment apps`);
+              // Try v1.0 endpoint for payment applications per prime contract
+              const apps = await fetchAllPages(`/rest/v1.0/prime_contracts/${pc.id}/payment_applications`, tokens, { company_id: companyId });
+              console.log(`Prime contract ${pc.id} has ${apps.length} payment apps (v1.0)`);
               // Add prime contract info to each app
               for (const app of apps) {
                 perContractApps.push({
@@ -436,8 +434,24 @@ export const handler: Handler = async (event) => {
                   prime_contract_value: pc.grand_total || pc.revised_value || 0,
                 });
               }
-            } catch (err) {
-              console.log(`Failed to fetch payment apps for prime contract ${pc.id}:`, err);
+            } catch (err: any) {
+              // If v1.0 fails, log but don't break
+              console.log(`v1.0 failed for prime contract ${pc.id}, trying alternate endpoint...`);
+              // Try alternate endpoint pattern
+              try {
+                const apps2 = await fetchAllPages(`/rest/v1.0/payment_applications`, tokens, { company_id: companyId, prime_contract_id: String(pc.id) });
+                console.log(`Prime contract ${pc.id} has ${apps2.length} payment apps (alternate)`);
+                for (const app of apps2) {
+                  perContractApps.push({
+                    ...app,
+                    prime_contract_title: pc.title || pc.number || 'Prime Contract',
+                    prime_contract_id: pc.id,
+                    prime_contract_value: pc.grand_total || pc.revised_value || 0,
+                  });
+                }
+              } catch (err2) {
+                console.log(`All payment app endpoints failed for prime contract ${pc.id}`);
+              }
             }
           }
           finalPaymentApps = perContractApps;
