@@ -1646,8 +1646,17 @@ export const handler: Handler = async (event) => {
     const vendorTotalResults = reconcileVendorTotals(commitments, qbBills, qbVendors, aiVendorMap);
     allResults.push(...vendorTotalResults);
 
+    // Log results breakdown by type
+    const invoiceCount = allResults.filter(r => r.matchType === 'invoice').length;
+    const paymentAppCount = allResults.filter(r => r.matchType === 'payment_app').length;
+    const directCostCount = allResults.filter(r => r.matchType === 'direct_cost').length;
+    const vendorTotalCount = allResults.filter(r => r.matchType === 'vendor_total').length;
+    console.log(`Results breakdown: ${invoiceCount} invoices, ${paymentAppCount} payment apps, ${directCostCount} direct costs, ${vendorTotalCount} vendor totals`);
+    console.log(`Total results: ${allResults.length}`);
+
     // Generate closeout items
     const closeoutItems = generateCloseoutItems(commitments, allResults);
+    console.log(`Generated ${closeoutItems.length} closeout items`);
 
     // Calculate summary stats
     const totalCommitted = commitments.reduce((sum, c) => sum + c.currentValue, 0);
@@ -1789,7 +1798,8 @@ export const handler: Handler = async (event) => {
 
           // Insert results
           if (allResults.length > 0) {
-            await supabase.from('reconciliation_results').insert(
+            console.log(`Inserting ${allResults.length} reconciliation results...`);
+            const { error: resultsError } = await supabase.from('reconciliation_results').insert(
               allResults.map(r => ({
                 report_id: reportData.id,
                 result_id: r.id,
@@ -1801,13 +1811,17 @@ export const handler: Handler = async (event) => {
                 variance: r.variance,
                 variance_pct: r.variancePct,
                 severity: r.severity,
-                status: r.status,
                 notes: r.notes,
                 procore_ref: r.procoreRef,
                 qb_ref: r.qbRef,
                 requires_action: r.requiresAction,
               }))
             );
+            if (resultsError) {
+              console.error('Error inserting results:', resultsError);
+            } else {
+              console.log('Results inserted successfully');
+            }
           }
 
           // Insert closeout items
