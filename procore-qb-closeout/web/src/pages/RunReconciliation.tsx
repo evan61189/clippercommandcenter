@@ -639,12 +639,12 @@ export default function RunReconciliation() {
                     data={procoreData.paymentApplications || []}
                     columns={[
                       { key: 'number', label: 'App #' },
-                      { key: 'prime_contract', label: 'Prime Contract', format: (v, item) => v?.title || item?.contract?.title || item?.prime_contract_title || '-' },
+                      { key: 'contract', label: 'Prime Contract', format: (v, item) => v?.title || item?.prime_contract_title || '-' },
                       { key: 'status', label: 'Status' },
                       { key: 'billing_date', label: 'Billing Date' },
-                      { key: 'total_claimed_amount', label: 'Amount Claimed', format: (v, item) => {
-                        // v1.1 API uses total_claimed_amount or summary object
-                        const amount = v || item?.summary?.total_completed_and_stored_to_date || item?.summary?.this_period_work_completed_amount || item?.amount || 0
+                      { key: 'total_amount_accrued_this_period', label: 'Amount This Period', format: (v, item) => {
+                        // v1.0 API uses total_amount_accrued_this_period or total_amount_paid
+                        const amount = v || item?.total_amount_paid || item?.contract?.grand_total || 0
                         return `$${Number(amount).toLocaleString()}`
                       }},
                     ]}
