@@ -350,9 +350,11 @@ export const handler: Handler = async (event) => {
             }
             return [];
           }),
-          // Subcontractor invoices (requisitions) - use project-based endpoint
+          // Subcontractor invoices (requisitions) - try v1.1 API with query params
           safeRequest(async () => {
-            const reqs = await fetchAllPages(`/rest/v1.0/projects/${projectId}/requisitions`, tokens, { company_id: companyId });
+            console.log('Fetching requisitions with v1.1 API...');
+            const reqs = await fetchAllPages(`/rest/v1.1/requisitions`, tokens, { company_id: companyId, project_id: projectId });
+            console.log(`Requisitions v1.1 returned ${reqs.length} items`);
             // Debug: Log first requisition to see actual field structure
             if (reqs.length > 0) {
               console.log('DEBUG - First requisition keys:', Object.keys(reqs[0]));
@@ -373,9 +375,11 @@ export const handler: Handler = async (event) => {
           }),
           // Prime contract (contract with owner/client)
           safeRequest(() => fetchAllPages(`/rest/v1.0/prime_contracts`, tokens, { company_id: companyId, project_id: projectId })),
-          // Payment applications (billings to owner) - use project-based endpoint
+          // Payment applications (billings to owner) - try v1.1 API with query params
           safeRequest(async () => {
-            const apps = await fetchAllPages(`/rest/v1.0/projects/${projectId}/payment_applications`, tokens, { company_id: companyId });
+            console.log('Fetching payment applications with v1.1 API...');
+            const apps = await fetchAllPages(`/rest/v1.1/payment_applications`, tokens, { company_id: companyId, project_id: projectId });
+            console.log(`Payment applications v1.1 returned ${apps.length} items`);
             // Debug: Log first payment app to see actual field structure
             if (apps.length > 0) {
               console.log('DEBUG - First payment app keys:', Object.keys(apps[0]));
