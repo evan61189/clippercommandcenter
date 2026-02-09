@@ -643,7 +643,8 @@ export default function RunReconciliation() {
                       { key: 'status', label: 'Status' },
                       { key: 'billing_date', label: 'Billing Date' },
                       { key: 'total_claimed_amount', label: 'Amount Claimed', format: (v, item) => {
-                        const amount = v || item?.amount || item?.total_amount || item?.approved_amount || 0
+                        // v1.1 API uses total_claimed_amount or summary object
+                        const amount = v || item?.summary?.total_completed_and_stored_to_date || item?.summary?.this_period_work_completed_amount || item?.amount || 0
                         return `$${Number(amount).toLocaleString()}`
                       }},
                     ]}
