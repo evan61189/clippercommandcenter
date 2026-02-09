@@ -352,23 +352,26 @@ export const handler: Handler = async (event) => {
           }),
           // Subcontractor invoices (requisitions) - try v1.1 API with query params
           safeRequest(async () => {
-            console.log('Fetching requisitions with v1.1 API...');
+            console.log(`Fetching requisitions with v1.1 API for project ${projectId}...`);
             const reqs = await fetchAllPages(`/rest/v1.1/requisitions`, tokens, { company_id: companyId, project_id: projectId });
-            console.log(`Requisitions v1.1 returned ${reqs.length} items`);
+            console.log(`Requisitions v1.1 returned ${reqs.length} items (before filter)`);
+
+            // Filter to only this project's requisitions (API may return all)
+            const filteredReqs = reqs.filter((req: any) => String(req.project_id) === String(projectId));
+            console.log(`Requisitions after project filter: ${filteredReqs.length} items`);
+
             // Debug: Log first requisition to see actual field structure
-            if (reqs.length > 0) {
-              console.log('DEBUG - First requisition keys:', Object.keys(reqs[0]));
+            if (filteredReqs.length > 0) {
               console.log('DEBUG - First requisition FULL:', JSON.stringify({
-                id: reqs[0].id,
-                number: reqs[0].number,
-                invoice_number: reqs[0].invoice_number,
-                status: reqs[0].status,
-                total_claimed_amount: reqs[0].total_claimed_amount,
-                summary: reqs[0].summary,
-                payment_summary: reqs[0].payment_summary,
+                id: filteredReqs[0].id,
+                project_id: filteredReqs[0].project_id,
+                number: filteredReqs[0].number,
+                invoice_number: filteredReqs[0].invoice_number,
+                status: filteredReqs[0].status,
+                total_claimed_amount: filteredReqs[0].total_claimed_amount,
               }, null, 2));
             }
-            return reqs;
+            return filteredReqs;
           }),
           // Prime contract (contract with owner/client)
           safeRequest(async () => {
@@ -395,19 +398,25 @@ export const handler: Handler = async (event) => {
               console.log(`Payment applications v1.0 returned ${apps?.length || 0} items`);
             }
 
-            if (apps && apps.length > 0) {
-              console.log('DEBUG - First payment app keys:', Object.keys(apps[0]));
+            // Filter to only this project's payment applications (API may return all)
+            const filteredApps = (apps || []).filter((app: any) => {
+              // Check both direct project_id and nested contract.project_id
+              const appProjectId = app.project_id || app.contract?.project_id;
+              return String(appProjectId) === String(projectId);
+            });
+            console.log(`Payment applications after project filter: ${filteredApps.length} items`);
+
+            if (filteredApps.length > 0) {
               console.log('DEBUG - First payment app FULL:', JSON.stringify({
-                id: apps[0].id,
-                number: apps[0].number,
-                status: apps[0].status,
-                total_amount_paid: apps[0].total_amount_paid,
-                total_amount_accrued_this_period: apps[0].total_amount_accrued_this_period,
-                contract: apps[0].contract,
-                g702: apps[0].g702,
+                id: filteredApps[0].id,
+                project_id: filteredApps[0].project_id,
+                number: filteredApps[0].number,
+                status: filteredApps[0].status,
+                total_amount_paid: filteredApps[0].total_amount_paid,
+                total_amount_accrued_this_period: filteredApps[0].total_amount_accrued_this_period,
               }, null, 2));
             }
-            return apps || [];
+            return filteredApps;
           }),
           // Change orders
           safeRequest(async () => {
