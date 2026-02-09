@@ -401,9 +401,10 @@ export const handler: Handler = async (event) => {
                 id: apps[0].id,
                 number: apps[0].number,
                 status: apps[0].status,
-                total_claimed_amount: apps[0].total_claimed_amount,
-                summary: apps[0].summary,
-                payment_summary: apps[0].payment_summary,
+                total_amount_paid: apps[0].total_amount_paid,
+                total_amount_accrued_this_period: apps[0].total_amount_accrued_this_period,
+                contract: apps[0].contract,
+                g702: apps[0].g702,
               }, null, 2));
             }
             return apps || [];
