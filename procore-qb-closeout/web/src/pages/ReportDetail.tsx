@@ -392,24 +392,36 @@ function generateWarnings(results: any[], commitments: any[], _report: any): War
     }
   }
 
-  // Check for missing payroll in direct costs
-  const hasPayrollEntry = results.some(
-    r => r.item_type === 'direct_cost' && r.item_description?.toLowerCase().includes('payroll')
+  // Check for missing payroll/labor in direct costs
+  const hasLaborEntry = results.some(
+    r => r.item_type === 'direct_cost' && (
+      r.item_description?.toLowerCase().includes('payroll') ||
+      r.item_description?.toLowerCase().includes('labor') ||
+      r.item_description?.toLowerCase().includes('general conditions') ||
+      r.item_description?.toLowerCase().includes('wages') ||
+      r.item_description?.toLowerCase().includes('salary')
+    )
   )
-  if (!hasPayrollEntry && results.some(r => r.item_type === 'direct_cost')) {
+  if (!hasLaborEntry && results.some(r => r.item_type === 'direct_cost')) {
     warnings.push({
       id: String(++warningId),
       type: 'missing_payroll',
       severity: 'warning',
-      message: 'Missing Payroll Entry in Direct Costs',
-      details: 'No payroll-related direct cost entries found for this project',
+      message: 'Missing Payroll/Labor Entry in Direct Costs',
+      details: 'No payroll, labor, or general conditions entries found for this project',
     })
   }
 
   return warnings
 }
 
+type SortField = 'vendor' | 'procore_value' | 'qb_value' | 'variance' | 'severity' | 'notes'
+type SortDir = 'asc' | 'desc'
+
 function ResultsTable({ results, title }: { results: any[]; title?: string }) {
+  const [sortField, setSortField] = useState<SortField>('vendor')
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
+
   if (results.length === 0) {
     return (
       <div className="text-center py-8">
@@ -418,23 +430,66 @@ function ResultsTable({ results, title }: { results: any[]; title?: string }) {
     )
   }
 
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortField(field)
+      setSortDir('asc')
+    }
+  }
+
+  const sortedResults = [...results].sort((a, b) => {
+    let aVal = a[sortField]
+    let bVal = b[sortField]
+
+    // Handle nulls
+    if (aVal == null) aVal = ''
+    if (bVal == null) bVal = ''
+
+    // String comparison for vendor, notes, severity
+    if (typeof aVal === 'string' && typeof bVal === 'string') {
+      const cmp = aVal.localeCompare(bVal)
+      return sortDir === 'asc' ? cmp : -cmp
+    }
+
+    // Numeric comparison
+    const diff = (aVal || 0) - (bVal || 0)
+    return sortDir === 'asc' ? diff : -diff
+  })
+
+  const SortHeader = ({ field, label, className = '' }: { field: SortField; label: string; className?: string }) => (
+    <th
+      className={`table-header px-4 py-3 cursor-pointer hover:bg-gray-100 select-none ${className}`}
+      onClick={() => handleSort(field)}
+    >
+      <div className="flex items-center gap-1">
+        {label}
+        {sortField === field && (
+          <span className="text-procore-blue">{sortDir === 'asc' ? '↑' : '↓'}</span>
+        )}
+      </div>
+    </th>
+  )
+
   return (
     <div className="overflow-x-auto">
       {title && <h3 className="text-lg font-medium mb-4">{title}</h3>}
+      <p className="text-sm text-gray-500 mb-2">Click column headers to sort. Currently sorted by: {sortField} ({sortDir})</p>
       <table className="min-w-full divide-y divide-gray-200">
         <thead>
           <tr>
             <th className="table-header px-4 py-3">Description</th>
-            <th className="table-header px-4 py-3">Vendor</th>
-            <th className="table-header px-4 py-3 text-right">Procore</th>
-            <th className="table-header px-4 py-3 text-right">QuickBooks</th>
-            <th className="table-header px-4 py-3 text-right">Variance</th>
-            <th className="table-header px-4 py-3">Severity</th>
-            <th className="table-header px-4 py-3">Notes</th>
+            <SortHeader field="vendor" label="Vendor" />
+            <SortHeader field="procore_value" label="Procore" className="text-right" />
+            <SortHeader field="qb_value" label="QuickBooks" className="text-right" />
+            <SortHeader field="variance" label="Variance" className="text-right" />
+            <SortHeader field="severity" label="Severity" />
+            <SortHeader field="notes" label="Notes" />
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-200">
-          {results.map((result) => (
+          {sortedResults.map((result) => (
             <tr key={result.id} className="hover:bg-gray-50">
               <td className="px-4 py-3 text-sm">
                 {result.item_description}
