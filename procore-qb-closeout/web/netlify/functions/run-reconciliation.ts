@@ -1801,6 +1801,7 @@ export const handler: Handler = async (event) => {
                 variance: r.variance,
                 variance_pct: r.variancePct,
                 severity: r.severity,
+                status: r.status,
                 notes: r.notes,
                 procore_ref: r.procoreRef,
                 qb_ref: r.qbRef,

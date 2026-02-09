@@ -415,7 +415,7 @@ function generateWarnings(results: any[], commitments: any[], _report: any): War
   return warnings
 }
 
-type SortField = 'vendor' | 'procore_value' | 'qb_value' | 'variance' | 'severity' | 'notes'
+type SortField = 'item_description' | 'vendor' | 'procore_value' | 'qb_value' | 'variance' | 'severity' | 'notes' | 'status' | 'procore_ref' | 'qb_ref'
 type SortDir = 'asc' | 'desc'
 
 function ResultsTable({ results, title }: { results: any[]; title?: string }) {
@@ -447,26 +447,26 @@ function ResultsTable({ results, title }: { results: any[]; title?: string }) {
     if (aVal == null) aVal = ''
     if (bVal == null) bVal = ''
 
-    // String comparison for vendor, notes, severity
+    // String comparison for text fields
     if (typeof aVal === 'string' && typeof bVal === 'string') {
-      const cmp = aVal.localeCompare(bVal)
+      const cmp = aVal.toLowerCase().localeCompare(bVal.toLowerCase())
       return sortDir === 'asc' ? cmp : -cmp
     }
 
     // Numeric comparison
-    const diff = (aVal || 0) - (bVal || 0)
+    const diff = (Number(aVal) || 0) - (Number(bVal) || 0)
     return sortDir === 'asc' ? diff : -diff
   })
 
   const SortHeader = ({ field, label, className = '' }: { field: SortField; label: string; className?: string }) => (
     <th
-      className={`table-header px-4 py-3 cursor-pointer hover:bg-gray-100 select-none ${className}`}
+      className={`table-header px-3 py-2 cursor-pointer hover:bg-gray-100 select-none whitespace-nowrap ${className}`}
       onClick={() => handleSort(field)}
     >
       <div className="flex items-center gap-1">
         {label}
         {sortField === field && (
-          <span className="text-procore-blue">{sortDir === 'asc' ? '↑' : '↓'}</span>
+          <span className="text-procore-blue font-bold">{sortDir === 'asc' ? '↑' : '↓'}</span>
         )}
       </div>
     </th>
@@ -475,51 +475,68 @@ function ResultsTable({ results, title }: { results: any[]; title?: string }) {
   return (
     <div className="overflow-x-auto">
       {title && <h3 className="text-lg font-medium mb-4">{title}</h3>}
-      <p className="text-sm text-gray-500 mb-2">Click column headers to sort. Currently sorted by: {sortField} ({sortDir})</p>
-      <table className="min-w-full divide-y divide-gray-200">
-        <thead>
+      <div className="bg-blue-50 border border-blue-200 rounded p-2 mb-3">
+        <p className="text-sm text-blue-700">
+          <strong>Sorting:</strong> Click any column header to sort. Currently sorted by: <strong>{sortField}</strong> ({sortDir})
+        </p>
+      </div>
+      <table className="min-w-full divide-y divide-gray-200 text-xs">
+        <thead className="bg-gray-50">
           <tr>
-            <th className="table-header px-4 py-3">Description</th>
             <SortHeader field="vendor" label="Vendor" />
-            <SortHeader field="procore_value" label="Procore" className="text-right" />
-            <SortHeader field="qb_value" label="QuickBooks" className="text-right" />
+            <SortHeader field="item_description" label="Description" />
+            <SortHeader field="status" label="Status" />
+            <SortHeader field="procore_ref" label="Procore Ref" />
+            <SortHeader field="procore_value" label="Procore $" className="text-right" />
+            <SortHeader field="qb_ref" label="QB Ref" />
+            <SortHeader field="qb_value" label="QB $" className="text-right" />
             <SortHeader field="variance" label="Variance" className="text-right" />
-            <SortHeader field="severity" label="Severity" />
+            <SortHeader field="severity" label="Match" />
             <SortHeader field="notes" label="Notes" />
           </tr>
         </thead>
-        <tbody className="divide-y divide-gray-200">
-          {sortedResults.map((result) => (
-            <tr key={result.id} className="hover:bg-gray-50">
-              <td className="px-4 py-3 text-sm">
-                {result.item_description}
-              </td>
-              <td className="px-4 py-3 text-sm text-gray-500">
+        <tbody className="divide-y divide-gray-200 bg-white">
+          {sortedResults.map((result, idx) => (
+            <tr key={result.id || idx} className="hover:bg-yellow-50">
+              <td className="px-3 py-2 font-medium text-gray-900 whitespace-nowrap">
                 {result.vendor || '-'}
               </td>
-              <td className="px-4 py-3 text-sm text-right">
-                {formatCurrency(result.procore_value)}
+              <td className="px-3 py-2 text-gray-700 max-w-xs truncate" title={result.item_description}>
+                {result.item_description || '-'}
               </td>
-              <td className="px-4 py-3 text-sm text-right">
-                {formatCurrency(result.qb_value)}
+              <td className="px-3 py-2 text-gray-500">
+                {result.status || '-'}
               </td>
-              <td className={`px-4 py-3 text-sm text-right font-medium ${
-                result.variance > 0 ? 'text-red-600' : result.variance < 0 ? 'text-green-600' : ''
+              <td className="px-3 py-2 text-gray-500 whitespace-nowrap">
+                {result.procore_ref || '-'}
+              </td>
+              <td className="px-3 py-2 text-right whitespace-nowrap">
+                {result.procore_value ? formatCurrency(result.procore_value) : '-'}
+              </td>
+              <td className="px-3 py-2 text-gray-500 whitespace-nowrap">
+                {result.qb_ref || '-'}
+              </td>
+              <td className="px-3 py-2 text-right whitespace-nowrap">
+                {result.qb_value ? formatCurrency(result.qb_value) : '-'}
+              </td>
+              <td className={`px-3 py-2 text-right font-medium whitespace-nowrap ${
+                result.variance > 0 ? 'text-red-600' : result.variance < 0 ? 'text-green-600' : 'text-gray-500'
               }`}>
-                {formatCurrency(result.variance)}
+                {result.variance != null ? formatCurrency(result.variance) : '-'}
               </td>
-              <td className="px-4 py-3">
-                <span className={`badge ${getSeverityColor(result.severity)}`}>
-                  {result.severity}
+              <td className="px-3 py-2">
+                <span className={`badge text-xs ${getSeverityColor(result.severity)}`}>
+                  {result.severity || 'unknown'}
                 </span>
               </td>
-              <td className="px-4 py-3 text-sm text-gray-500 max-w-xs truncate">
+              <td className="px-3 py-2 text-gray-500 max-w-xs truncate" title={result.notes}>
                 {result.notes || '-'}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+      <p className="text-xs text-gray-400 mt-2">Showing {sortedResults.length} results</p>
     </div>
   )
 }
