@@ -358,17 +358,14 @@ export const handler: Handler = async (event) => {
             // Debug: Log first requisition to see actual field structure
             if (reqs.length > 0) {
               console.log('DEBUG - First requisition keys:', Object.keys(reqs[0]));
-              console.log('DEBUG - First requisition sample:', JSON.stringify({
+              console.log('DEBUG - First requisition FULL:', JSON.stringify({
                 id: reqs[0].id,
                 number: reqs[0].number,
                 invoice_number: reqs[0].invoice_number,
                 status: reqs[0].status,
-                payment_due: reqs[0].payment_due,
-                amount: reqs[0].amount,
-                total_amount: reqs[0].total_amount,
-                net_amount: reqs[0].net_amount,
-                final_payment_amount: reqs[0].final_payment_amount,
-                current_payment_due: reqs[0].current_payment_due,
+                total_claimed_amount: reqs[0].total_claimed_amount,
+                summary: reqs[0].summary,
+                payment_summary: reqs[0].payment_summary,
               }, null, 2));
             }
             return reqs;
