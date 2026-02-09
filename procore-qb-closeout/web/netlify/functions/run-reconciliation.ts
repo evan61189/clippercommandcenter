@@ -187,18 +187,54 @@ async function fetchQBBillsForVendors(
   }
 }
 
-// Fetch other QB data (invoices, payments) - only when needed for AR
+// Fetch other QB data (invoices, payments) - filtered by project customer
 async function fetchQBInvoicesAndPayments(
   tokens: QBTokenData,
-  userId: string
-): Promise<{ invoices: any[]; paymentsReceived: any[] }> {
-  console.log('Fetching QB invoices and payments...');
-  const [invoices, paymentsReceived] = await Promise.all([
-    paginatedQBQuery('SELECT * FROM Invoice', 'Invoice', tokens, userId),
-    paginatedQBQuery('SELECT * FROM Payment', 'Payment', tokens, userId),
-  ]);
-  console.log(`QB AR data: ${invoices.length} invoices, ${paymentsReceived.length} payments`);
-  return { invoices, paymentsReceived };
+  userId: string,
+  projectName: string
+): Promise<{ invoices: any[]; paymentsReceived: any[]; matchedCustomer: string | null }> {
+  console.log('Fetching QB customers to find project match...');
+
+  // First fetch all customers to find the best match for the project
+  const customers = await paginatedQBQuery('SELECT * FROM Customer WHERE Active = true', 'Customer', tokens, userId);
+  console.log(`Found ${customers.length} QB customers`);
+
+  // Find best matching customer for this project
+  let bestCustomer: { Id: string; DisplayName: string; score: number } | null = null;
+  for (const customer of customers) {
+    const customerName = customer.DisplayName || customer.FullyQualifiedName || '';
+    const score = fuzzyMatch(projectName, customerName);
+    if (score >= 60 && (!bestCustomer || score > bestCustomer.score)) {
+      bestCustomer = { Id: customer.Id, DisplayName: customerName, score };
+    }
+  }
+
+  if (bestCustomer) {
+    console.log(`Matched project "${projectName}" to QB customer "${bestCustomer.DisplayName}" (score: ${bestCustomer.score})`);
+
+    // Fetch invoices only for this customer
+    const invoices = await paginatedQBQuery(
+      `SELECT * FROM Invoice WHERE CustomerRef = '${bestCustomer.Id}'`,
+      'Invoice',
+      tokens,
+      userId
+    );
+    console.log(`Found ${invoices.length} invoices for customer "${bestCustomer.DisplayName}"`);
+
+    // Fetch payments for this customer
+    const paymentsReceived = await paginatedQBQuery(
+      `SELECT * FROM Payment WHERE CustomerRef = '${bestCustomer.Id}'`,
+      'Payment',
+      tokens,
+      userId
+    );
+    console.log(`Found ${paymentsReceived.length} payments for customer "${bestCustomer.DisplayName}"`);
+
+    return { invoices, paymentsReceived, matchedCustomer: bestCustomer.DisplayName };
+  } else {
+    console.log(`No matching QB customer found for project "${projectName}"`);
+    return { invoices: [], paymentsReceived: [], matchedCustomer: null };
+  }
 }
 
 // ============== Type Definitions ==============
@@ -1541,12 +1577,15 @@ export const handler: Handler = async (event) => {
     const qbBillsRaw = await fetchQBBillsForVendors(projectVendorIdArray, qbTokens, userId);
 
     // STEP 7: Fetch AR data (invoices and payments) - only if we have payment apps
+    // Filter by customer matching the project name
     let qbInvoicesRaw: any[] = [];
     let qbPaymentsRaw: any[] = [];
+    let matchedQBCustomer: string | null = null;
     if (paymentApps.length > 0) {
-      const arData = await fetchQBInvoicesAndPayments(qbTokens, userId);
+      const arData = await fetchQBInvoicesAndPayments(qbTokens, userId, projectName);
       qbInvoicesRaw = arData.invoices;
       qbPaymentsRaw = arData.paymentsReceived;
+      matchedQBCustomer = arData.matchedCustomer;
     }
 
     // Normalize QB data
