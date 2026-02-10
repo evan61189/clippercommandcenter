@@ -188,6 +188,37 @@ async function fetchQBBillsForVendors(
   // Don't pre-filter by amount - let matching algorithm determine matches
   // User can then manually match unmatched items sorted by vendor
   console.log(`Found ${vendorBills.length} bills for project vendors`);
+
+  // ========== DEBUG: Log raw QB bill structure ==========
+  if (vendorBills.length > 0) {
+    const bill1 = vendorBills[0];
+    console.log('========== RAW QB BILL DEBUG ==========');
+    console.log('QB BILL #1 - ALL KEYS:', Object.keys(bill1).join(', '));
+    console.log('QB BILL #1 - FULL STRUCTURE:', JSON.stringify(bill1, null, 2));
+
+    // Log a second bill for comparison
+    if (vendorBills.length > 1) {
+      const bill2 = vendorBills[1];
+      console.log('QB BILL #2 - COMPARISON:', JSON.stringify({
+        Id: bill2.Id,
+        DocNumber: bill2.DocNumber,
+        VendorRef: bill2.VendorRef,
+        TotalAmt: bill2.TotalAmt,
+        Balance: bill2.Balance,
+        TxnDate: bill2.TxnDate,
+        // Customer/Project related fields
+        CustomerRef: bill2.CustomerRef,
+        CustomerMemo: bill2.CustomerMemo,
+        ClassRef: bill2.ClassRef,
+        DepartmentRef: bill2.DepartmentRef,
+        ProjectRef: bill2.ProjectRef,
+        PrivateNote: bill2.PrivateNote,
+        Memo: bill2.Memo,
+      }, null, 2));
+    }
+    console.log('========== END QB BILL DEBUG ==========');
+  }
+
   return vendorBills;
 }
 
@@ -225,6 +256,15 @@ async function fetchQBInvoicesAndPayments(
       userId
     );
     console.log(`Found ${invoices.length} invoices for customer "${bestCustomer.DisplayName}"`);
+
+    // ========== DEBUG: Log raw QB invoice structure ==========
+    if (invoices.length > 0) {
+      const inv1 = invoices[0];
+      console.log('========== RAW QB INVOICE DEBUG ==========');
+      console.log('QB INVOICE #1 - ALL KEYS:', Object.keys(inv1).join(', '));
+      console.log('QB INVOICE #1 - FULL STRUCTURE:', JSON.stringify(inv1, null, 2));
+      console.log('========== END QB INVOICE DEBUG ==========');
+    }
 
     // Fetch payments for this customer
     const paymentsReceived = await paginatedQBQuery(
