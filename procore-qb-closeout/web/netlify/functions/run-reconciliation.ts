@@ -1606,6 +1606,58 @@ export const handler: Handler = async (event) => {
 
     const projectName = procoreData.project?.name || 'Unknown Project';
 
+    // ========== DEBUG: Log raw Procore invoice data ==========
+    console.log('========== RAW PROCORE INVOICE DEBUG ==========');
+    console.log(`Total sub invoices received: ${procoreData.subInvoices?.length || 0}`);
+    if (procoreData.subInvoices && procoreData.subInvoices.length > 0) {
+      const inv1 = procoreData.subInvoices[0];
+      console.log('INVOICE #1 - ALL KEYS:', Object.keys(inv1).join(', '));
+      console.log('INVOICE #1 - ALL AMOUNT FIELDS:', JSON.stringify({
+        number: inv1.number,
+        vendor_name: inv1.vendor_name,
+        status: inv1.status,
+        // Amount fields
+        total_claimed_amount: inv1.total_claimed_amount,
+        payment_due: inv1.payment_due,
+        amount: inv1.amount,
+        total_amount: inv1.total_amount,
+        net_amount: inv1.net_amount,
+        gross_amount: inv1.gross_amount,
+        invoice_total: inv1.invoice_total,
+        balance: inv1.balance,
+        current_payment_due: inv1.current_payment_due,
+        // G702 fields
+        g702_total_completed_and_stored_to_date: inv1.g702_total_completed_and_stored_to_date,
+        g702_total_earned_less_retainage: inv1.g702_total_earned_less_retainage,
+        g702_current_payment_due: inv1.g702_current_payment_due,
+        // Cumulative fields
+        total_completed_and_stored_to_date: inv1.total_completed_and_stored_to_date,
+        work_completed_this_period: inv1.work_completed_this_period,
+        work_completed_from_previous_application: inv1.work_completed_from_previous_application,
+        materials_presently_stored: inv1.materials_presently_stored,
+        total_materials_presently_stored: inv1.total_materials_presently_stored,
+        total_retainage: inv1.total_retainage,
+        // Additional
+        final_amount: inv1.final_amount,
+        requested_amount: inv1.requested_amount,
+        approved_amount: inv1.approved_amount,
+      }, null, 2));
+
+      // Log a second invoice if available
+      if (procoreData.subInvoices.length > 1) {
+        const inv2 = procoreData.subInvoices[1];
+        console.log('INVOICE #2 - COMPARISON:', JSON.stringify({
+          number: inv2.number,
+          vendor_name: inv2.vendor_name,
+          total_claimed_amount: inv2.total_claimed_amount,
+          payment_due: inv2.payment_due,
+          g702_current_payment_due: inv2.g702_current_payment_due,
+          total_completed_and_stored_to_date: inv2.total_completed_and_stored_to_date,
+        }, null, 2));
+      }
+    }
+    console.log('========== END DEBUG ==========');
+
     // STEP 1: Normalize Procore data first (before fetching QB data)
     const commitments = normalizeCommitments(procoreData);
     const procoreInvoices = normalizeProcoreInvoices(procoreData);
