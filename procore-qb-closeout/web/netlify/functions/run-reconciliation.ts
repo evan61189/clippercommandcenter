@@ -1061,7 +1061,7 @@ function matchInvoicesToBills(
         matchMethod: 'vendor_only',
         severity: calculateSeverity(pInv.amount, pInv.amount),
         status: 'timing',
-        notes: `No matching bill found in QuickBooks for vendor "${vendorMatch.name}" - may not be entered yet`,
+        notes: `No matching bill found in QuickBooks for vendor "${pInv.vendor}" - may not be entered yet`,
         procoreDate: pInv.billingDate,
         requiresAction: true,
       });
@@ -1351,7 +1351,7 @@ function matchDirectCostsToBills(
         matchMethod: 'vendor_only',
         severity: calculateSeverity(dc.amount, dc.amount),
         status: 'timing',
-        notes: `No matching bill found for vendor "${vendorMatch.name}"`,
+        notes: `No matching bill found for vendor "${dc.vendor}"`,
         procoreDate: dc.date,
         requiresAction: true,
       });
