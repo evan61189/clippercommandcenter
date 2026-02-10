@@ -1361,67 +1361,22 @@ function matchDirectCostsToBills(
   return results;
 }
 
-// Find unmatched QB bills - only include bills that could plausibly match an UNMATCHED Procore invoice
-// (same vendor, similar amount range, and Procore invoice not already matched)
+// Find unmatched QB bills - now that bills are filtered by project CustomerRef,
+// we show ALL unmatched bills since they're all relevant to this project
 function findUnmatchedQBBills(
   qbBills: QBBill[],
   matchedQBIds: Set<string>,
-  projectVendorIds: Set<string>,
-  qbVendors: any[],
-  procoreInvoices: ProcoreInvoice[],
-  directCosts: ProcoreDirectCost[],
-  matchedProcoreIds: Set<string>
+  _projectVendorIds: Set<string>,
+  _qbVendors: any[],
+  _procoreInvoices: ProcoreInvoice[],
+  _directCosts: ProcoreDirectCost[],
+  _matchedProcoreIds: Set<string>
 ): MatchResult[] {
   const results: MatchResult[] = [];
 
-  // Build a map of UNMATCHED Procore amounts by vendor (lowercase)
-  // Only include Procore invoices that haven't been matched yet
-  const unmatchedProcoreAmountsByVendor = new Map<string, number[]>();
-  for (const inv of procoreInvoices) {
-    // Skip if this Procore invoice is already matched
-    if (matchedProcoreIds.has(inv.id)) continue;
-
-    const vendorKey = inv.vendor.toLowerCase();
-    if (!unmatchedProcoreAmountsByVendor.has(vendorKey)) {
-      unmatchedProcoreAmountsByVendor.set(vendorKey, []);
-    }
-    unmatchedProcoreAmountsByVendor.get(vendorKey)!.push(inv.amount);
-  }
-  for (const dc of directCosts) {
-    if (dc.vendor) {
-      const vendorKey = dc.vendor.toLowerCase();
-      if (!unmatchedProcoreAmountsByVendor.has(vendorKey)) {
-        unmatchedProcoreAmountsByVendor.set(vendorKey, []);
-      }
-      unmatchedProcoreAmountsByVendor.get(vendorKey)!.push(dc.amount);
-    }
-  }
-
-  // Only look at bills from vendors in the project (not all QB bills)
+  // Show all unmatched QB bills - they're already filtered by project CustomerRef
   for (const bill of qbBills) {
     if (matchedQBIds.has(bill.id)) continue;
-
-    // Check if this bill's vendor is in the project
-    if (!projectVendorIds.has(bill.vendorId)) continue;
-
-    // Check if bill amount is close to any UNMATCHED Procore invoice from this vendor
-    // Use tighter tolerance: 10% or $100, whichever is greater
-    const vendorKey = bill.vendor.toLowerCase();
-    const unmatchedProcoreAmounts = unmatchedProcoreAmountsByVendor.get(vendorKey) || [];
-
-    let couldMatch = false;
-    for (const procoreAmt of unmatchedProcoreAmounts) {
-      const tolerance = Math.max(procoreAmt * 0.10, 100); // 10% or $100
-      if (Math.abs(bill.amount - procoreAmt) <= tolerance) {
-        couldMatch = true;
-        break;
-      }
-    }
-
-    // Skip bills that don't have any similar UNMATCHED Procore amounts
-    if (!couldMatch) {
-      continue;
-    }
 
     // Build detailed notes with all QB data
     const detailParts = [
@@ -1456,7 +1411,7 @@ function findUnmatchedQBBills(
     });
   }
 
-  console.log(`Found ${results.length} unmatched QB bills that could match unmatched Procore invoices`);
+  console.log(`Found ${results.length} unmatched QB bills for this project`);
   return results;
 }
 
