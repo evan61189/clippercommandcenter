@@ -252,12 +252,37 @@ async function findProjectCustomer(
 }
 
 // Filter QB bills to only include those with CustomerRef matching the project
-// Also includes bills with NO CustomerRef (need manual review)
-function filterBillsByProjectCustomer(bills: any[], projectCustomerId: string): any[] {
+// Bills with NO CustomerRef are only included if they have BOTH:
+// 1. Exact dollar amount match to a Procore invoice
+// 2. Vendor match to the same Procore invoice
+interface ProcoreInvoiceRef {
+  amount: number;
+  vendor: string;
+  qbVendorId: string | null; // Pre-matched QB vendor ID
+}
+
+function filterBillsByProjectCustomer(
+  bills: any[],
+  projectCustomerId: string,
+  procoreInvoiceRefs: ProcoreInvoiceRef[] = []
+): any[] {
   if (!projectCustomerId) return bills;
 
+  // Build a map of amount -> list of QB vendor IDs that have invoices at that amount
+  const amountToVendorIds = new Map<number, Set<string>>();
+  for (const ref of procoreInvoiceRefs) {
+    if (ref.qbVendorId) {
+      const roundedAmount = Math.round(ref.amount * 100) / 100;
+      if (!amountToVendorIds.has(roundedAmount)) {
+        amountToVendorIds.set(roundedAmount, new Set());
+      }
+      amountToVendorIds.get(roundedAmount)!.add(ref.qbVendorId);
+    }
+  }
+
   const included: any[] = [];
-  const noCustomerRef: any[] = [];
+  const noCustomerRefMatched: any[] = [];
+  const noCustomerRefExcluded: any[] = [];
   const excluded: any[] = [];
 
   for (const bill of bills) {
@@ -286,12 +311,28 @@ function filterBillsByProjectCustomer(bills: any[], projectCustomerId: string): 
     }
 
     if (matchFound) {
+      // Bill has CustomerRef matching project - include it
       included.push(bill);
     } else if (!hasAnyCustomerRef) {
-      // Bills with no CustomerRef should be included for manual review
-      noCustomerRef.push(bill);
-      included.push(bill);
+      // Bill has NO CustomerRef - only include if exact amount AND vendor match
+      const billAmount = Math.round(parseFloat(bill.TotalAmt || 0) * 100) / 100;
+      const billVendorId = bill.VendorRef?.value;
+
+      // Check if there's a Procore invoice with this exact amount from this vendor
+      const vendorIdsAtAmount = amountToVendorIds.get(billAmount);
+      if (vendorIdsAtAmount && billVendorId && vendorIdsAtAmount.has(String(billVendorId))) {
+        noCustomerRefMatched.push(bill);
+        included.push(bill);
+      } else {
+        noCustomerRefExcluded.push({
+          Id: bill.Id,
+          DocNumber: bill.DocNumber,
+          VendorRef: bill.VendorRef,
+          TotalAmt: bill.TotalAmt,
+        });
+      }
     } else {
+      // Bill has CustomerRef but for a different project
       excluded.push({
         Id: bill.Id,
         DocNumber: bill.DocNumber,
@@ -303,22 +344,24 @@ function filterBillsByProjectCustomer(bills: any[], projectCustomerId: string): 
     }
   }
 
-  // Log some excluded bills to see why they were filtered out
+  // Log filtering results
   console.log(`========== BILL FILTER DEBUG ==========`);
   console.log(`Project CustomerRef ID: ${projectCustomerId}`);
-  console.log(`Bills with matching CustomerRef: ${included.length - noCustomerRef.length}`);
-  console.log(`Bills with NO CustomerRef (included for review): ${noCustomerRef.length}`);
+  console.log(`Procore invoices for matching: ${procoreInvoiceRefs.length}`);
+  console.log(`Bills with matching CustomerRef: ${included.length - noCustomerRefMatched.length}`);
+  console.log(`Bills with NO CustomerRef + exact amount+vendor match: ${noCustomerRefMatched.length}`);
+  console.log(`Bills with NO CustomerRef excluded (no match): ${noCustomerRefExcluded.length}`);
   console.log(`Bills excluded (different CustomerRef): ${excluded.length}`);
-  if (noCustomerRef.length > 0) {
-    console.log(`Sample bills with NO CustomerRef (first 3):`);
-    for (const bill of noCustomerRef.slice(0, 3)) {
+  if (noCustomerRefMatched.length > 0) {
+    console.log(`Bills with NO CustomerRef that matched (first 5):`);
+    for (const bill of noCustomerRefMatched.slice(0, 5)) {
       console.log(`  - Bill #${bill.DocNumber || bill.Id} | Vendor: ${bill.VendorRef?.name} | $${bill.TotalAmt}`);
     }
   }
   if (excluded.length > 0) {
     console.log(`Sample excluded bills (first 5):`);
     for (const bill of excluded.slice(0, 5)) {
-      console.log(`  - Bill #${bill.DocNumber || bill.Id} | Vendor: ${bill.VendorRef?.name} | $${bill.TotalAmt} | CustomerRefs in lines: [${bill.lineCustomerRefs.join(', ') || 'NONE'}]`);
+      console.log(`  - Bill #${bill.DocNumber || bill.Id} | Vendor: ${bill.VendorRef?.name} | $${bill.TotalAmt} | CustomerRefs: [${bill.lineCustomerRefs.join(', ') || 'NONE'}]`);
     }
   }
   console.log(`========== END BILL FILTER DEBUG ==========`);
@@ -327,11 +370,12 @@ function filterBillsByProjectCustomer(bills: any[], projectCustomerId: string): 
 }
 
 // Fetch ALL QB bills and filter by project CustomerRef
-// This ensures we get ALL bills for the project, regardless of vendor matching
+// Bills with no CustomerRef are only included if they match a Procore invoice (amount + vendor)
 async function fetchAllBillsForProject(
   tokens: QBTokenData,
   userId: string,
-  projectCustomerId: string | null
+  projectCustomerId: string | null,
+  procoreInvoiceRefs: ProcoreInvoiceRef[] = []
 ): Promise<any[]> {
   console.log('Fetching ALL QB bills to filter by project...');
 
@@ -346,8 +390,8 @@ async function fetchAllBillsForProject(
   }
 
   // Filter to only bills that have the project CustomerRef in any line item
-  // Also include bills with NO CustomerRef for manual review
-  return filterBillsByProjectCustomer(allBills, projectCustomerId);
+  // Bills with NO CustomerRef only included if they have exact amount + vendor match
+  return filterBillsByProjectCustomer(allBills, projectCustomerId, procoreInvoiceRefs);
 }
 
 // Fetch other QB data (invoices, payments) - filtered by project customer
@@ -1805,7 +1849,9 @@ export const handler: Handler = async (event) => {
     console.log(`AI vendor matching complete: ${aiVendorMap.size} matches found`);
 
     // STEP 5: Build set of QB vendor IDs that are relevant to this project
+    // Also build invoice refs for matching bills without CustomerRef
     const projectVendorIds = new Set<string>();
+    const procoreInvoiceRefs: ProcoreInvoiceRef[] = [];
 
     // Add vendors from commitments (using AI-enhanced matching)
     for (const c of commitments) {
@@ -1813,10 +1859,17 @@ export const handler: Handler = async (event) => {
       if (match) projectVendorIds.add(match.id);
     }
 
-    // Add vendors from invoices
+    // Add vendors from invoices and build invoice refs
     for (const inv of procoreInvoices) {
       const match = findVendorMatch(inv.vendor, qbVendors, aiVendorMap);
-      if (match) projectVendorIds.add(match.id);
+      if (match) {
+        projectVendorIds.add(match.id);
+        procoreInvoiceRefs.push({
+          amount: inv.amount,
+          vendor: inv.vendor,
+          qbVendorId: match.id,
+        });
+      }
     }
 
     // Add vendors from direct costs
@@ -1828,6 +1881,7 @@ export const handler: Handler = async (event) => {
     }
 
     console.log(`Found ${projectVendorIds.size} QB vendors relevant to this project`);
+    console.log(`Built ${procoreInvoiceRefs.length} Procore invoice refs for bill matching`);
 
     // STEP 6: Find the project customer first (needed for filtering bills)
     const projectCustomer = await findProjectCustomer(qbTokens, userId, projectName);
@@ -1835,8 +1889,8 @@ export const handler: Handler = async (event) => {
     const projectCustomerName = projectCustomer?.customerName || null;
 
     // STEP 7: Fetch ALL QB bills and filter by project CustomerRef
-    // This gets ALL bills for the project, regardless of vendor matching
-    const qbBillsRaw = await fetchAllBillsForProject(qbTokens, userId, projectCustomerId);
+    // Bills without CustomerRef only included if exact amount+vendor match to Procore invoice
+    const qbBillsRaw = await fetchAllBillsForProject(qbTokens, userId, projectCustomerId, procoreInvoiceRefs);
     console.log(`Found ${qbBillsRaw.length} QB bills for project "${projectCustomerName || projectName}"`);
 
     // STEP 8: Fetch AR data (invoices and payments) - only if we have payment apps
