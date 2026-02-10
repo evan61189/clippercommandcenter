@@ -613,6 +613,30 @@ function normalizeString(str: string | number | undefined | null): string {
   return String(str).toLowerCase().trim().replace(/[^a-z0-9]/g, '');
 }
 
+// Strip common company suffixes for better vendor name matching
+function stripCompanySuffixes(str: string): string {
+  if (!str) return '';
+  // Common business suffixes and articles to remove
+  const suffixes = [
+    /\b(the)\s+/gi,           // "The" at beginning
+    /\s*(,?\s*)?(inc\.?|incorporated)$/gi,
+    /\s*(,?\s*)?(llc\.?|l\.l\.c\.?)$/gi,
+    /\s*(,?\s*)?(ltd\.?|limited)$/gi,
+    /\s*(,?\s*)?(corp\.?|corporation)$/gi,
+    /\s*(,?\s*)?(co\.?|company)$/gi,
+    /\s*(,?\s*)?(llp\.?|l\.l\.p\.?)$/gi,
+    /\s*(,?\s*)?(pllc\.?)$/gi,
+    /\s*(,?\s*)?(p\.?c\.?)$/gi,
+    /\s*(,?\s*)?(dba|d\/b\/a).*$/gi,
+  ];
+
+  let result = str.trim();
+  for (const suffix of suffixes) {
+    result = result.replace(suffix, '');
+  }
+  return result.trim();
+}
+
 function fuzzyMatch(str1: string, str2: string): number {
   const s1 = normalizeString(str1);
   const s2 = normalizeString(str2);
@@ -620,17 +644,27 @@ function fuzzyMatch(str1: string, str2: string): number {
   if (s1 === s2) return 100;
   if (s1.includes(s2) || s2.includes(s1)) return 85;
 
-  // Word-based matching (Jaccard similarity)
-  const words1 = new Set(str1.toLowerCase().split(/\s+/).filter(w => w.length > 2));
-  const words2 = new Set(str2.toLowerCase().split(/\s+/).filter(w => w.length > 2));
+  // Strip company suffixes for better matching
+  const stripped1 = stripCompanySuffixes(str1);
+  const stripped2 = stripCompanySuffixes(str2);
+  const s1Stripped = normalizeString(stripped1);
+  const s2Stripped = normalizeString(stripped2);
+
+  // Check if stripped versions match
+  if (s1Stripped === s2Stripped) return 95;
+  if (s1Stripped.includes(s2Stripped) || s2Stripped.includes(s1Stripped)) return 85;
+
+  // Word-based matching (Jaccard similarity) - use stripped versions
+  const words1 = new Set(stripped1.toLowerCase().split(/\s+/).filter(w => w.length > 2));
+  const words2 = new Set(stripped2.toLowerCase().split(/\s+/).filter(w => w.length > 2));
   const intersection = [...words1].filter(w => words2.has(w));
   const union = new Set([...words1, ...words2]);
 
   if (union.size === 0) return 0;
   const wordScore = Math.round((intersection.length / union.size) * 100);
 
-  // Levenshtein distance for better string similarity
-  const levenshteinScore = calculateLevenshteinSimilarity(s1, s2);
+  // Levenshtein distance for better string similarity - use stripped versions
+  const levenshteinScore = calculateLevenshteinSimilarity(s1Stripped, s2Stripped);
 
   return Math.max(wordScore, levenshteinScore);
 }
