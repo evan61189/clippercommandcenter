@@ -624,7 +624,7 @@ export default function RunReconciliation() {
                       { key: 'invoice_number', label: 'Invoice #', format: (v, item) => v || item?.number || '-' },
                       { key: 'vendor_name', label: 'Subcontractor' },
                       { key: 'status', label: 'Status' },
-                      { key: 'payment_summary', label: 'Net Amount', format: (v, item) => {
+                      { key: 'payment_summary', label: 'Net Amount', format: (_v, item) => {
                         // Use payment_summary.invoiced_amount_due for invoice total
                         const amount = item?.payment_summary?.invoiced_amount_due || item?.summary?.current_payment_due || item?.total_claimed_amount || 0
                         return `$${Number(amount).toLocaleString()}`
