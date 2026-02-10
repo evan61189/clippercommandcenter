@@ -326,6 +326,30 @@ function filterBillsByProjectCustomer(bills: any[], projectCustomerId: string): 
   return included;
 }
 
+// Fetch ALL QB bills and filter by project CustomerRef
+// This ensures we get ALL bills for the project, regardless of vendor matching
+async function fetchAllBillsForProject(
+  tokens: QBTokenData,
+  userId: string,
+  projectCustomerId: string | null
+): Promise<any[]> {
+  console.log('Fetching ALL QB bills to filter by project...');
+
+  // Fetch all bills from QuickBooks
+  const allBills = await paginatedQBQuery('SELECT * FROM Bill', 'Bill', tokens, userId);
+  console.log(`Total QB bills fetched: ${allBills.length}`);
+
+  // If no project customer ID, we can't filter by project
+  if (!projectCustomerId) {
+    console.log('No project customer ID - returning all bills');
+    return allBills;
+  }
+
+  // Filter to only bills that have the project CustomerRef in any line item
+  // Also include bills with NO CustomerRef for manual review
+  return filterBillsByProjectCustomer(allBills, projectCustomerId);
+}
+
 // Fetch other QB data (invoices, payments) - filtered by project customer
 async function fetchQBInvoicesAndPayments(
   tokens: QBTokenData,
@@ -1810,16 +1834,10 @@ export const handler: Handler = async (event) => {
     const projectCustomerId = projectCustomer?.customerId || null;
     const projectCustomerName = projectCustomer?.customerName || null;
 
-    // STEP 7: Fetch all QB bills for project vendors and filter by project customer
-    const projectVendorIdArray = Array.from(projectVendorIds);
-    let qbBillsRaw = await fetchQBBillsForVendors(projectVendorIdArray, qbTokens, userId);
-
-    // Filter bills to only include those with CustomerRef matching the project
-    if (projectCustomerId) {
-      const beforeFilter = qbBillsRaw.length;
-      qbBillsRaw = filterBillsByProjectCustomer(qbBillsRaw, projectCustomerId);
-      console.log(`Filtered ${beforeFilter} bills to ${qbBillsRaw.length} bills for project customer "${projectCustomerName}"`);
-    }
+    // STEP 7: Fetch ALL QB bills and filter by project CustomerRef
+    // This gets ALL bills for the project, regardless of vendor matching
+    const qbBillsRaw = await fetchAllBillsForProject(qbTokens, userId, projectCustomerId);
+    console.log(`Found ${qbBillsRaw.length} QB bills for project "${projectCustomerName || projectName}"`);
 
     // STEP 8: Fetch AR data (invoices and payments) - only if we have payment apps
     // Filter by customer matching the project name (get all invoices to catch discrepancies)
