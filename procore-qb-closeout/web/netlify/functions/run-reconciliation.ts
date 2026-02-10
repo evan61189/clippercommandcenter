@@ -1030,11 +1030,18 @@ Return ONLY the JSON array, no other text.`,
             v => v.DisplayName.toLowerCase() === match.qb.toLowerCase()
           );
           if (qbVendor) {
-            vendorMap.set(match.procore, {
-              name: qbVendor.DisplayName,
-              id: qbVendor.Id,
-              score: match.confidence,
-            });
+            // VALIDATE: Check that the AI match actually makes sense
+            // Use fuzzy matching to verify the AI didn't hallucinate
+            const validationScore = fuzzyMatch(match.procore, qbVendor.DisplayName);
+            if (validationScore >= 50) {
+              vendorMap.set(match.procore, {
+                name: qbVendor.DisplayName,
+                id: qbVendor.Id,
+                score: match.confidence,
+              });
+            } else {
+              console.log(`AI match rejected (validation failed): "${match.procore}" → "${qbVendor.DisplayName}" (fuzzy score: ${validationScore})`);
+            }
           }
         }
       }
