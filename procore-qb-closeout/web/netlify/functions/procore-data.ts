@@ -373,16 +373,54 @@ export const handler: Handler = async (event) => {
             const filteredReqs = reqs.filter((req: any) => String(req.project_id) === String(projectId));
             console.log(`Requisitions after project filter: ${filteredReqs.length} items`);
 
-            // Debug: Log first requisition to see actual field structure
+            // Debug: Log first requisition with ALL fields to identify correct amount field
             if (filteredReqs.length > 0) {
+              const firstReq = filteredReqs[0];
+              console.log('=== REQUISITION DEBUG (First Invoice) ===');
+              console.log('All keys:', Object.keys(firstReq).join(', '));
               console.log('DEBUG - First requisition FULL:', JSON.stringify({
-                id: filteredReqs[0].id,
-                project_id: filteredReqs[0].project_id,
-                number: filteredReqs[0].number,
-                invoice_number: filteredReqs[0].invoice_number,
-                status: filteredReqs[0].status,
-                total_claimed_amount: filteredReqs[0].total_claimed_amount,
+                id: firstReq.id,
+                project_id: firstReq.project_id,
+                number: firstReq.number,
+                invoice_number: firstReq.invoice_number,
+                status: firstReq.status,
+                vendor_name: firstReq.vendor_name,
+                // All possible amount fields
+                total_claimed_amount: firstReq.total_claimed_amount,
+                amount: firstReq.amount,
+                total_amount: firstReq.total_amount,
+                payment_due: firstReq.payment_due,
+                net_amount: firstReq.net_amount,
+                gross_amount: firstReq.gross_amount,
+                invoice_total: firstReq.invoice_total,
+                balance: firstReq.balance,
+                current_payment_due: firstReq.current_payment_due,
+                total_completed_and_stored_to_date: firstReq.total_completed_and_stored_to_date,
+                total_completed_work_retainage_to_date: firstReq.total_completed_work_retainage_to_date,
+                total_materials_presently_stored: firstReq.total_materials_presently_stored,
+                g702_total_completed_and_stored_to_date: firstReq.g702_total_completed_and_stored_to_date,
+                g702_total_earned_less_retainage: firstReq.g702_total_earned_less_retainage,
+                total_retainage: firstReq.total_retainage,
+                g702_current_payment_due: firstReq.g702_current_payment_due,
+                work_completed_from_previous_application: firstReq.work_completed_from_previous_application,
+                work_completed_this_period: firstReq.work_completed_this_period,
+                materials_presently_stored: firstReq.materials_presently_stored,
               }, null, 2));
+
+              // Also log a few more invoices to see the pattern
+              if (filteredReqs.length > 1) {
+                console.log('=== REQUISITION DEBUG (Invoice #2) ===');
+                const secondReq = filteredReqs[1];
+                console.log(JSON.stringify({
+                  number: secondReq.number,
+                  vendor_name: secondReq.vendor_name,
+                  total_claimed_amount: secondReq.total_claimed_amount,
+                  net_amount: secondReq.net_amount,
+                  total_completed_and_stored_to_date: secondReq.total_completed_and_stored_to_date,
+                  g702_current_payment_due: secondReq.g702_current_payment_due,
+                  work_completed_this_period: secondReq.work_completed_this_period,
+                }, null, 2));
+              }
             }
             return filteredReqs;
           }),

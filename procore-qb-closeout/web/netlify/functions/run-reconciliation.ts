@@ -517,16 +517,35 @@ function normalizeCommitments(procoreData: any): ProcoreCommitment[] {
 function normalizeProcoreInvoices(procoreData: any): ProcoreInvoice[] {
   const invoices: ProcoreInvoice[] = [];
 
-  // Debug: Log first invoice to see structure
+  // Debug: Log first invoice to see ALL amount-related fields
   const firstInv = procoreData.subInvoices?.[0];
   if (firstInv) {
-    console.log('Sample invoice structure:', JSON.stringify({
+    console.log('=== NORMALIZING INVOICE DEBUG ===');
+    console.log('All invoice keys:', Object.keys(firstInv).join(', '));
+    console.log('Sample invoice AMOUNTS:', JSON.stringify({
       id: firstInv.id,
-      vendor: firstInv.vendor,
-      origin_data: firstInv.origin_data,
-      contract: firstInv.contract,
-      commitment: firstInv.commitment,
-      keys: Object.keys(firstInv).slice(0, 20)
+      number: firstInv.number,
+      vendor_name: firstInv.vendor_name,
+      // All possible amount fields we might want
+      total_claimed_amount: firstInv.total_claimed_amount,
+      amount: firstInv.amount,
+      total_amount: firstInv.total_amount,
+      payment_due: firstInv.payment_due,
+      net_amount: firstInv.net_amount,
+      gross_amount: firstInv.gross_amount,
+      invoice_total: firstInv.invoice_total,
+      balance: firstInv.balance,
+      current_payment_due: firstInv.current_payment_due,
+      total_completed_and_stored_to_date: firstInv.total_completed_and_stored_to_date,
+      g702_total_completed_and_stored_to_date: firstInv.g702_total_completed_and_stored_to_date,
+      g702_total_earned_less_retainage: firstInv.g702_total_earned_less_retainage,
+      g702_current_payment_due: firstInv.g702_current_payment_due,
+      work_completed_this_period: firstInv.work_completed_this_period,
+      work_completed_from_previous_application: firstInv.work_completed_from_previous_application,
+      materials_presently_stored: firstInv.materials_presently_stored,
+      total_materials_presently_stored: firstInv.total_materials_presently_stored,
+      total_retainage: firstInv.total_retainage,
+      total_completed_work_retainage_to_date: firstInv.total_completed_work_retainage_to_date,
     }, null, 2));
   }
 
