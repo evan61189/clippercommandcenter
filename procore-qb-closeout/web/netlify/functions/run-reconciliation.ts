@@ -1585,17 +1585,41 @@ function matchDirectCostsToBills(
 function findUnmatchedQBBills(
   qbBills: QBBill[],
   matchedQBIds: Set<string>,
-  _projectVendorIds: Set<string>,
-  _qbVendors: any[],
-  _procoreInvoices: ProcoreInvoice[],
-  _directCosts: ProcoreDirectCost[],
-  _matchedProcoreIds: Set<string>
+  commitments: ProcoreCommitment[],
+  qbVendors: any[],
+  aiVendorMap: Map<string, { name: string; id: string; score: number }>
 ): MatchResult[] {
   const results: MatchResult[] = [];
+
+  // Build a set of vendors that have subcontracts (normalized for matching)
+  const subcontractVendors = new Set<string>();
+  for (const c of commitments) {
+    if (c.type === 'subcontract') {
+      subcontractVendors.add(c.vendor.toLowerCase().trim());
+    }
+  }
+
+  // Also add AI-mapped vendor names for subcontract vendors
+  for (const c of commitments) {
+    if (c.type === 'subcontract') {
+      const aiMatch = aiVendorMap.get(c.vendor);
+      if (aiMatch) {
+        subcontractVendors.add(aiMatch.name.toLowerCase().trim());
+      }
+    }
+  }
 
   // Show all unmatched QB bills - they're already filtered by project CustomerRef
   for (const bill of qbBills) {
     if (matchedQBIds.has(bill.id)) continue;
+
+    // Check if this vendor has a subcontract
+    const billVendorLower = bill.vendor.toLowerCase().trim();
+    const hasSubcontract = subcontractVendors.has(billVendorLower) ||
+      [...subcontractVendors].some(sv => {
+        const score = fuzzyMatch(billVendorLower, sv);
+        return score >= 65;
+      });
 
     // Build detailed notes with all QB data
     const detailParts = [
@@ -1607,11 +1631,17 @@ function findUnmatchedQBBills(
       detailParts.push(`Memo: ${bill.memo}`);
     }
 
+    // Categorize based on whether vendor has a subcontract
+    const matchType = hasSubcontract ? 'invoice' : 'direct_cost';
+    const description = hasSubcontract
+      ? `QB Bill #${bill.docNumber || bill.id} - ${bill.vendor} - $${bill.amount.toFixed(2)}`
+      : `Direct Cost: ${bill.vendor} - $${bill.amount.toFixed(2)}`;
+
     results.push({
       id: generateId(),
-      matchType: 'invoice',
+      matchType,
       category: 'accounts_payable',
-      description: `QB Bill #${bill.docNumber || bill.id} - ${bill.vendor} - $${bill.amount.toFixed(2)}`,
+      description,
       vendor: bill.vendor,
       customer: null,
       procoreRef: null,
@@ -1630,7 +1660,9 @@ function findUnmatchedQBBills(
     });
   }
 
-  console.log(`Found ${results.length} unmatched QB bills for this project`);
+  const subInvoiceCount = results.filter(r => r.matchType === 'invoice').length;
+  const directCostCount = results.filter(r => r.matchType === 'direct_cost').length;
+  console.log(`Found ${results.length} unmatched QB bills: ${subInvoiceCount} sub invoices, ${directCostCount} direct costs`);
   return results;
 }
 
@@ -2043,10 +2075,9 @@ export const handler: Handler = async (event) => {
     allResults.push(...directCostResults);
     console.log(`After direct cost matching, total matched QB bills: ${matchedQBBillIds.size}`);
 
-    // 3. Find unmatched QB bills
+    // 3. Find unmatched QB bills - categorize as sub invoice or direct cost based on subcontract existence
     const unmatchedBillResults = findUnmatchedQBBills(
-      qbBills, matchedQBBillIds, projectVendorIds, qbVendors,
-      procoreInvoices, directCosts, matchedProcoreIds
+      qbBills, matchedQBBillIds, commitments, qbVendors, aiVendorMap
     );
     allResults.push(...unmatchedBillResults);
     console.log(`Unmatched QB bills added to results: ${unmatchedBillResults.length}`);
