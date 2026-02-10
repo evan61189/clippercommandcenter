@@ -222,12 +222,61 @@ async function fetchQBBillsForVendors(
   return vendorBills;
 }
 
+// Find the QB customer that matches the project name
+async function findProjectCustomer(
+  tokens: QBTokenData,
+  userId: string,
+  projectName: string
+): Promise<{ customerId: string; customerName: string } | null> {
+  console.log('Finding QB customer for project...');
+
+  const customers = await paginatedQBQuery('SELECT * FROM Customer WHERE Active = true', 'Customer', tokens, userId);
+  console.log(`Found ${customers.length} QB customers`);
+
+  let bestCustomer: { Id: string; DisplayName: string; score: number } | null = null;
+  for (const customer of customers) {
+    const customerName = customer.DisplayName || customer.FullyQualifiedName || '';
+    const score = fuzzyMatch(projectName, customerName);
+    if (score >= 70 && (!bestCustomer || score > bestCustomer.score)) {
+      bestCustomer = { Id: customer.Id, DisplayName: customerName, score };
+    }
+  }
+
+  if (bestCustomer) {
+    console.log(`Matched project "${projectName}" to QB customer "${bestCustomer.DisplayName}" (ID: ${bestCustomer.Id}, score: ${bestCustomer.score})`);
+    return { customerId: bestCustomer.Id, customerName: bestCustomer.DisplayName };
+  }
+
+  console.log(`No matching QB customer found for project "${projectName}"`);
+  return null;
+}
+
+// Filter QB bills to only include those with CustomerRef matching the project
+function filterBillsByProjectCustomer(bills: any[], projectCustomerId: string): any[] {
+  if (!projectCustomerId) return bills;
+
+  return bills.filter((bill: any) => {
+    // Check if any line item has a CustomerRef matching the project
+    const lines = bill.Line || [];
+    for (const line of lines) {
+      const customerRef =
+        line.AccountBasedExpenseLineDetail?.CustomerRef?.value ||
+        line.ItemBasedExpenseLineDetail?.CustomerRef?.value;
+      if (customerRef === projectCustomerId) {
+        return true;
+      }
+    }
+    return false;
+  });
+}
+
 // Fetch other QB data (invoices, payments) - filtered by project customer
 async function fetchQBInvoicesAndPayments(
   tokens: QBTokenData,
   userId: string,
-  projectName: string
-): Promise<{ invoices: any[]; paymentsReceived: any[]; matchedCustomer: string | null }> {
+  projectName: string,
+  projectCustomerId?: string | null
+): Promise<{ invoices: any[]; paymentsReceived: any[]; matchedCustomer: string | null; matchedCustomerId: string | null }> {
   console.log('Fetching QB customers to find project match...');
 
   // First fetch all customers to find the best match for the project
@@ -236,17 +285,29 @@ async function fetchQBInvoicesAndPayments(
 
   // Find best matching customer for this project (require higher threshold)
   let bestCustomer: { Id: string; DisplayName: string; score: number } | null = null;
-  for (const customer of customers) {
-    const customerName = customer.DisplayName || customer.FullyQualifiedName || '';
-    const score = fuzzyMatch(projectName, customerName);
-    // Require at least 70% match for customer selection
-    if (score >= 70 && (!bestCustomer || score > bestCustomer.score)) {
-      bestCustomer = { Id: customer.Id, DisplayName: customerName, score };
+
+  // If we already have a customer ID, use it
+  if (projectCustomerId) {
+    const customer = customers.find((c: any) => c.Id === projectCustomerId);
+    if (customer) {
+      bestCustomer = { Id: customer.Id, DisplayName: customer.DisplayName || customer.FullyQualifiedName || '', score: 100 };
+    }
+  }
+
+  // Otherwise find by name matching
+  if (!bestCustomer) {
+    for (const customer of customers) {
+      const customerName = customer.DisplayName || customer.FullyQualifiedName || '';
+      const score = fuzzyMatch(projectName, customerName);
+      // Require at least 70% match for customer selection
+      if (score >= 70 && (!bestCustomer || score > bestCustomer.score)) {
+        bestCustomer = { Id: customer.Id, DisplayName: customerName, score };
+      }
     }
   }
 
   if (bestCustomer) {
-    console.log(`Matched project "${projectName}" to QB customer "${bestCustomer.DisplayName}" (score: ${bestCustomer.score})`);
+    console.log(`Matched project "${projectName}" to QB customer "${bestCustomer.DisplayName}" (ID: ${bestCustomer.Id}, score: ${bestCustomer.score})`);
 
     // Fetch ALL invoices for this customer (don't filter by amount - we want to catch discrepancies)
     const invoices = await paginatedQBQuery(
@@ -275,10 +336,10 @@ async function fetchQBInvoicesAndPayments(
     );
     console.log(`Found ${paymentsReceived.length} payments for customer "${bestCustomer.DisplayName}"`);
 
-    return { invoices, paymentsReceived, matchedCustomer: bestCustomer.DisplayName };
+    return { invoices, paymentsReceived, matchedCustomer: bestCustomer.DisplayName, matchedCustomerId: bestCustomer.Id };
   } else {
     console.log(`No matching QB customer found for project "${projectName}"`);
-    return { invoices: [], paymentsReceived: [], matchedCustomer: null };
+    return { invoices: [], paymentsReceived: [], matchedCustomer: null, matchedCustomerId: null };
   }
 }
 
@@ -1733,17 +1794,29 @@ export const handler: Handler = async (event) => {
 
     console.log(`Found ${projectVendorIds.size} QB vendors relevant to this project`);
 
-    // STEP 6: Fetch all QB bills for project vendors (for manual matching)
+    // STEP 6: Find the project customer first (needed for filtering bills)
+    const projectCustomer = await findProjectCustomer(qbTokens, userId, projectName);
+    const projectCustomerId = projectCustomer?.customerId || null;
+    const projectCustomerName = projectCustomer?.customerName || null;
+
+    // STEP 7: Fetch all QB bills for project vendors and filter by project customer
     const projectVendorIdArray = Array.from(projectVendorIds);
-    const qbBillsRaw = await fetchQBBillsForVendors(projectVendorIdArray, qbTokens, userId);
+    let qbBillsRaw = await fetchQBBillsForVendors(projectVendorIdArray, qbTokens, userId);
+
+    // Filter bills to only include those with CustomerRef matching the project
+    if (projectCustomerId) {
+      const beforeFilter = qbBillsRaw.length;
+      qbBillsRaw = filterBillsByProjectCustomer(qbBillsRaw, projectCustomerId);
+      console.log(`Filtered ${beforeFilter} bills to ${qbBillsRaw.length} bills for project customer "${projectCustomerName}"`);
+    }
 
     // STEP 8: Fetch AR data (invoices and payments) - only if we have payment apps
     // Filter by customer matching the project name (get all invoices to catch discrepancies)
     let qbInvoicesRaw: any[] = [];
     let qbPaymentsRaw: any[] = [];
-    let matchedQBCustomer: string | null = null;
+    let matchedQBCustomer: string | null = projectCustomerName;
     if (paymentApps.length > 0) {
-      const arData = await fetchQBInvoicesAndPayments(qbTokens, userId, projectName);
+      const arData = await fetchQBInvoicesAndPayments(qbTokens, userId, projectName, projectCustomerId);
       qbInvoicesRaw = arData.invoices;
       qbPaymentsRaw = arData.paymentsReceived;
       matchedQBCustomer = arData.matchedCustomer;
