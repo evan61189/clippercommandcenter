@@ -252,16 +252,19 @@ async function findProjectCustomer(
 }
 
 // Filter QB bills to only include those with CustomerRef matching the project
+// Also includes bills with NO CustomerRef (need manual review)
 function filterBillsByProjectCustomer(bills: any[], projectCustomerId: string): any[] {
   if (!projectCustomerId) return bills;
 
   const included: any[] = [];
+  const noCustomerRef: any[] = [];
   const excluded: any[] = [];
 
   for (const bill of bills) {
     // Check if any line item has a CustomerRef matching the project
     const lines = bill.Line || [];
     let matchFound = false;
+    let hasAnyCustomerRef = false;
     const lineCustomerRefs: string[] = [];
 
     for (const line of lines) {
@@ -273,6 +276,7 @@ function filterBillsByProjectCustomer(bills: any[], projectCustomerId: string): 
         line.ItemBasedExpenseLineDetail?.CustomerRef?.name;
 
       if (customerRef) {
+        hasAnyCustomerRef = true;
         lineCustomerRefs.push(`${customerRef}:${customerName || 'unknown'}`);
       }
 
@@ -282,6 +286,10 @@ function filterBillsByProjectCustomer(bills: any[], projectCustomerId: string): 
     }
 
     if (matchFound) {
+      included.push(bill);
+    } else if (!hasAnyCustomerRef) {
+      // Bills with no CustomerRef should be included for manual review
+      noCustomerRef.push(bill);
       included.push(bill);
     } else {
       excluded.push({
@@ -298,7 +306,15 @@ function filterBillsByProjectCustomer(bills: any[], projectCustomerId: string): 
   // Log some excluded bills to see why they were filtered out
   console.log(`========== BILL FILTER DEBUG ==========`);
   console.log(`Project CustomerRef ID: ${projectCustomerId}`);
-  console.log(`Bills included: ${included.length}, Bills excluded: ${excluded.length}`);
+  console.log(`Bills with matching CustomerRef: ${included.length - noCustomerRef.length}`);
+  console.log(`Bills with NO CustomerRef (included for review): ${noCustomerRef.length}`);
+  console.log(`Bills excluded (different CustomerRef): ${excluded.length}`);
+  if (noCustomerRef.length > 0) {
+    console.log(`Sample bills with NO CustomerRef (first 3):`);
+    for (const bill of noCustomerRef.slice(0, 3)) {
+      console.log(`  - Bill #${bill.DocNumber || bill.Id} | Vendor: ${bill.VendorRef?.name} | $${bill.TotalAmt}`);
+    }
+  }
   if (excluded.length > 0) {
     console.log(`Sample excluded bills (first 5):`);
     for (const bill of excluded.slice(0, 5)) {
@@ -308,6 +324,30 @@ function filterBillsByProjectCustomer(bills: any[], projectCustomerId: string): 
   console.log(`========== END BILL FILTER DEBUG ==========`);
 
   return included;
+}
+
+// Fetch ALL QB bills and filter by project CustomerRef
+// This ensures we get ALL bills for the project, regardless of vendor matching
+async function fetchAllBillsForProject(
+  tokens: QBTokenData,
+  userId: string,
+  projectCustomerId: string | null
+): Promise<any[]> {
+  console.log('Fetching ALL QB bills to filter by project...');
+
+  // Fetch all bills from QuickBooks
+  const allBills = await paginatedQBQuery('SELECT * FROM Bill', 'Bill', tokens, userId);
+  console.log(`Total QB bills fetched: ${allBills.length}`);
+
+  // If no project customer ID, we can't filter by project
+  if (!projectCustomerId) {
+    console.log('No project customer ID - returning all bills');
+    return allBills;
+  }
+
+  // Filter to only bills that have the project CustomerRef in any line item
+  // Also include bills with NO CustomerRef for manual review
+  return filterBillsByProjectCustomer(allBills, projectCustomerId);
 }
 
 // Fetch other QB data (invoices, payments) - filtered by project customer
@@ -1794,16 +1834,10 @@ export const handler: Handler = async (event) => {
     const projectCustomerId = projectCustomer?.customerId || null;
     const projectCustomerName = projectCustomer?.customerName || null;
 
-    // STEP 7: Fetch all QB bills for project vendors and filter by project customer
-    const projectVendorIdArray = Array.from(projectVendorIds);
-    let qbBillsRaw = await fetchQBBillsForVendors(projectVendorIdArray, qbTokens, userId);
-
-    // Filter bills to only include those with CustomerRef matching the project
-    if (projectCustomerId) {
-      const beforeFilter = qbBillsRaw.length;
-      qbBillsRaw = filterBillsByProjectCustomer(qbBillsRaw, projectCustomerId);
-      console.log(`Filtered ${beforeFilter} bills to ${qbBillsRaw.length} bills for project customer "${projectCustomerName}"`);
-    }
+    // STEP 7: Fetch ALL QB bills and filter by project CustomerRef
+    // This gets ALL bills for the project, regardless of vendor matching
+    const qbBillsRaw = await fetchAllBillsForProject(qbTokens, userId, projectCustomerId);
+    console.log(`Found ${qbBillsRaw.length} QB bills for project "${projectCustomerName || projectName}"`);
 
     // STEP 8: Fetch AR data (invoices and payments) - only if we have payment apps
     // Filter by customer matching the project name (get all invoices to catch discrepancies)
