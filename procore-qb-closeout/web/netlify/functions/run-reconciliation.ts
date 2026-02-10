@@ -620,7 +620,7 @@ function fuzzyMatch(str1: string, str2: string): number {
   if (s1 === s2) return 100;
   if (s1.includes(s2) || s2.includes(s1)) return 85;
 
-  // Word-based matching
+  // Word-based matching (Jaccard similarity)
   const words1 = new Set(str1.toLowerCase().split(/\s+/).filter(w => w.length > 2));
   const words2 = new Set(str2.toLowerCase().split(/\s+/).filter(w => w.length > 2));
   const intersection = [...words1].filter(w => words2.has(w));
@@ -629,19 +629,43 @@ function fuzzyMatch(str1: string, str2: string): number {
   if (union.size === 0) return 0;
   const wordScore = Math.round((intersection.length / union.size) * 100);
 
-  // Levenshtein-like similarity for short strings
-  if (s1.length < 20 && s2.length < 20) {
-    let matches = 0;
-    const shorter = s1.length < s2.length ? s1 : s2;
-    const longer = s1.length < s2.length ? s2 : s1;
-    for (let i = 0; i < shorter.length; i++) {
-      if (longer.includes(shorter[i])) matches++;
-    }
-    const charScore = Math.round((matches / longer.length) * 100);
-    return Math.max(wordScore, charScore);
+  // Levenshtein distance for better string similarity
+  const levenshteinScore = calculateLevenshteinSimilarity(s1, s2);
+
+  return Math.max(wordScore, levenshteinScore);
+}
+
+// Calculate Levenshtein distance and convert to similarity percentage
+function calculateLevenshteinSimilarity(s1: string, s2: string): number {
+  if (s1.length === 0 && s2.length === 0) return 100;
+  if (s1.length === 0 || s2.length === 0) return 0;
+
+  // Create distance matrix
+  const matrix: number[][] = [];
+  for (let i = 0; i <= s1.length; i++) {
+    matrix[i] = [i];
+  }
+  for (let j = 0; j <= s2.length; j++) {
+    matrix[0][j] = j;
   }
 
-  return wordScore;
+  // Fill in the matrix
+  for (let i = 1; i <= s1.length; i++) {
+    for (let j = 1; j <= s2.length; j++) {
+      const cost = s1[i - 1] === s2[j - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,      // deletion
+        matrix[i][j - 1] + 1,      // insertion
+        matrix[i - 1][j - 1] + cost // substitution
+      );
+    }
+  }
+
+  const distance = matrix[s1.length][s2.length];
+  const maxLength = Math.max(s1.length, s2.length);
+  const similarity = Math.round(((maxLength - distance) / maxLength) * 100);
+
+  return similarity;
 }
 
 function amountMatches(amount1: number, amount2: number, tolerance: number = 0.01): boolean {
