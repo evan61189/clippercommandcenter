@@ -1481,8 +1481,10 @@ function generateCloseoutItems(
     }
   }
 
-  // Unmatched items needing action
+  // Unmatched Procore items needing action (QB bills from other projects are excluded)
   for (const r of matchResults) {
+    // Only create closeout items for unmatched PROCORE items (not QB items)
+    // QB items may be from other projects so we don't want to count them as exposure
     if (r.status === 'unmatched_procore' && r.procoreValue && r.procoreValue >= 1000) {
       items.push({
         itemId: `CI-${String(itemNum++).padStart(4, '0')}`,
@@ -1494,17 +1496,8 @@ function generateCloseoutItems(
         priority: 2,
       });
     }
-    if (r.status === 'unmatched_qb' && r.qbValue && r.qbValue >= 1000) {
-      items.push({
-        itemId: `CI-${String(itemNum++).padStart(4, '0')}`,
-        category: 'missing_entry',
-        description: `Verify in Procore: ${r.description}`,
-        vendor: r.vendor,
-        amountAtRisk: Math.abs(r.qbValue),
-        actionRequired: `Verify this QuickBooks entry ($${Math.abs(r.qbValue).toFixed(2)}) is recorded in Procore`,
-        priority: 2,
-      });
-    }
+    // Note: We don't create closeout items for unmatched_qb because we can't
+    // reliably determine if they're for this project (vendors work across projects)
   }
 
   return items;

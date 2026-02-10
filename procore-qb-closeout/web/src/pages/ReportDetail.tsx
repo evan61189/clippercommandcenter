@@ -535,6 +535,25 @@ function ResultsTable({ results, title }: { results: any[]; title?: string }) {
             </tr>
           ))}
         </tbody>
+        <tfoot className="bg-gray-100 font-semibold">
+          <tr>
+            <td className="px-3 py-2" colSpan={4}>TOTALS</td>
+            <td className="px-3 py-2 text-right whitespace-nowrap">
+              {formatCurrency(sortedResults.reduce((sum, r) => sum + (r.procore_value || 0), 0))}
+            </td>
+            <td className="px-3 py-2"></td>
+            <td className="px-3 py-2 text-right whitespace-nowrap">
+              {formatCurrency(sortedResults.reduce((sum, r) => sum + (r.qb_value || 0), 0))}
+            </td>
+            <td className={`px-3 py-2 text-right whitespace-nowrap ${
+              sortedResults.reduce((sum, r) => sum + (r.variance || 0), 0) > 0 ? 'text-red-600' :
+              sortedResults.reduce((sum, r) => sum + (r.variance || 0), 0) < 0 ? 'text-green-600' : ''
+            }`}>
+              {formatCurrency(sortedResults.reduce((sum, r) => sum + (r.variance || 0), 0))}
+            </td>
+            <td className="px-3 py-2" colSpan={2}></td>
+          </tr>
+        </tfoot>
       </table>
       <p className="text-xs text-gray-400 mt-2">Showing {sortedResults.length} results</p>
     </div>
