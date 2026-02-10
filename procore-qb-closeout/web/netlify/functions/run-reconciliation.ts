@@ -317,6 +317,7 @@ function filterBillsByProjectCustomer(
       // Bill has NO CustomerRef - only include if exact amount AND vendor match
       const billAmount = Math.round(parseFloat(bill.TotalAmt || 0) * 100) / 100;
       const billVendorId = bill.VendorRef?.value;
+      const billVendorName = bill.VendorRef?.name;
 
       // Check if there's a Procore invoice with this exact amount from this vendor
       const vendorIdsAtAmount = amountToVendorIds.get(billAmount);
@@ -324,6 +325,16 @@ function filterBillsByProjectCustomer(
         noCustomerRefMatched.push(bill);
         included.push(bill);
       } else {
+        // Debug: log why this bill didn't match
+        const hasAmountMatch = amountToVendorIds.has(billAmount);
+        const vendorIdStr = String(billVendorId);
+        console.log(`NO-CUSTOMERREF BILL EXCLUDED: Bill #${bill.DocNumber || bill.Id} | $${billAmount} | Vendor: "${billVendorName}" (ID: ${billVendorId})`);
+        console.log(`  - Amount ${billAmount} in Procore: ${hasAmountMatch}`);
+        if (hasAmountMatch) {
+          const expectedVendorIds = [...(vendorIdsAtAmount || [])];
+          console.log(`  - Expected vendor IDs for this amount: [${expectedVendorIds.join(', ')}]`);
+          console.log(`  - Bill vendor ID "${vendorIdStr}" matches: ${vendorIdsAtAmount?.has(vendorIdStr)}`);
+        }
         noCustomerRefExcluded.push({
           Id: bill.Id,
           DocNumber: bill.DocNumber,
@@ -1052,7 +1063,26 @@ function findVendorMatch(
   }
 
   // Fall back to fuzzy matching
-  return findBestVendorMatch(procoreVendor, qbVendors);
+  const fuzzyResult = findBestVendorMatch(procoreVendor, qbVendors);
+
+  // Debug: log when fuzzy matching fails for vendors that look similar
+  if (!fuzzyResult) {
+    // Find best partial match for debugging
+    let bestScore = 0;
+    let bestName = '';
+    for (const qbVendor of qbVendors) {
+      const score = fuzzyMatch(procoreVendor, qbVendor.DisplayName);
+      if (score > bestScore) {
+        bestScore = score;
+        bestName = qbVendor.DisplayName;
+      }
+    }
+    if (bestScore > 40) {
+      console.log(`VENDOR MATCH FAILED: "${procoreVendor}" best match was "${bestName}" with score ${bestScore} (threshold: 65)`);
+    }
+  }
+
+  return fuzzyResult;
 }
 
 // Match Procore sub invoices to QuickBooks bills
@@ -1860,6 +1890,7 @@ export const handler: Handler = async (event) => {
     }
 
     // Add vendors from invoices and build invoice refs
+    console.log(`========== INVOICE REF BUILD DEBUG ==========`);
     for (const inv of procoreInvoices) {
       const match = findVendorMatch(inv.vendor, qbVendors, aiVendorMap);
       if (match) {
@@ -1869,8 +1900,12 @@ export const handler: Handler = async (event) => {
           vendor: inv.vendor,
           qbVendorId: match.id,
         });
+        console.log(`Invoice ref: "${inv.vendor}" → QB vendor "${match.name}" (ID: ${match.id}) | $${inv.amount}`);
+      } else {
+        console.log(`NO MATCH for invoice: "${inv.vendor}" | $${inv.amount}`);
       }
     }
+    console.log(`========== END INVOICE REF DEBUG ==========`);
 
     // Add vendors from direct costs
     for (const dc of directCosts) {
