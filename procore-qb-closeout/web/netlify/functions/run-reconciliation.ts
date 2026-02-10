@@ -551,8 +551,8 @@ console.log('Sample invoice AMOUNTS:', JSON.stringify({
       vendor: vendorName,
       number: inv.number || inv.invoice_number || '',
       status: inv.status || '',
-      // v1.1 API uses total_claimed_amount for requisitions
-      amount: parseFloat(inv.total_claimed_amount || inv.amount || inv.total_amount || inv.payment_due || 0),
+      // Use payment_summary.invoiced_amount_due for invoice total (not total_claimed_amount which is "Work Completed This Period")
+      amount: parseFloat(inv.payment_summary?.invoiced_amount_due || inv.summary?.current_payment_due || inv.total_claimed_amount || 0),
       billingDate: inv.billing_date || inv.invoice_date || '',
       paymentDue: parseFloat(inv.payment_due || inv.balance || 0),
     });
