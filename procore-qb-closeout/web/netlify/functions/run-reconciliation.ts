@@ -255,19 +255,59 @@ async function findProjectCustomer(
 function filterBillsByProjectCustomer(bills: any[], projectCustomerId: string): any[] {
   if (!projectCustomerId) return bills;
 
-  return bills.filter((bill: any) => {
+  const included: any[] = [];
+  const excluded: any[] = [];
+
+  for (const bill of bills) {
     // Check if any line item has a CustomerRef matching the project
     const lines = bill.Line || [];
+    let matchFound = false;
+    const lineCustomerRefs: string[] = [];
+
     for (const line of lines) {
       const customerRef =
         line.AccountBasedExpenseLineDetail?.CustomerRef?.value ||
         line.ItemBasedExpenseLineDetail?.CustomerRef?.value;
+      const customerName =
+        line.AccountBasedExpenseLineDetail?.CustomerRef?.name ||
+        line.ItemBasedExpenseLineDetail?.CustomerRef?.name;
+
+      if (customerRef) {
+        lineCustomerRefs.push(`${customerRef}:${customerName || 'unknown'}`);
+      }
+
       if (customerRef === projectCustomerId) {
-        return true;
+        matchFound = true;
       }
     }
-    return false;
-  });
+
+    if (matchFound) {
+      included.push(bill);
+    } else {
+      excluded.push({
+        Id: bill.Id,
+        DocNumber: bill.DocNumber,
+        VendorRef: bill.VendorRef,
+        TotalAmt: bill.TotalAmt,
+        TxnDate: bill.TxnDate,
+        lineCustomerRefs,
+      });
+    }
+  }
+
+  // Log some excluded bills to see why they were filtered out
+  console.log(`========== BILL FILTER DEBUG ==========`);
+  console.log(`Project CustomerRef ID: ${projectCustomerId}`);
+  console.log(`Bills included: ${included.length}, Bills excluded: ${excluded.length}`);
+  if (excluded.length > 0) {
+    console.log(`Sample excluded bills (first 5):`);
+    for (const bill of excluded.slice(0, 5)) {
+      console.log(`  - Bill #${bill.DocNumber || bill.Id} | Vendor: ${bill.VendorRef?.name} | $${bill.TotalAmt} | CustomerRefs in lines: [${bill.lineCustomerRefs.join(', ') || 'NONE'}]`);
+    }
+  }
+  console.log(`========== END BILL FILTER DEBUG ==========`);
+
+  return included;
 }
 
 // Fetch other QB data (invoices, payments) - filtered by project customer
@@ -1797,6 +1837,13 @@ export const handler: Handler = async (event) => {
     );
     allResults.push(...invoiceResults);
 
+    console.log(`========== MATCHING DEBUG ==========`);
+    console.log(`QB Bills available for matching: ${qbBills.length}`);
+    console.log(`Procore invoices to match: ${procoreInvoices.length}`);
+    console.log(`QB Bills matched to Procore invoices: ${matchedQBBillIds.size}`);
+    console.log(`Procore invoices matched: ${matchedProcoreIds.size}`);
+    console.log(`QB Bills remaining unmatched: ${qbBills.length - matchedQBBillIds.size}`);
+
     // 2. Match direct costs to remaining QB bills
     const directCostResults = matchDirectCostsToBills(
       directCosts,
@@ -1806,13 +1853,16 @@ export const handler: Handler = async (event) => {
       aiVendorMap
     );
     allResults.push(...directCostResults);
+    console.log(`After direct cost matching, total matched QB bills: ${matchedQBBillIds.size}`);
 
-    // 3. Find unmatched QB bills (only bills that could match UNMATCHED Procore invoices)
+    // 3. Find unmatched QB bills
     const unmatchedBillResults = findUnmatchedQBBills(
       qbBills, matchedQBBillIds, projectVendorIds, qbVendors,
       procoreInvoices, directCosts, matchedProcoreIds
     );
     allResults.push(...unmatchedBillResults);
+    console.log(`Unmatched QB bills added to results: ${unmatchedBillResults.length}`);
+    console.log(`========== END MATCHING DEBUG ==========`);
 
     // 4. Match payment applications to QB invoices (AR)
     const paymentAppResults = matchPaymentAppsToInvoices(paymentApps, qbInvoices, projectName);
