@@ -628,7 +628,15 @@ async function fetchQBLaborExpenses(
   const totalLabor = laborExpenses.reduce((sum, e) => sum + e.amount, 0);
   console.log(`Total QB labor expenses: $${totalLabor.toFixed(2)}`);
 
-  return laborExpenses;
+  return {
+    expenses: laborExpenses,
+    stats: {
+      totalLaborLineItems,
+      withCustomerRef: lineItemsWithCustomer,
+      withoutCustomerRef: lineItemsWithoutCustomer,
+      matchingProject: lineItemsMatchingProject,
+    }
+  };
 }
 
 // ============== Type Definitions ==============
@@ -1771,7 +1779,8 @@ function isLaborDirectCost(dc: ProcoreDirectCost): boolean {
     desc.includes('wages') ||
     desc.includes('salary') ||
     desc.includes('worker') ||
-    desc.includes('employee');
+    desc.includes('employee') ||
+    desc.includes('general conditions'); // GC typically represents self-performed labor
 }
 
 // Match Procore payroll direct costs to QB labor expenses
@@ -2399,9 +2408,12 @@ export const handler: Handler = async (event) => {
     const qbPayments = normalizeQBPayments({ paymentsReceived: qbPaymentsRaw });
 
     // STEP 9: Fetch QB labor expenses (accounts 5010-5012)
-    const qbLaborExpenses = await fetchQBLaborExpenses(qbTokens, userId, projectCustomerId);
+    const { expenses: qbLaborExpenses, stats: laborStats } = await fetchQBLaborExpenses(qbTokens, userId, projectCustomerId);
 
     console.log(`QB data for project: ${qbBills.length} bills, ${qbInvoices.length} invoices, ${qbLaborExpenses.length} labor expenses`);
+    if (laborStats.withoutCustomerRef > 0) {
+      console.log(`Note: ${laborStats.withoutCustomerRef} untagged labor expenses exist in QB (not assigned to any project)`);
+    }
 
     // Run all matching
     const allResults: MatchResult[] = [];
@@ -2555,6 +2567,13 @@ export const handler: Handler = async (event) => {
       qbo_retention_paid: qboRetentionPaid,
       procore_labor: procoreLabor,
       qbo_labor: qboLabor,
+      // Labor stats for UI warnings
+      labor_stats: {
+        total_qb_labor_items: laborStats.totalLaborLineItems,
+        tagged_to_projects: laborStats.withCustomerRef,
+        untagged: laborStats.withoutCustomerRef,
+        matching_this_project: laborStats.matchingProject,
+      },
       total_items: allResults.length,
       matched_items: matchedCount,
       partial_matches: partialCount,
