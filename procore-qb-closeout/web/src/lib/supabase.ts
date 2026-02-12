@@ -53,6 +53,9 @@ export interface ReconciliationReport {
   estimated_exposure: number
   executive_summary: string | null
   ai_analysis: any
+  // Closeout eligibility (Phase 8+9)
+  soft_close_eligible: boolean | null
+  hard_close_eligible: boolean | null
   status: string
   created_at: string
 }
