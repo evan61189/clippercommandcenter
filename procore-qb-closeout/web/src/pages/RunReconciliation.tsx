@@ -29,6 +29,7 @@ interface ProcoreProject {
   name: string
   project_number: string
   status: string
+  stage: string  // Procore may use 'stage' instead of 'status' for project lifecycle
 }
 
 type Step = 'select' | 'fetching_procore' | 'procore_fetched' | 'fetching_qb' | 'reconciling' | 'complete' | 'error'
@@ -131,10 +132,16 @@ export default function RunReconciliation() {
 
   const userId = getUserId()
 
-  // Filter projects: only "Course of Construction" status and match search query
+  // Filter projects: only "Course of Construction" status/stage and match search query
+  // Procore may use either 'status' or 'stage' field for project lifecycle
   const filteredProjects = useMemo(() => {
     return projects
-      .filter(p => p.status === 'Course of Construction')
+      .filter(p => {
+        const projectStatus = (p.status || '').toLowerCase()
+        const projectStage = (p.stage || '').toLowerCase()
+        return projectStatus.includes('course of construction') ||
+               projectStage.includes('course of construction')
+      })
       .filter(p => {
         if (!searchQuery.trim()) return true
         const query = searchQuery.toLowerCase()
@@ -447,7 +454,7 @@ export default function RunReconciliation() {
                         <p className="font-medium text-gray-900">{project.name}</p>
                         <p className="text-sm text-gray-500">
                           {project.project_number && `#${project.project_number} · `}
-                          {project.status}
+                          {project.stage || project.status}
                         </p>
                       </div>
                     </div>
