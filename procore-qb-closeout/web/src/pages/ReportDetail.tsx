@@ -9,6 +9,10 @@ import {
   CheckCircle,
   RefreshCw,
   Loader2,
+  ChevronDown,
+  ChevronRight,
+  Lock,
+  Unlock,
 } from 'lucide-react'
 import {
   getReport,
@@ -20,6 +24,7 @@ import {
   formatCurrency,
   formatDateTime,
   getSeverityColor,
+  getSeverityText,
   getStatusColor,
   getPriorityLabel,
   getPriorityColor,
@@ -146,6 +151,34 @@ export default function ReportDetail() {
                 <RefreshCw className="w-4 h-4 mr-2" />
               )}
               Update
+            </button>
+            {/* Soft Close Button */}
+            <button
+              disabled={!report.soft_close_eligible}
+              title={report.soft_close_eligible ? 'All items reconciled - ready for soft close' : 'Not all items are reconciled'}
+              className={`flex items-center px-4 py-2 text-sm font-medium rounded-lg ${
+                report.soft_close_eligible
+                  ? 'text-white bg-yellow-500 hover:bg-yellow-600'
+                  : 'text-gray-400 bg-gray-100 cursor-not-allowed'
+              }`}
+              onClick={() => report.soft_close_eligible && alert('Soft Close functionality coming soon!')}
+            >
+              <Unlock className="w-4 h-4 mr-2" />
+              Soft Close
+            </button>
+            {/* Hard Close Button */}
+            <button
+              disabled={!report.hard_close_eligible}
+              title={report.hard_close_eligible ? 'All payments complete - ready for hard close' : 'Soft close required first, or payments incomplete'}
+              className={`flex items-center px-4 py-2 text-sm font-medium rounded-lg ${
+                report.hard_close_eligible
+                  ? 'text-white bg-green-600 hover:bg-green-700'
+                  : 'text-gray-400 bg-gray-100 cursor-not-allowed'
+              }`}
+              onClick={() => report.hard_close_eligible && alert('Hard Close functionality coming soon!')}
+            >
+              <Lock className="w-4 h-4 mr-2" />
+              Hard Close
             </button>
             <span className={`badge ${report.status === 'complete' ? 'badge-info' : 'badge-warning'}`}>
               {report.status}
@@ -323,7 +356,7 @@ export default function ReportDetail() {
         )}
 
         {activeTab === 'sub_invoices' && (
-          <ResultsTable results={subInvoiceResults} title="Subcontractor Invoices" />
+          <GroupedResultsTable results={subInvoiceResults} title="Subcontractor Invoices" />
         )}
 
         {activeTab === 'owner_invoices' && (
@@ -601,7 +634,7 @@ function ResultsTable({ results, title }: { results: any[]; title?: string }) {
               </td>
               <td className="px-3 py-2">
                 <span className={`badge text-xs ${getSeverityColor(result.severity)}`}>
-                  {result.severity || 'unknown'}
+                  {getSeverityText(result.severity)}
                 </span>
               </td>
               <td className="px-3 py-2 text-gray-500 max-w-xs truncate" title={result.notes}>
@@ -631,6 +664,227 @@ function ResultsTable({ results, title }: { results: any[]; title?: string }) {
         </tfoot>
       </table>
       <p className="text-xs text-gray-400 mt-2">Showing {sortedResults.length} results</p>
+    </div>
+  )
+}
+
+// Vendor group interface for Phase 5
+interface VendorGroup {
+  vendor: string;
+  procoreTotal: number;
+  qbTotal: number;
+  variance: number;
+  status: 'Reconciled' | 'Conditionally Reconciled' | 'Unreconciled';
+  invoices: any[];
+}
+
+function GroupedResultsTable({ results, title }: { results: any[]; title?: string }) {
+  const [expandedVendors, setExpandedVendors] = useState<Set<string>>(new Set())
+  const [expandAll, setExpandAll] = useState(false)
+
+  if (results.length === 0) {
+    return (
+      <div className="text-center py-8">
+        <p className="text-gray-500">No {title?.toLowerCase() || 'results'} in this category</p>
+      </div>
+    )
+  }
+
+  // Group results by vendor
+  const vendorGroups: VendorGroup[] = []
+  const vendorMap = new Map<string, any[]>()
+
+  for (const result of results) {
+    const vendor = result.vendor || 'Unknown Vendor'
+    if (!vendorMap.has(vendor)) {
+      vendorMap.set(vendor, [])
+    }
+    vendorMap.get(vendor)!.push(result)
+  }
+
+  for (const [vendor, invoices] of vendorMap) {
+    const procoreTotal = invoices.reduce((sum, r) => sum + (r.procore_value || 0), 0)
+    const qbTotal = invoices.reduce((sum, r) => sum + (r.qb_value || 0), 0)
+    const variance = procoreTotal - qbTotal
+
+    // Determine status:
+    // - Reconciled: All individual invoices match exactly (all have severity "info")
+    // - Conditionally Reconciled: Individual invoices differ but totals match (variance ~= 0)
+    // - Unreconciled: Totals don't match
+    const allMatched = invoices.every(r => r.severity === 'info')
+    const totalsMatch = Math.abs(variance) < 1 // Allow $1 tolerance for rounding
+
+    let status: 'Reconciled' | 'Conditionally Reconciled' | 'Unreconciled'
+    if (allMatched) {
+      status = 'Reconciled'
+    } else if (totalsMatch) {
+      status = 'Conditionally Reconciled'
+    } else {
+      status = 'Unreconciled'
+    }
+
+    vendorGroups.push({
+      vendor,
+      procoreTotal,
+      qbTotal,
+      variance,
+      status,
+      invoices,
+    })
+  }
+
+  // Sort by vendor name
+  vendorGroups.sort((a, b) => a.vendor.localeCompare(b.vendor))
+
+  const toggleVendor = (vendor: string) => {
+    const newExpanded = new Set(expandedVendors)
+    if (newExpanded.has(vendor)) {
+      newExpanded.delete(vendor)
+    } else {
+      newExpanded.add(vendor)
+    }
+    setExpandedVendors(newExpanded)
+  }
+
+  const toggleExpandAll = () => {
+    if (expandAll) {
+      setExpandedVendors(new Set())
+    } else {
+      setExpandedVendors(new Set(vendorGroups.map(g => g.vendor)))
+    }
+    setExpandAll(!expandAll)
+  }
+
+  const getStatusStyle = (status: string) => {
+    switch (status) {
+      case 'Reconciled':
+        return 'text-green-700 bg-green-100'
+      case 'Conditionally Reconciled':
+        return 'text-yellow-700 bg-yellow-100'
+      case 'Unreconciled':
+        return 'text-red-700 bg-red-100'
+      default:
+        return 'text-gray-600 bg-gray-100'
+    }
+  }
+
+  // Calculate grand totals
+  const grandProcoreTotal = vendorGroups.reduce((sum, g) => sum + g.procoreTotal, 0)
+  const grandQbTotal = vendorGroups.reduce((sum, g) => sum + g.qbTotal, 0)
+  const grandVariance = grandProcoreTotal - grandQbTotal
+
+  return (
+    <div className="overflow-x-auto">
+      {title && <h3 className="text-lg font-medium mb-4">{title}</h3>}
+      <div className="flex justify-between items-center mb-3">
+        <p className="text-sm text-gray-600">
+          {vendorGroups.length} vendors, {results.length} total invoices
+        </p>
+        <button
+          onClick={toggleExpandAll}
+          className="text-sm text-procore-blue hover:underline flex items-center gap-1"
+        >
+          {expandAll ? 'Collapse All' : 'Expand All'}
+        </button>
+      </div>
+
+      <table className="min-w-full divide-y divide-gray-200 text-xs">
+        <thead className="bg-gray-50">
+          <tr>
+            <th className="table-header px-3 py-2 text-left w-8"></th>
+            <th className="table-header px-3 py-2 text-left">Vendor</th>
+            <th className="table-header px-3 py-2 text-right">Procore Total</th>
+            <th className="table-header px-3 py-2 text-right">QB Total</th>
+            <th className="table-header px-3 py-2 text-right">Variance</th>
+            <th className="table-header px-3 py-2 text-center">Status</th>
+            <th className="table-header px-3 py-2 text-center">Invoices</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-200 bg-white">
+          {vendorGroups.map((group) => (
+            <>
+              {/* Vendor Header Row */}
+              <tr
+                key={group.vendor}
+                className="bg-gray-50 hover:bg-gray-100 cursor-pointer"
+                onClick={() => toggleVendor(group.vendor)}
+              >
+                <td className="px-3 py-2">
+                  {expandedVendors.has(group.vendor) ? (
+                    <ChevronDown className="w-4 h-4 text-gray-500" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 text-gray-500" />
+                  )}
+                </td>
+                <td className="px-3 py-2 font-semibold text-gray-900">
+                  {group.vendor}
+                </td>
+                <td className="px-3 py-2 text-right font-medium">
+                  {formatCurrency(group.procoreTotal)}
+                </td>
+                <td className="px-3 py-2 text-right font-medium">
+                  {formatCurrency(group.qbTotal)}
+                </td>
+                <td className={`px-3 py-2 text-right font-medium ${
+                  group.variance > 0.01 ? 'text-red-600' : group.variance < -0.01 ? 'text-green-600' : 'text-gray-500'
+                }`}>
+                  {formatCurrency(group.variance)}
+                </td>
+                <td className="px-3 py-2 text-center">
+                  <span className={`badge text-xs ${getStatusStyle(group.status)}`}>
+                    {group.status}
+                  </span>
+                </td>
+                <td className="px-3 py-2 text-center text-gray-500">
+                  {group.invoices.length}
+                </td>
+              </tr>
+              {/* Invoice Detail Rows */}
+              {expandedVendors.has(group.vendor) && group.invoices.map((inv, idx) => (
+                <tr key={`${group.vendor}-${idx}`} className="bg-white hover:bg-yellow-50">
+                  <td className="px-3 py-2"></td>
+                  <td className="px-3 py-2 pl-8 text-gray-600">
+                    {inv.item_description || inv.procore_ref || '-'}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {inv.procore_value ? formatCurrency(inv.procore_value) : '-'}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {inv.qb_value ? formatCurrency(inv.qb_value) : '-'}
+                  </td>
+                  <td className={`px-3 py-2 text-right ${
+                    (inv.variance || 0) > 0 ? 'text-red-600' : (inv.variance || 0) < 0 ? 'text-green-600' : 'text-gray-500'
+                  }`}>
+                    {inv.variance != null ? formatCurrency(inv.variance) : '-'}
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    <span className={`badge text-xs ${getSeverityColor(inv.severity)}`}>
+                      {getSeverityText(inv.severity)}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 text-center text-gray-400 text-xs">
+                    {inv.procore_ref || '-'}
+                  </td>
+                </tr>
+              ))}
+            </>
+          ))}
+        </tbody>
+        <tfoot className="bg-gray-100 font-semibold">
+          <tr>
+            <td className="px-3 py-2"></td>
+            <td className="px-3 py-2">GRAND TOTAL</td>
+            <td className="px-3 py-2 text-right">{formatCurrency(grandProcoreTotal)}</td>
+            <td className="px-3 py-2 text-right">{formatCurrency(grandQbTotal)}</td>
+            <td className={`px-3 py-2 text-right ${
+              grandVariance > 0.01 ? 'text-red-600' : grandVariance < -0.01 ? 'text-green-600' : ''
+            }`}>
+              {formatCurrency(grandVariance)}
+            </td>
+            <td className="px-3 py-2" colSpan={2}></td>
+          </tr>
+        </tfoot>
+      </table>
     </div>
   )
 }

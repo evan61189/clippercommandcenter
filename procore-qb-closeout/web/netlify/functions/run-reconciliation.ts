@@ -2541,6 +2541,46 @@ export const handler: Handler = async (event) => {
     const criticalCount = allResults.filter(r => r.severity === 'critical').length;
     const totalExposure = closeoutItems.reduce((sum, i) => sum + i.amountAtRisk, 0);
 
+    // Calculate Soft/Hard Close Eligibility (Phase 8+9)
+    const subInvoiceResults = allResults.filter(r => r.matchType === 'invoice');
+    const ownerInvoiceResults = allResults.filter(r => r.matchType === 'payment_app');
+    const directCostResults = allResults.filter(r => r.matchType === 'direct_cost');
+    const laborResultsFiltered = allResults.filter(r => r.matchType === 'labor');
+
+    // Soft Close: All items reconciled (severity = 'info') and labor matches
+    const subInvoicesReconciled = subInvoiceResults.every(r => r.severity === 'info');
+    const ownerInvoicesReconciled = ownerInvoiceResults.every(r => r.severity === 'info');
+    const directCostsReconciled = directCostResults.every(r => r.severity === 'info');
+    const laborReconciled = Math.abs(procoreLabor - qboLabor) < 100; // Allow $100 tolerance
+
+    const canSoftClose = (
+      subInvoiceResults.length === 0 || subInvoicesReconciled
+    ) && (
+      ownerInvoiceResults.length === 0 || ownerInvoicesReconciled
+    ) && (
+      directCostResults.length === 0 || directCostsReconciled
+    ) && laborReconciled;
+
+    // Hard Close: Soft close + all payments complete
+    // Check if subcontractors are fully billed and paid
+    const subcontractorsFullyBilled = commitments.every(c =>
+      Math.abs(c.billedToDate - c.currentValue) < 1 // Within $1 of full billing
+    );
+    const subcontractorsPaid = Math.abs(procoreSubPaid - procoreSubInvoiced) < 100; // Within $100
+
+    // Check if owner is fully billed (pay apps cover contract value)
+    // This would require contract value - using total committed as proxy
+    const ownerFullyBilled = paymentApps.length > 0;
+
+    const canHardClose = canSoftClose && subcontractorsFullyBilled && subcontractorsPaid;
+
+    console.log(`Close eligibility: soft=${canSoftClose}, hard=${canHardClose}`);
+    console.log(`  Sub invoices reconciled: ${subInvoicesReconciled} (${subInvoiceResults.length} items)`);
+    console.log(`  Owner invoices reconciled: ${ownerInvoicesReconciled} (${ownerInvoiceResults.length} items)`);
+    console.log(`  Direct costs reconciled: ${directCostsReconciled} (${directCostResults.length} items)`);
+    console.log(`  Labor reconciled: ${laborReconciled} (Procore: $${procoreLabor}, QBO: $${qboLabor})`);
+    console.log(`  Subs fully billed: ${subcontractorsFullyBilled}, Subs paid: ${subcontractorsPaid}`);
+
     const summaryData = { totalCommitted, totalBilled, totalPaid, totalRetention };
 
     // Get AI summary
@@ -2582,6 +2622,9 @@ export const handler: Handler = async (event) => {
       critical_items: criticalCount,
       open_closeout_items: closeoutItems.length,
       estimated_exposure: totalExposure,
+      // Soft/Hard Close eligibility (Phase 8+9)
+      soft_close_eligible: canSoftClose,
+      hard_close_eligible: canHardClose,
       executive_summary: aiSummary,
       results: allResults,
       closeout_items: closeoutItems,

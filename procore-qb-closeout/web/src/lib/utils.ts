@@ -62,6 +62,22 @@ export function getSeverityColor(severity: string): string {
 }
 
 /**
+ * Get severity display text (Phase 7: "info" -> "Reconciled")
+ */
+export function getSeverityText(severity: string): string {
+  switch (severity.toLowerCase()) {
+    case 'info':
+      return 'Reconciled'
+    case 'warning':
+      return 'Warning'
+    case 'critical':
+      return 'Critical'
+    default:
+      return severity || 'Unknown'
+  }
+}
+
+/**
  * Get status color class
  */
 export function getStatusColor(status: string): string {
