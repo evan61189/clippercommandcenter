@@ -1,9 +1,6 @@
 import { Handler } from '@netlify/functions'
-import Anthropic from '@anthropic-ai/sdk'
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-})
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
 
 export const handler: Handler = async (event) => {
   const headers = {
@@ -24,8 +21,16 @@ export const handler: Handler = async (event) => {
     }
   }
 
+  if (!ANTHROPIC_API_KEY) {
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'AI service not configured' }),
+    }
+  }
+
   try {
-    const { message, projectId, reportId, contextData, history } = JSON.parse(event.body || '{}')
+    const { message, contextData, history } = JSON.parse(event.body || '{}')
 
     if (!message) {
       return {
@@ -36,7 +41,7 @@ export const handler: Handler = async (event) => {
     }
 
     // Build context for the AI
-    let context = `You are an AI assistant helping with financial reconciliation between Procore (construction project management) and QuickBooks Online (accounting software).
+    let systemContext = `You are an AI assistant helping with financial reconciliation between Procore (construction project management) and QuickBooks Online (accounting software).
 
 You help construction finance professionals understand their project financials, identify discrepancies, and explain reconciliation data.
 
@@ -53,7 +58,7 @@ Key concepts:
 Be concise, helpful, and use construction finance terminology appropriately.`
 
     if (contextData) {
-      context += `\n\nProject Context:\n${JSON.stringify(contextData, null, 2)}`
+      systemContext += `\n\nProject Context:\n${JSON.stringify(contextData, null, 2)}`
     }
 
     // Build message history
@@ -70,15 +75,31 @@ Be concise, helpful, and use construction finance terminology appropriately.`
     // Add the current message
     messages.push({ role: 'user', content: message })
 
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 1024,
-      system: context,
-      messages: messages,
+    // Call Anthropic API directly using fetch
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1024,
+        system: systemContext,
+        messages: messages,
+      }),
     })
 
-    const textContent = response.content.find(c => c.type === 'text')
-    const responseText = textContent ? textContent.text : 'I was unable to generate a response.'
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('Anthropic API error:', errorText)
+      throw new Error(`AI API error: ${response.status}`)
+    }
+
+    const data = await response.json()
+    const textContent = data.content?.find((c: any) => c.type === 'text')
+    const responseText = textContent?.text || 'I was unable to generate a response.'
 
     return {
       statusCode: 200,
