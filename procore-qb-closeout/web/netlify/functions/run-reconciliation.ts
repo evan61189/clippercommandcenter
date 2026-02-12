@@ -2137,28 +2137,26 @@ export const handler: Handler = async (event) => {
     // Procore paid comes from commitments
     const procoreSubPaid = totalPaid;
 
-    // QBO paid = total bill amount - remaining balance for subcontractor vendors
-    // Get list of subcontract vendor IDs using findVendorMatch (AI + fuzzy matching)
-    const subcontractVendorIds = new Set<string>();
+    // QBO paid = total bill amount - remaining balance for commitment vendors
+    // Get list of ALL commitment vendor IDs (subcontracts + purchase orders) to match procoreSubPaid
+    const commitmentVendorIds = new Set<string>();
     for (const c of commitments) {
-      if (c.type === 'subcontract') {
-        const match = findVendorMatch(c.vendor, qbVendors, aiVendorMap);
-        if (match) {
-          subcontractVendorIds.add(match.id);
-          console.log(`Matched subcontract vendor: ${c.vendor} -> QB ID ${match.id} (${match.name})`);
-        } else {
-          console.log(`No QB match for subcontract vendor: ${c.vendor}`);
-        }
+      const match = findVendorMatch(c.vendor, qbVendors, aiVendorMap);
+      if (match) {
+        commitmentVendorIds.add(match.id);
+        console.log(`Matched commitment vendor (${c.type}): ${c.vendor} -> QB ID ${match.id} (${match.name})`);
+      } else {
+        console.log(`No QB match for commitment vendor: ${c.vendor} (${c.type})`);
       }
     }
-    console.log(`Found ${subcontractVendorIds.size} matched subcontractor vendor IDs for QBO paid calculation`);
-    // Sum paid amounts for subcontractor bills
-    const subcontractorBills = qbBills.filter(b => subcontractVendorIds.has(b.vendorId));
-    console.log(`Found ${subcontractorBills.length} bills for subcontractor vendors (out of ${qbBills.length} total)`);
+    console.log(`Found ${commitmentVendorIds.size} matched commitment vendor IDs for QBO paid calculation`);
+    // Sum paid amounts for commitment vendor bills
+    const commitmentBills = qbBills.filter(b => commitmentVendorIds.has(b.vendorId));
+    console.log(`Found ${commitmentBills.length} bills for commitment vendors (out of ${qbBills.length} total)`);
 
     // Log details for debugging
     let qboSubPaid = 0;
-    for (const b of subcontractorBills) {
+    for (const b of commitmentBills) {
       const paid = b.amount - b.balance;
       qboSubPaid += paid;
       console.log(`  Bill ${b.docNumber}: ${b.vendorName}, amount=${b.amount}, balance=${b.balance}, paid=${paid}`);
