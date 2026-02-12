@@ -154,7 +154,7 @@ export default function MonthEndCloseouts() {
         generatedFrom: 'month_end_reconciliation',
       }
 
-      const wipReport = await createWIPReport(getLastDayOfMonth(), getUserId(), reportData)
+      await createWIPReport(getLastDayOfMonth(), getUserId(), reportData)
 
       alert('Month closed successfully! WIP report has been generated.')
       navigate('/wip-reports')
