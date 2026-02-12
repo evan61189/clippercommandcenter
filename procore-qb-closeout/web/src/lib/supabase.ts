@@ -34,6 +34,18 @@ export interface ReconciliationReport {
   total_billed_by_subs: number
   total_paid_to_subs: number
   sub_retention_held: number
+  // Procore vs QBO comparison totals
+  procore_sub_invoiced: number | null
+  qbo_sub_invoiced: number | null
+  procore_sub_paid: number | null
+  qbo_sub_paid: number | null
+  procore_retention_held: number | null
+  qbo_retention_held: number | null
+  procore_retention_paid: number | null
+  qbo_retention_paid: number | null
+  procore_labor: number | null
+  qbo_labor: number | null
+  // Counts and status
   reconciled_items: number
   warning_items: number
   critical_items: number

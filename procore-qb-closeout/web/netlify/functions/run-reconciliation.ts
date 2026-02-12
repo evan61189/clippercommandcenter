@@ -2109,6 +2109,48 @@ export const handler: Handler = async (event) => {
     const totalPaid = commitments.reduce((sum, c) => sum + c.paidToDate, 0);
     const totalRetention = commitments.reduce((sum, c) => sum + c.retentionHeld, 0);
 
+    // NEW: Calculate Procore vs QBO subcontractor totals
+    const subInvoiceResults = allResults.filter(r => r.matchType === 'invoice');
+    const procoreSubInvoiced = subInvoiceResults
+      .reduce((sum, r) => sum + (r.procoreValue || 0), 0);
+    const qboSubInvoiced = subInvoiceResults
+      .reduce((sum, r) => sum + (r.qbValue || 0), 0);
+
+    // Procore paid comes from commitments
+    const procoreSubPaid = totalPaid;
+
+    // QBO paid = total bill amount - remaining balance for subcontractor vendors
+    // Get list of subcontract vendor IDs
+    const subcontractVendorIds = new Set<string>();
+    for (const c of commitments) {
+      if (c.type === 'subcontract') {
+        const match = aiVendorMap.get(c.vendor);
+        if (match) {
+          subcontractVendorIds.add(match.id);
+        }
+      }
+    }
+    // Sum paid amounts for subcontractor bills
+    const qboSubPaid = qbBills
+      .filter(b => subcontractVendorIds.has(b.vendorId))
+      .reduce((sum, b) => sum + (b.amount - b.balance), 0);
+
+    // Retention breakdown
+    const procoreRetentionHeld = totalRetention;
+    // QBO retention would need to come from specific tracking - placeholder for now
+    const qboRetentionHeld = 0; // TODO: Calculate from QB retention tracking
+
+    // Retention paid - would need to track retention releases
+    const procoreRetentionPaid = 0; // TODO: Track from Procore retention releases
+    const qboRetentionPaid = 0; // TODO: Track from QB retention payments
+
+    // Labor totals - will be implemented in Phase 2
+    const procoreLabor = directCosts
+      .filter(dc => dc.description.toLowerCase().includes('payroll') ||
+                    dc.description.toLowerCase().includes('labor'))
+      .reduce((sum, dc) => sum + dc.amount, 0);
+    const qboLabor = 0; // TODO: Fetch from QB accounts 5010, 5011, 5012
+
     const matchedCount = allResults.filter(r => r.status === 'matched').length;
     const partialCount = allResults.filter(r => r.status === 'partial').length;
     const warningCount = allResults.filter(r => r.severity === 'warning').length;
@@ -2130,6 +2172,17 @@ export const handler: Handler = async (event) => {
       total_billed_by_subs: totalBilled,
       total_paid_to_subs: totalPaid,
       sub_retention_held: totalRetention,
+      // NEW: Procore vs QBO comparison totals
+      procore_sub_invoiced: procoreSubInvoiced,
+      qbo_sub_invoiced: qboSubInvoiced,
+      procore_sub_paid: procoreSubPaid,
+      qbo_sub_paid: qboSubPaid,
+      procore_retention_held: procoreRetentionHeld,
+      qbo_retention_held: qboRetentionHeld,
+      procore_retention_paid: procoreRetentionPaid,
+      qbo_retention_paid: qboRetentionPaid,
+      procore_labor: procoreLabor,
+      qbo_labor: qboLabor,
       total_items: allResults.length,
       matched_items: matchedCount,
       partial_matches: partialCount,
