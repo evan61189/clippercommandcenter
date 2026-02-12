@@ -2267,6 +2267,14 @@ export const handler: Handler = async (event) => {
 
         // Insert report
         console.log('Saving report to Supabase, projectId:', projectId);
+        console.log('Procore vs QBO totals:', {
+          procore_sub_invoiced: report.procore_sub_invoiced,
+          qbo_sub_invoiced: report.qbo_sub_invoiced,
+          procore_sub_paid: report.procore_sub_paid,
+          qbo_sub_paid: report.qbo_sub_paid,
+          procore_labor: report.procore_labor,
+          qbo_labor: report.qbo_labor,
+        });
         const { data: reportData, error: reportError } = await supabase
           .from('reconciliation_reports')
           .insert({
@@ -2276,6 +2284,18 @@ export const handler: Handler = async (event) => {
             total_billed_by_subs: report.total_billed_by_subs,
             total_paid_to_subs: report.total_paid_to_subs,
             sub_retention_held: report.sub_retention_held,
+            // Procore vs QBO comparison totals
+            procore_sub_invoiced: report.procore_sub_invoiced,
+            qbo_sub_invoiced: report.qbo_sub_invoiced,
+            procore_sub_paid: report.procore_sub_paid,
+            qbo_sub_paid: report.qbo_sub_paid,
+            procore_retention_held: report.procore_retention_held,
+            qbo_retention_held: report.qbo_retention_held,
+            procore_retention_paid: report.procore_retention_paid,
+            qbo_retention_paid: report.qbo_retention_paid,
+            procore_labor: report.procore_labor,
+            qbo_labor: report.qbo_labor,
+            // Counts
             reconciled_items: report.reconciled_items,
             warning_items: report.warning_items,
             critical_items: report.critical_items,
