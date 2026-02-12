@@ -19,7 +19,10 @@ import {
   getResultsForReport,
   getCloseoutItemsForReport,
   getCommitmentsForReport,
+  softCloseProject,
+  isProjectSoftClosed,
 } from '../lib/supabase'
+import AIChat from '../components/AIChat'
 import {
   formatCurrency,
   formatDateTime,
@@ -32,10 +35,21 @@ import {
 
 type TabType = 'summary' | 'sub_invoices' | 'owner_invoices' | 'direct_costs' | 'labor' | 'warnings' | 'closeout'
 
+function getUserId(): string {
+  let userId = localStorage.getItem('closeout_user_id')
+  if (!userId) {
+    userId = 'user_' + Math.random().toString(36).substring(2, 15)
+    localStorage.setItem('closeout_user_id', userId)
+  }
+  return userId
+}
+
 export default function ReportDetail() {
   const { reportId } = useParams<{ reportId: string }>()
   const [activeTab, setActiveTab] = useState<TabType>('summary')
   const [isUpdating, setIsUpdating] = useState(false)
+  const [isSoftClosing, setIsSoftClosing] = useState(false)
+  const [isSoftClosed, setIsSoftClosed] = useState(false)
 
   const { data: report, isLoading: reportLoading, refetch: refetchReport } = useQuery({
     queryKey: ['report', reportId],
@@ -60,6 +74,59 @@ export default function ReportDetail() {
     queryFn: () => getCommitmentsForReport(reportId!),
     enabled: !!reportId,
   })
+
+  // Check if project is already soft closed
+  const { data: softClosedStatus } = useQuery({
+    queryKey: ['soft-closed-status', report?.project_id],
+    queryFn: async () => {
+      if (!report?.project_id) return false
+      return isProjectSoftClosed(report.project_id)
+    },
+    enabled: !!report?.project_id,
+  })
+
+  // Update soft closed state when query completes
+  useState(() => {
+    if (softClosedStatus !== undefined) {
+      setIsSoftClosed(softClosedStatus)
+    }
+  })
+
+  async function handleSoftClose() {
+    if (!report?.project_id || isSoftClosing) return
+
+    const confirmed = confirm(
+      'Are you sure you want to soft close this project?\n\n' +
+      'Soft closing indicates the project has reached substantial completion but may still have outstanding financial tails.'
+    )
+
+    if (!confirmed) return
+
+    setIsSoftClosing(true)
+    try {
+      // Count outstanding items
+      const openAps = closeoutItems?.filter(i => i.category === 'open_ap' && i.status !== 'resolved').length || 0
+      const openArs = closeoutItems?.filter(i => i.category === 'open_ar' && i.status !== 'resolved').length || 0
+      const pendingInvoices = results?.filter(r => r.severity === 'warning' && r.item_type === 'invoice').length || 0
+
+      await softCloseProject(
+        report.project_id,
+        getUserId(),
+        undefined,
+        openAps,
+        openArs,
+        pendingInvoices
+      )
+
+      setIsSoftClosed(true)
+      alert('Project has been soft closed successfully!')
+    } catch (error: any) {
+      console.error('Error soft closing project:', error)
+      alert(`Failed to soft close project: ${error.message}`)
+    } finally {
+      setIsSoftClosing(false)
+    }
+  }
 
   async function handleUpdate() {
     // TODO: Implement re-pull from Procore and QuickBooks
@@ -154,17 +221,29 @@ export default function ReportDetail() {
             </button>
             {/* Soft Close Button */}
             <button
-              disabled={!report.soft_close_eligible}
-              title={report.soft_close_eligible ? 'All items reconciled - ready for soft close' : 'Not all items are reconciled'}
+              disabled={!report.soft_close_eligible || isSoftClosing || isSoftClosed || softClosedStatus}
+              title={
+                isSoftClosed || softClosedStatus
+                  ? 'Project is already soft closed'
+                  : report.soft_close_eligible
+                  ? 'All items reconciled - ready for soft close'
+                  : 'Not all items are reconciled'
+              }
               className={`flex items-center px-4 py-2 text-sm font-medium rounded-lg ${
-                report.soft_close_eligible
+                isSoftClosed || softClosedStatus
+                  ? 'text-white bg-yellow-600'
+                  : report.soft_close_eligible
                   ? 'text-white bg-yellow-500 hover:bg-yellow-600'
                   : 'text-gray-400 bg-gray-100 cursor-not-allowed'
               }`}
-              onClick={() => report.soft_close_eligible && alert('Soft Close functionality coming soon!')}
+              onClick={handleSoftClose}
             >
-              <Unlock className="w-4 h-4 mr-2" />
-              Soft Close
+              {isSoftClosing ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Unlock className="w-4 h-4 mr-2" />
+              )}
+              {isSoftClosed || softClosedStatus ? 'Soft Closed' : 'Soft Close'}
             </button>
             {/* Hard Close Button */}
             <button
@@ -379,6 +458,28 @@ export default function ReportDetail() {
           <CloseoutItemsTable items={closeoutItems || []} />
         )}
       </div>
+
+      {/* AI Chat for project questions */}
+      <AIChat
+        projectId={report.project_id}
+        projectName={projectName}
+        reportId={reportId}
+        contextData={{
+          projectName,
+          totalCommitted: report.total_committed,
+          totalBilled: report.total_billed_by_subs,
+          retentionHeld: report.sub_retention_held,
+          procoreSubInvoiced: report.procore_sub_invoiced,
+          qboSubInvoiced: report.qbo_sub_invoiced,
+          procoreSubPaid: report.procore_sub_paid,
+          qboSubPaid: report.qbo_sub_paid,
+          reconciled: report.reconciled_items,
+          warnings: report.warning_items,
+          critical: report.critical_items,
+          softCloseEligible: report.soft_close_eligible,
+          hardCloseEligible: report.hard_close_eligible,
+        }}
+      />
     </div>
   )
 }

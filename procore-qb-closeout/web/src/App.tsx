@@ -1,5 +1,5 @@
 import { Routes, Route, Link, useNavigate } from 'react-router-dom'
-import { Building2, Settings as SettingsIcon, Play, LogOut, Calendar, FolderCheck } from 'lucide-react'
+import { Building2, Settings as SettingsIcon, Play, LogOut, Calendar, FolderCheck, PauseCircle, FileBarChart } from 'lucide-react'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import Dashboard from './pages/Dashboard'
@@ -9,6 +9,8 @@ import Settings from './pages/Settings'
 import RunReconciliation from './pages/RunReconciliation'
 import MonthEndCloseouts from './pages/MonthEndCloseouts'
 import ProjectCloseouts from './pages/ProjectCloseouts'
+import SoftClosedProjects from './pages/SoftClosedProjects'
+import WIPReports from './pages/WIPReports'
 import Privacy from './pages/Privacy'
 import Terms from './pages/Terms'
 import Login from './pages/Login'
@@ -63,6 +65,20 @@ function AppLayout() {
                   <span>Project Closeouts</span>
                 </Link>
                 <Link
+                  to="/soft-closed"
+                  className="flex items-center space-x-1 text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
+                >
+                  <PauseCircle className="w-4 h-4" />
+                  <span>Soft Closed</span>
+                </Link>
+                <Link
+                  to="/wip-reports"
+                  className="flex items-center space-x-1 text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
+                >
+                  <FileBarChart className="w-4 h-4" />
+                  <span>WIP Reports</span>
+                </Link>
+                <Link
                   to="/run"
                   className="flex items-center space-x-1 text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
                 >
@@ -107,6 +123,8 @@ function AppLayout() {
           <Route path="/run" element={<ProtectedRoute><RunReconciliation /></ProtectedRoute>} />
           <Route path="/month-end-closeouts" element={<ProtectedRoute><MonthEndCloseouts /></ProtectedRoute>} />
           <Route path="/project-closeouts" element={<ProtectedRoute><ProjectCloseouts /></ProtectedRoute>} />
+          <Route path="/soft-closed" element={<ProtectedRoute><SoftClosedProjects /></ProtectedRoute>} />
+          <Route path="/wip-reports" element={<ProtectedRoute><WIPReports /></ProtectedRoute>} />
           <Route path="/project/:projectId" element={<ProtectedRoute><ProjectDetail /></ProtectedRoute>} />
           <Route path="/report/:reportId" element={<ProtectedRoute><ReportDetail /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
