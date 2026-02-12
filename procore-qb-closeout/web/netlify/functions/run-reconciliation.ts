@@ -789,7 +789,7 @@ function normalizeCommitments(procoreData: any): ProcoreCommitment[] {
       pendingChanges: parseFloat(sub.pending_change_orders || sub.change_order_pending_amount || 0),
       currentValue: parseFloat(sub.revised_value || sub.grand_total || 0),
       billedToDate: parseFloat(sub.invoiced_amount || sub.bill_amount || 0),
-      paidToDate: parseFloat(sub.payment_amount || sub.paid_amount || 0),
+      paidToDate: parseFloat(sub.total_payments || sub.payment_amount || sub.paid_amount || 0),
       retentionHeld: parseFloat(sub.retention_amount || sub.held_retention || 0),
     });
   }
@@ -818,7 +818,7 @@ function normalizeCommitments(procoreData: any): ProcoreCommitment[] {
       pendingChanges: parseFloat(po.pending_change_orders || 0),
       currentValue: parseFloat(po.revised_value || po.grand_total || 0),
       billedToDate: parseFloat(po.invoiced_amount || po.bill_amount || 0),
-      paidToDate: parseFloat(po.payment_amount || po.paid_amount || 0),
+      paidToDate: parseFloat(po.total_payments || po.payment_amount || po.paid_amount || 0),
       retentionHeld: 0,
     });
   }
