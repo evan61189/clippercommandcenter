@@ -534,12 +534,28 @@ async function fetchQBLaborExpenses(
   console.log(`Fetched ${purchases.length} Purchase transactions`);
 
   // Process purchases to find labor expenses
+  // Track stats to understand filtering
+  let totalLaborLineItems = 0;
+  let lineItemsWithCustomer = 0;
+  let lineItemsMatchingProject = 0;
+  let lineItemsWithoutCustomer = 0;
+
   for (const purchase of purchases) {
     // Check line items for labor accounts
     for (const line of purchase.Line || []) {
       const detail = line.AccountBasedExpenseLineDetail;
       if (detail && laborAccountIds.has(detail.AccountRef?.value)) {
+        totalLaborLineItems++;
         const lineCustomerId = detail.CustomerRef?.value;
+
+        if (lineCustomerId) {
+          lineItemsWithCustomer++;
+          if (lineCustomerId === projectCustomerId) {
+            lineItemsMatchingProject++;
+          }
+        } else {
+          lineItemsWithoutCustomer++;
+        }
 
         // Filter by project if we have a customer ID
         if (projectCustomerId && lineCustomerId !== projectCustomerId) {
@@ -569,7 +585,17 @@ async function fetchQBLaborExpenses(
     for (const line of je.Line || []) {
       const detail = line.JournalEntryLineDetail;
       if (detail && detail.PostingType === 'Debit' && laborAccountIds.has(detail.AccountRef?.value)) {
+        totalLaborLineItems++;
         const lineCustomerId = detail.Entity?.EntityRef?.value;
+
+        if (lineCustomerId) {
+          lineItemsWithCustomer++;
+          if (lineCustomerId === projectCustomerId) {
+            lineItemsMatchingProject++;
+          }
+        } else {
+          lineItemsWithoutCustomer++;
+        }
 
         // Filter by project if we have a customer ID
         if (projectCustomerId && lineCustomerId !== projectCustomerId) {
@@ -590,6 +616,13 @@ async function fetchQBLaborExpenses(
       }
     }
   }
+
+  // Log labor expense filtering stats
+  console.log(`Labor expense line item stats:`);
+  console.log(`  Total labor account line items: ${totalLaborLineItems}`);
+  console.log(`  With CustomerRef: ${lineItemsWithCustomer}`);
+  console.log(`  Without CustomerRef: ${lineItemsWithoutCustomer}`);
+  console.log(`  Matching project ${projectCustomerId}: ${lineItemsMatchingProject}`);
 
   console.log(`Found ${laborExpenses.length} labor expense line items for project`);
   const totalLabor = laborExpenses.reduce((sum, e) => sum + e.amount, 0);
@@ -2269,6 +2302,15 @@ export const handler: Handler = async (event) => {
     const directCosts = normalizeDirectCosts(procoreData);
 
     console.log(`Procore data: ${commitments.length} commitments, ${procoreInvoices.length} invoices, ${paymentApps.length} pay apps, ${directCosts.length} direct costs`);
+
+    // Debug: Log direct cost descriptions to understand labor detection
+    if (directCosts.length > 0) {
+      console.log('Sample direct cost descriptions (first 10):');
+      directCosts.slice(0, 10).forEach((dc, i) => {
+        const isLabor = dc.description.toLowerCase().match(/payroll|labor|wages|salary|worker|employee/);
+        console.log(`  ${i + 1}. "${dc.description}" - ${dc.vendor} - $${dc.amount} ${isLabor ? '[LABOR]' : ''}`);
+      });
+    }
 
     // STEP 2: Collect all unique Procore vendor names
     const allProcoreVendors: string[] = [
