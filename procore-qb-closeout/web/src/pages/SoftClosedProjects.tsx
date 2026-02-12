@@ -3,15 +3,12 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import {
   PauseCircle,
-  AlertTriangle,
   ArrowRight,
   FileText,
   DollarSign,
-  Clock,
   Trash2,
 } from 'lucide-react'
 import { getSoftClosedProjects, removeSoftClose, isSupabaseConfigured } from '../lib/supabase'
-import { formatCurrency } from '../lib/utils'
 
 function formatDate(dateString: string): string {
   const date = new Date(dateString)

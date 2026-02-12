@@ -794,17 +794,20 @@ function normalizeString(str: string | number | undefined | null): string {
 function stripCompanySuffixes(str: string): string {
   if (!str) return '';
   // Common business suffixes and articles to remove
+  // Order matters - process longer patterns first
   const suffixes = [
     /\b(the)\s+/gi,           // "The" at beginning
-    /\s*(,?\s*)?(inc\.?|incorporated)$/gi,
-    /\s*(,?\s*)?(llc\.?|l\.l\.c\.?)$/gi,
-    /\s*(,?\s*)?(ltd\.?|limited)$/gi,
-    /\s*(,?\s*)?(corp\.?|corporation)$/gi,
-    /\s*(,?\s*)?(co\.?|company)$/gi,
-    /\s*(,?\s*)?(llp\.?|l\.l\.p\.?)$/gi,
+    /\s*(,?\s*)?(incorporated|inc\.?)$/gi,
+    /\s*(,?\s*)?(l\.?l\.?c\.?|llc)$/gi,  // Handles LLC, L.L.C., etc.
+    /\s*(,?\s*)?(limited|ltd\.?)$/gi,
+    /\s*(,?\s*)?(corporation|corp\.?)$/gi,
+    /\s*(,?\s*)?(company|co\.?)$/gi,
+    /\s*(,?\s*)?(l\.?l\.?p\.?|llp)$/gi,  // Handles LLP, L.L.P., etc.
     /\s*(,?\s*)?(pllc\.?)$/gi,
     /\s*(,?\s*)?(p\.?c\.?)$/gi,
     /\s*(,?\s*)?(dba|d\/b\/a).*$/gi,
+    /\s*(,?\s*)?(services|service)$/gi,  // Common construction suffix
+    /\s*(,?\s*)?(contractors?|contracting)$/gi,  // Common construction suffix
   ];
 
   let result = str.trim();
@@ -898,9 +901,11 @@ function calculateSeverity(variance: number, baseAmount: number): 'info' | 'warn
   const absVariance = Math.abs(variance);
   const pct = baseAmount ? Math.abs(variance / baseAmount) : 0;
 
+  // "Reconciled" (info) ONLY if amounts match exactly (within $1 tolerance for rounding)
+  // Any variance beyond $1 is at minimum a warning
   if (absVariance >= 5000 || pct >= 0.10) return 'critical';
-  if (absVariance >= 500 || pct >= 0.02) return 'warning';
-  return 'info';
+  if (absVariance >= 1) return 'warning';  // Changed: any variance > $1 is a warning
+  return 'info';  // Only exact matches (< $1 variance) are "Reconciled"
 }
 
 // ============== Data Normalization ==============
@@ -1178,9 +1183,20 @@ function findBestVendorMatch(
 ): { name: string; id: string; score: number } | null {
   let best: { name: string; id: string; score: number } | null = null;
 
+  // First pass: try to find exact match after stripping suffixes
+  const strippedProcore = stripCompanySuffixes(procoreVendor).toLowerCase().trim();
+  for (const qbVendor of qbVendors) {
+    const strippedQB = stripCompanySuffixes(qbVendor.DisplayName).toLowerCase().trim();
+    if (strippedProcore === strippedQB) {
+      console.log(`VENDOR EXACT MATCH (after stripping): "${procoreVendor}" -> "${qbVendor.DisplayName}"`);
+      return { name: qbVendor.DisplayName, id: qbVendor.Id, score: 100 };
+    }
+  }
+
+  // Second pass: fuzzy matching
   for (const qbVendor of qbVendors) {
     const score = fuzzyMatch(procoreVendor, qbVendor.DisplayName);
-    if (score >= 65 && (!best || score > best.score)) {
+    if (score >= 60 && (!best || score > best.score)) {  // Lowered threshold from 65 to 60
       best = { name: qbVendor.DisplayName, id: qbVendor.Id, score };
     }
   }
