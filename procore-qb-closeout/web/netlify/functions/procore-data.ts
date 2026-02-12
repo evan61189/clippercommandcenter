@@ -249,6 +249,20 @@ export const handler: Handler = async (event) => {
             result = [];
           }
           console.log('Projects fetched:', result.length);
+          // Debug: Log first project's status/stage fields to understand the data structure
+          if (result.length > 0) {
+            const sampleProject = result[0];
+            console.log('Sample project fields:', JSON.stringify({
+              id: sampleProject.id,
+              name: sampleProject.name,
+              status: sampleProject.status,
+              stage: sampleProject.stage,
+              project_stage: sampleProject.project_stage,
+              active: sampleProject.active,
+              // Log all keys to find the right field
+              allKeys: Object.keys(sampleProject)
+            }, null, 2));
+          }
         } catch (err: any) {
           console.error('Failed to fetch projects:', err.message);
           throw err;
