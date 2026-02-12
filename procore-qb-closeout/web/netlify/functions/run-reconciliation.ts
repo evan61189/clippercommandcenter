@@ -743,6 +743,24 @@ function normalizeCommitments(procoreData: any): ProcoreCommitment[] {
       // Check all top-level keys
       keys: Object.keys(firstSub).slice(0, 20)
     }, null, 2));
+    // Debug: Log ALL financial fields to find the correct paid amount field
+    console.log('Subcontract FINANCIAL fields:', JSON.stringify({
+      grand_total: firstSub.grand_total,
+      original_value: firstSub.original_value,
+      revised_value: firstSub.revised_value,
+      invoiced_amount: firstSub.invoiced_amount,
+      bill_amount: firstSub.bill_amount,
+      payment_amount: firstSub.payment_amount,
+      paid_amount: firstSub.paid_amount,
+      paid_to_date: firstSub.paid_to_date,
+      total_payments: firstSub.total_payments,
+      retention_amount: firstSub.retention_amount,
+      held_retention: firstSub.held_retention,
+      // Check for nested financial summary
+      financial_summary: firstSub.financial_summary,
+      summary: firstSub.summary,
+      totals: firstSub.totals,
+    }, null, 2));
   }
 
   // Process subcontracts
