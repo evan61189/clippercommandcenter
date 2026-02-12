@@ -34,9 +34,14 @@ async function refreshAccessToken(tokens: TokenData, userId: string): Promise<To
   const clientId = process.env.QBO_CLIENT_ID || 'ABgPHajheBYc4ajSSov1P8b8emmalTPmmw5uAn99gUcfg2bOo9';
   const clientSecret = process.env.QBO_CLIENT_SECRET || 'pDqaEgsPkyKf9hNmN9p5wfeVIKBLIFRLz1yNOfX9';
 
-  if (!clientId || !clientSecret) return null;
+  if (!clientId || !clientSecret) {
+    console.error('QuickBooks client credentials not configured');
+    return null;
+  }
 
   const auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+
+  console.log('Attempting QuickBooks token refresh...');
 
   const response = await fetch(QBO_TOKEN_URL, {
     method: 'POST',
@@ -51,9 +56,19 @@ async function refreshAccessToken(tokens: TokenData, userId: string): Promise<To
     }),
   });
 
-  if (!response.ok) return null;
+  if (!response.ok) {
+    const errorBody = await response.text();
+    console.error(`QuickBooks token refresh failed: ${response.status}`, errorBody);
+    // If refresh token is invalid/expired, user needs to reconnect
+    if (response.status === 400 || response.status === 401) {
+      console.error('QuickBooks refresh token expired - user must reconnect');
+    }
+    return null;
+  }
 
   const data = await response.json();
+  console.log('QuickBooks token refresh successful');
+
   const newTokens: TokenData = {
     ...tokens,
     access_token: data.access_token,
@@ -76,12 +91,14 @@ async function qboRequest(
   tokens: TokenData,
   userId: string
 ): Promise<any> {
-  // Proactive token refresh - check if token expires in less than 5 minutes
+  // Proactive token refresh - check if token expires in less than 30 minutes
+  // This keeps the refresh token active and prevents expiration from non-use
   if (tokens.expires_at) {
     const expiresAt = new Date(tokens.expires_at);
     const now = new Date();
-    if (expiresAt.getTime() - now.getTime() < 5 * 60 * 1000) {
-      console.log('QuickBooks token expiring soon, refreshing proactively...');
+    const timeUntilExpiry = expiresAt.getTime() - now.getTime();
+    if (timeUntilExpiry < 30 * 60 * 1000) {
+      console.log(`QuickBooks token expiring in ${Math.round(timeUntilExpiry / 60000)} minutes, refreshing proactively...`);
       const newTokens = await refreshAccessToken(tokens, userId);
       if (newTokens) {
         tokens = newTokens;

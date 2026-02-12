@@ -28,12 +28,17 @@ async function getStoredTokens(userId: string): Promise<TokenData | null> {
   return data.credentials as TokenData;
 }
 
-async function refreshAccessToken(tokens: TokenData): Promise<TokenData | null> {
+async function refreshAccessToken(tokens: TokenData, userId?: string): Promise<TokenData | null> {
   // Hardcoded Procore credentials as fallback
   const clientId = process.env.PROCORE_CLIENT_ID || '5m6ntNDYctNihGwfspa4OiG6EXHXx1HCXSHRVetAb7k';
   const clientSecret = process.env.PROCORE_CLIENT_SECRET || 'z-aqwtz7agk1fyEyXW10zsV4SGKrjNP58bGqXgD4vd0';
 
-  if (!clientId || !clientSecret) return null;
+  if (!clientId || !clientSecret) {
+    console.error('Procore client credentials not configured');
+    return null;
+  }
+
+  console.log('Attempting Procore token refresh...');
 
   const response = await fetch(`${PROCORE_BASE_URL}/oauth/token`, {
     method: 'POST',
@@ -46,15 +51,36 @@ async function refreshAccessToken(tokens: TokenData): Promise<TokenData | null> 
     }),
   });
 
-  if (!response.ok) return null;
+  if (!response.ok) {
+    const errorBody = await response.text();
+    console.error(`Procore token refresh failed: ${response.status}`, errorBody);
+    // If refresh token is invalid/expired, user needs to reconnect
+    if (response.status === 400 || response.status === 401) {
+      console.error('Procore refresh token expired - user must reconnect');
+    }
+    return null;
+  }
 
   const data = await response.json();
-  return {
+  console.log('Procore token refresh successful');
+
+  const newTokens: TokenData = {
     ...tokens,
     access_token: data.access_token,
     refresh_token: data.refresh_token || tokens.refresh_token,
     expires_at: new Date(Date.now() + data.expires_in * 1000).toISOString(),
   };
+
+  // Update stored tokens if userId is provided
+  if (userId) {
+    await supabase
+      .from('api_credentials')
+      .update({ credentials: newTokens, updated_at: new Date().toISOString() })
+      .eq('user_id', userId)
+      .eq('provider', 'procore');
+  }
+
+  return newTokens;
 }
 
 async function procoreRequest(
@@ -63,24 +89,17 @@ async function procoreRequest(
   params?: Record<string, string>,
   userId?: string
 ): Promise<any> {
-  // Check if token is expired and refresh if needed
+  // Proactive token refresh - check if token expires in less than 30 minutes
+  // This keeps the refresh token active and prevents expiration from non-use
   if (tokens.expires_at) {
     const expiresAt = new Date(tokens.expires_at);
     const now = new Date();
-    // Refresh if expires in less than 5 minutes
-    if (expiresAt.getTime() - now.getTime() < 5 * 60 * 1000) {
-      console.log('Token expired or expiring soon, refreshing...');
-      const newTokens = await refreshAccessToken(tokens);
+    const timeUntilExpiry = expiresAt.getTime() - now.getTime();
+    if (timeUntilExpiry < 30 * 60 * 1000) {
+      console.log(`Procore token expiring in ${Math.round(timeUntilExpiry / 60000)} minutes, refreshing proactively...`);
+      const newTokens = await refreshAccessToken(tokens, userId);
       if (newTokens) {
         tokens = newTokens;
-        // Update tokens in database if userId is provided
-        if (userId) {
-          await supabase
-            .from('api_credentials')
-            .update({ credentials: newTokens, updated_at: new Date().toISOString() })
-            .eq('user_id', userId)
-            .eq('provider', 'procore');
-        }
       }
     }
   }
@@ -116,12 +135,12 @@ async function procoreRequest(
 
     if (response.status === 401) {
       // Token expired, try to refresh
-      console.log('Token expired, refreshing...');
-      const newTokens = await refreshAccessToken(tokens);
+      console.log('Procore 401 error, attempting token refresh...');
+      const newTokens = await refreshAccessToken(tokens, userId);
       if (newTokens) {
-        return procoreRequest(endpoint, newTokens, params);
+        return procoreRequest(endpoint, newTokens, params, userId);
       }
-      throw new Error('Authentication failed - token refresh failed');
+      throw new Error('Authentication failed - token refresh failed. Please reconnect Procore in Settings.');
     }
 
     if (!response.ok) {
