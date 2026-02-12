@@ -596,6 +596,7 @@ function ResultsTable({ results, title }: { results: any[]; title?: string }) {
             <SortHeader field="status" label="Status" />
             <SortHeader field="procore_ref" label="Procore Ref" />
             <SortHeader field="procore_value" label="Procore $" className="text-right" />
+            <th className="table-header px-3 py-2 text-right whitespace-nowrap">Retainage</th>
             <SortHeader field="qb_ref" label="QB Ref" />
             <SortHeader field="qb_value" label="QB $" className="text-right" />
             <SortHeader field="variance" label="Variance" className="text-right" />
@@ -620,6 +621,9 @@ function ResultsTable({ results, title }: { results: any[]; title?: string }) {
               </td>
               <td className="px-3 py-2 text-right whitespace-nowrap">
                 {result.procore_value ? formatCurrency(result.procore_value) : '-'}
+              </td>
+              <td className="px-3 py-2 text-right whitespace-nowrap text-orange-600">
+                {result.procore_retainage ? formatCurrency(result.procore_retainage) : '-'}
               </td>
               <td className="px-3 py-2 text-gray-500 whitespace-nowrap">
                 {result.qb_ref || '-'}
@@ -649,6 +653,9 @@ function ResultsTable({ results, title }: { results: any[]; title?: string }) {
             <td className="px-3 py-2 text-right whitespace-nowrap">
               {formatCurrency(sortedResults.reduce((sum, r) => sum + (r.procore_value || 0), 0))}
             </td>
+            <td className="px-3 py-2 text-right whitespace-nowrap text-orange-600">
+              {formatCurrency(sortedResults.reduce((sum, r) => sum + (r.procore_retainage || 0), 0))}
+            </td>
             <td className="px-3 py-2"></td>
             <td className="px-3 py-2 text-right whitespace-nowrap">
               {formatCurrency(sortedResults.reduce((sum, r) => sum + (r.qb_value || 0), 0))}
@@ -674,6 +681,7 @@ interface VendorGroup {
   procoreTotal: number;
   qbTotal: number;
   variance: number;
+  retainageTotal: number; // Phase 6: Total retainage for vendor
   status: 'Reconciled' | 'Conditionally Reconciled' | 'Unreconciled';
   invoices: any[];
 }
@@ -706,6 +714,7 @@ function GroupedResultsTable({ results, title }: { results: any[]; title?: strin
     const procoreTotal = invoices.reduce((sum, r) => sum + (r.procore_value || 0), 0)
     const qbTotal = invoices.reduce((sum, r) => sum + (r.qb_value || 0), 0)
     const variance = procoreTotal - qbTotal
+    const retainageTotal = invoices.reduce((sum, r) => sum + (r.procore_retainage || 0), 0)
 
     // Determine status:
     // - Reconciled: All individual invoices match exactly (all have severity "info")
@@ -728,6 +737,7 @@ function GroupedResultsTable({ results, title }: { results: any[]; title?: strin
       procoreTotal,
       qbTotal,
       variance,
+      retainageTotal,
       status,
       invoices,
     })
@@ -772,6 +782,7 @@ function GroupedResultsTable({ results, title }: { results: any[]; title?: strin
   const grandProcoreTotal = vendorGroups.reduce((sum, g) => sum + g.procoreTotal, 0)
   const grandQbTotal = vendorGroups.reduce((sum, g) => sum + g.qbTotal, 0)
   const grandVariance = grandProcoreTotal - grandQbTotal
+  const grandRetainageTotal = vendorGroups.reduce((sum, g) => sum + g.retainageTotal, 0)
 
   return (
     <div className="overflow-x-auto">
@@ -794,6 +805,7 @@ function GroupedResultsTable({ results, title }: { results: any[]; title?: strin
             <th className="table-header px-3 py-2 text-left w-8"></th>
             <th className="table-header px-3 py-2 text-left">Vendor</th>
             <th className="table-header px-3 py-2 text-right">Procore Total</th>
+            <th className="table-header px-3 py-2 text-right">Retainage</th>
             <th className="table-header px-3 py-2 text-right">QB Total</th>
             <th className="table-header px-3 py-2 text-right">Variance</th>
             <th className="table-header px-3 py-2 text-center">Status</th>
@@ -822,6 +834,9 @@ function GroupedResultsTable({ results, title }: { results: any[]; title?: strin
                 <td className="px-3 py-2 text-right font-medium">
                   {formatCurrency(group.procoreTotal)}
                 </td>
+                <td className="px-3 py-2 text-right font-medium text-orange-600">
+                  {group.retainageTotal > 0 ? formatCurrency(group.retainageTotal) : '-'}
+                </td>
                 <td className="px-3 py-2 text-right font-medium">
                   {formatCurrency(group.qbTotal)}
                 </td>
@@ -849,6 +864,9 @@ function GroupedResultsTable({ results, title }: { results: any[]; title?: strin
                   <td className="px-3 py-2 text-right">
                     {inv.procore_value ? formatCurrency(inv.procore_value) : '-'}
                   </td>
+                  <td className="px-3 py-2 text-right text-orange-600">
+                    {inv.procore_retainage ? formatCurrency(inv.procore_retainage) : '-'}
+                  </td>
                   <td className="px-3 py-2 text-right">
                     {inv.qb_value ? formatCurrency(inv.qb_value) : '-'}
                   </td>
@@ -875,6 +893,7 @@ function GroupedResultsTable({ results, title }: { results: any[]; title?: strin
             <td className="px-3 py-2"></td>
             <td className="px-3 py-2">GRAND TOTAL</td>
             <td className="px-3 py-2 text-right">{formatCurrency(grandProcoreTotal)}</td>
+            <td className="px-3 py-2 text-right text-orange-600">{grandRetainageTotal > 0 ? formatCurrency(grandRetainageTotal) : '-'}</td>
             <td className="px-3 py-2 text-right">{formatCurrency(grandQbTotal)}</td>
             <td className={`px-3 py-2 text-right ${
               grandVariance > 0.01 ? 'text-red-600' : grandVariance < -0.01 ? 'text-green-600' : ''

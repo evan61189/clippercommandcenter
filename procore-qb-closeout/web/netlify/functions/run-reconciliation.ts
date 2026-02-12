@@ -667,6 +667,7 @@ interface ProcoreInvoice {
   amount: number;
   billingDate: string;
   paymentDue: number;
+  retainage: number; // Phase 6: Retainage held on this invoice
 }
 
 interface ProcorePaymentApp {
@@ -762,6 +763,9 @@ interface MatchResult {
   procoreDate?: string;
   qbDate?: string;
   requiresAction: boolean;
+  // Phase 6: Retainage tracking
+  procoreRetainage?: number;
+  qbRetainage?: number;
 }
 
 interface CloseoutItem {
@@ -1040,6 +1044,8 @@ console.log('Sample invoice AMOUNTS:', JSON.stringify({
       amount: parseFloat(inv.payment_summary?.invoiced_amount_due || inv.summary?.current_payment_due || inv.total_claimed_amount || 0),
       billingDate: inv.billing_date || inv.invoice_date || '',
       paymentDue: parseFloat(inv.payment_due || inv.balance || 0),
+      // Phase 6: Extract retainage from summary object
+      retainage: parseFloat(inv.summary?.total_retainage || inv.summary?.completed_work_retainage_amount || 0),
     });
   }
 
@@ -1376,6 +1382,7 @@ function matchInvoicesToBills(
         notes: `Vendor "${pInv.vendor}" not found in QuickBooks`,
         procoreDate: pInv.billingDate,
         requiresAction: true,
+        procoreRetainage: pInv.retainage,
       });
       continue;
     }
@@ -1451,6 +1458,7 @@ function matchInvoicesToBills(
         procoreDate: pInv.billingDate,
         qbDate: bestBill.date,
         requiresAction: Math.abs(variance) >= 100,
+        procoreRetainage: pInv.retainage,
       });
     } else {
       // No good match found - could be timing (not yet entered in QB)
@@ -1474,6 +1482,7 @@ function matchInvoicesToBills(
         notes: `No matching bill found in QuickBooks for vendor "${pInv.vendor}" - may not be entered yet`,
         procoreDate: pInv.billingDate,
         requiresAction: true,
+        procoreRetainage: pInv.retainage,
       });
     }
   }
