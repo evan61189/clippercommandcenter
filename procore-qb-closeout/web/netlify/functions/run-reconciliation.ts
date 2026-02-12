@@ -2138,20 +2138,32 @@ export const handler: Handler = async (event) => {
     const procoreSubPaid = totalPaid;
 
     // QBO paid = total bill amount - remaining balance for subcontractor vendors
-    // Get list of subcontract vendor IDs
+    // Get list of subcontract vendor IDs using findVendorMatch (AI + fuzzy matching)
     const subcontractVendorIds = new Set<string>();
     for (const c of commitments) {
       if (c.type === 'subcontract') {
-        const match = aiVendorMap.get(c.vendor);
+        const match = findVendorMatch(c.vendor, qbVendors, aiVendorMap);
         if (match) {
           subcontractVendorIds.add(match.id);
+          console.log(`Matched subcontract vendor: ${c.vendor} -> QB ID ${match.id} (${match.name})`);
+        } else {
+          console.log(`No QB match for subcontract vendor: ${c.vendor}`);
         }
       }
     }
+    console.log(`Found ${subcontractVendorIds.size} matched subcontractor vendor IDs for QBO paid calculation`);
     // Sum paid amounts for subcontractor bills
-    const qboSubPaid = qbBills
-      .filter(b => subcontractVendorIds.has(b.vendorId))
-      .reduce((sum, b) => sum + (b.amount - b.balance), 0);
+    const subcontractorBills = qbBills.filter(b => subcontractVendorIds.has(b.vendorId));
+    console.log(`Found ${subcontractorBills.length} bills for subcontractor vendors (out of ${qbBills.length} total)`);
+
+    // Log details for debugging
+    let qboSubPaid = 0;
+    for (const b of subcontractorBills) {
+      const paid = b.amount - b.balance;
+      qboSubPaid += paid;
+      console.log(`  Bill ${b.docNumber}: ${b.vendorName}, amount=${b.amount}, balance=${b.balance}, paid=${paid}`);
+    }
+    console.log(`QBO Sub Paid Total: ${qboSubPaid}`);
 
     // Retention breakdown
     const procoreRetentionHeld = totalRetention;
