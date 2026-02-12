@@ -179,6 +179,75 @@ export default function ReportDetail() {
           </div>
         </div>
 
+        {/* Procore vs QBO Comparison */}
+        <div className="mt-6 pt-6 border-t">
+          <h3 className="text-sm font-medium text-gray-700 mb-4">Procore vs QuickBooks Comparison</h3>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-2 pr-4 font-medium text-gray-500">Category</th>
+                  <th className="text-right py-2 px-4 font-medium text-gray-500">Procore</th>
+                  <th className="text-right py-2 px-4 font-medium text-gray-500">QuickBooks</th>
+                  <th className="text-right py-2 pl-4 font-medium text-gray-500">Variance</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                <tr>
+                  <td className="py-2 pr-4 text-gray-700">Subcontractors Invoiced</td>
+                  <td className="py-2 px-4 text-right font-medium">{formatCurrency(report.procore_sub_invoiced || 0)}</td>
+                  <td className="py-2 px-4 text-right font-medium">{formatCurrency(report.qbo_sub_invoiced || 0)}</td>
+                  <td className={`py-2 pl-4 text-right font-medium ${
+                    (report.procore_sub_invoiced || 0) - (report.qbo_sub_invoiced || 0) !== 0 ? 'text-red-600' : 'text-green-600'
+                  }`}>
+                    {formatCurrency((report.procore_sub_invoiced || 0) - (report.qbo_sub_invoiced || 0))}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="py-2 pr-4 text-gray-700">Subcontractors Paid</td>
+                  <td className="py-2 px-4 text-right font-medium">{formatCurrency(report.procore_sub_paid || 0)}</td>
+                  <td className="py-2 px-4 text-right font-medium">{formatCurrency(report.qbo_sub_paid || 0)}</td>
+                  <td className={`py-2 pl-4 text-right font-medium ${
+                    (report.procore_sub_paid || 0) - (report.qbo_sub_paid || 0) !== 0 ? 'text-red-600' : 'text-green-600'
+                  }`}>
+                    {formatCurrency((report.procore_sub_paid || 0) - (report.qbo_sub_paid || 0))}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="py-2 pr-4 text-gray-700">Retention Held</td>
+                  <td className="py-2 px-4 text-right font-medium">{formatCurrency(report.procore_retention_held || 0)}</td>
+                  <td className="py-2 px-4 text-right font-medium">{formatCurrency(report.qbo_retention_held || 0)}</td>
+                  <td className={`py-2 pl-4 text-right font-medium ${
+                    (report.procore_retention_held || 0) - (report.qbo_retention_held || 0) !== 0 ? 'text-red-600' : 'text-green-600'
+                  }`}>
+                    {formatCurrency((report.procore_retention_held || 0) - (report.qbo_retention_held || 0))}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="py-2 pr-4 text-gray-700">Retention Paid</td>
+                  <td className="py-2 px-4 text-right font-medium">{formatCurrency(report.procore_retention_paid || 0)}</td>
+                  <td className="py-2 px-4 text-right font-medium">{formatCurrency(report.qbo_retention_paid || 0)}</td>
+                  <td className={`py-2 pl-4 text-right font-medium ${
+                    (report.procore_retention_paid || 0) - (report.qbo_retention_paid || 0) !== 0 ? 'text-red-600' : 'text-green-600'
+                  }`}>
+                    {formatCurrency((report.procore_retention_paid || 0) - (report.qbo_retention_paid || 0))}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="py-2 pr-4 text-gray-700">Labor</td>
+                  <td className="py-2 px-4 text-right font-medium">{formatCurrency(report.procore_labor || 0)}</td>
+                  <td className="py-2 px-4 text-right font-medium">{formatCurrency(report.qbo_labor || 0)}</td>
+                  <td className={`py-2 pl-4 text-right font-medium ${
+                    (report.procore_labor || 0) - (report.qbo_labor || 0) !== 0 ? 'text-red-600' : 'text-green-600'
+                  }`}>
+                    {formatCurrency((report.procore_labor || 0) - (report.qbo_labor || 0))}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         {/* Status Summary */}
         <div className="flex items-center space-x-6 mt-6 pt-6 border-t">
           <div className="flex items-center">
