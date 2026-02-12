@@ -25,7 +25,7 @@ import {
   getPriorityColor,
 } from '../lib/utils'
 
-type TabType = 'summary' | 'sub_invoices' | 'owner_invoices' | 'direct_costs' | 'warnings' | 'closeout'
+type TabType = 'summary' | 'sub_invoices' | 'owner_invoices' | 'direct_costs' | 'labor' | 'warnings' | 'closeout'
 
 export default function ReportDetail() {
   const { reportId } = useParams<{ reportId: string }>()
@@ -95,6 +95,7 @@ export default function ReportDetail() {
   const subInvoiceResults = results?.filter(r => r.item_type === 'invoice') || []
   const ownerInvoiceResults = results?.filter(r => r.item_type === 'payment_app') || []
   const directCostResults = results?.filter(r => r.item_type === 'direct_cost') || []
+  const laborResults = results?.filter(r => r.item_type === 'labor') || []
 
   // Generate warnings based on the data
   const warnings = generateWarnings(results || [], commitments || [], report)
@@ -104,6 +105,7 @@ export default function ReportDetail() {
     { id: 'sub_invoices' as TabType, label: 'Sub Invoices', count: subInvoiceResults.length },
     { id: 'owner_invoices' as TabType, label: 'Owner Invoices', count: ownerInvoiceResults.length },
     { id: 'direct_costs' as TabType, label: 'Direct Costs', count: directCostResults.length },
+    { id: 'labor' as TabType, label: 'Labor', count: laborResults.length },
     { id: 'warnings' as TabType, label: 'Warnings', count: warnings.length },
     { id: 'closeout' as TabType, label: 'Closeout Items', count: closeoutItems?.length || 0 },
   ]
@@ -330,6 +332,10 @@ export default function ReportDetail() {
 
         {activeTab === 'direct_costs' && (
           <ResultsTable results={directCostResults} title="Direct Costs" />
+        )}
+
+        {activeTab === 'labor' && (
+          <ResultsTable results={laborResults} title="Labor Costs" />
         )}
 
         {activeTab === 'warnings' && (

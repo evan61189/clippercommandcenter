@@ -478,6 +478,126 @@ async function fetchQBInvoicesAndPayments(
   }
 }
 
+// Labor account names to look for (partial match)
+const LABOR_ACCOUNT_PATTERNS = [
+  '5010', // Direct Labor Wages
+  '5011', // Direct Labor Social Security Tax
+  '5012', // Direct Labor Medicare Tax
+];
+
+// Fetch QB labor expenses for a project
+// Queries Purchase transactions and filters by labor accounts and project CustomerRef
+async function fetchQBLaborExpenses(
+  tokens: QBTokenData,
+  userId: string,
+  projectCustomerId: string | null
+): Promise<QBLaborExpense[]> {
+  console.log('Fetching QB labor expenses for accounts 5010-5012...');
+
+  const laborExpenses: QBLaborExpense[] = [];
+
+  // First, find the labor account IDs
+  const accounts = await paginatedQBQuery('SELECT * FROM Account WHERE Active = true', 'Account', tokens, userId);
+  const laborAccountIds = new Set<string>();
+  const laborAccountNames: Map<string, string> = new Map();
+
+  for (const account of accounts) {
+    const accountName = account.Name || '';
+    const accountNum = account.AcctNum || '';
+    // Match accounts by number prefix (5010, 5011, 5012) or by name containing "labor"
+    const isLaborAccount = LABOR_ACCOUNT_PATTERNS.some(pattern =>
+      accountNum.startsWith(pattern) || accountName.toLowerCase().includes('direct labor')
+    );
+    if (isLaborAccount) {
+      laborAccountIds.add(account.Id);
+      laborAccountNames.set(account.Id, `${accountNum} ${accountName}`.trim());
+      console.log(`Found labor account: ${account.Id} - ${accountNum} ${accountName}`);
+    }
+  }
+
+  if (laborAccountIds.size === 0) {
+    console.log('No labor accounts found (5010, 5011, 5012)');
+    return laborExpenses;
+  }
+
+  console.log(`Found ${laborAccountIds.size} labor accounts`);
+
+  // Fetch Purchase transactions (checks, credit card charges, expenses)
+  // Filter by CustomerRef if we have a project customer ID
+  let purchaseQuery = 'SELECT * FROM Purchase';
+  if (projectCustomerId) {
+    // Note: QB Purchase transactions use EntityRef for customer/vendor
+    // We'll fetch all and filter by line item CustomerRef
+  }
+
+  const purchases = await paginatedQBQuery(purchaseQuery, 'Purchase', tokens, userId);
+  console.log(`Fetched ${purchases.length} Purchase transactions`);
+
+  // Process purchases to find labor expenses
+  for (const purchase of purchases) {
+    // Check line items for labor accounts
+    for (const line of purchase.Line || []) {
+      const detail = line.AccountBasedExpenseLineDetail;
+      if (detail && laborAccountIds.has(detail.AccountRef?.value)) {
+        const lineCustomerId = detail.CustomerRef?.value;
+
+        // Filter by project if we have a customer ID
+        if (projectCustomerId && lineCustomerId !== projectCustomerId) {
+          continue;
+        }
+
+        laborExpenses.push({
+          id: `${purchase.Id}-${line.Id || laborExpenses.length}`,
+          accountName: laborAccountNames.get(detail.AccountRef.value) || 'Labor',
+          accountId: detail.AccountRef.value,
+          description: line.Description || 'Labor expense',
+          amount: parseFloat(line.Amount || 0),
+          date: purchase.TxnDate || '',
+          customer: detail.CustomerRef?.name,
+          customerId: lineCustomerId,
+          txnType: purchase.PaymentType || 'Purchase',
+        });
+      }
+    }
+  }
+
+  // Also check JournalEntry transactions for labor account debits
+  const journalEntries = await paginatedQBQuery('SELECT * FROM JournalEntry', 'JournalEntry', tokens, userId);
+  console.log(`Fetched ${journalEntries.length} JournalEntry transactions`);
+
+  for (const je of journalEntries) {
+    for (const line of je.Line || []) {
+      const detail = line.JournalEntryLineDetail;
+      if (detail && detail.PostingType === 'Debit' && laborAccountIds.has(detail.AccountRef?.value)) {
+        const lineCustomerId = detail.Entity?.EntityRef?.value;
+
+        // Filter by project if we have a customer ID
+        if (projectCustomerId && lineCustomerId !== projectCustomerId) {
+          continue;
+        }
+
+        laborExpenses.push({
+          id: `JE-${je.Id}-${line.Id || laborExpenses.length}`,
+          accountName: laborAccountNames.get(detail.AccountRef.value) || 'Labor',
+          accountId: detail.AccountRef.value,
+          description: line.Description || je.PrivateNote || 'Journal entry - Labor',
+          amount: parseFloat(line.Amount || 0),
+          date: je.TxnDate || '',
+          customer: detail.Entity?.EntityRef?.name,
+          customerId: lineCustomerId,
+          txnType: 'JournalEntry',
+        });
+      }
+    }
+  }
+
+  console.log(`Found ${laborExpenses.length} labor expense line items for project`);
+  const totalLabor = laborExpenses.reduce((sum, e) => sum + e.amount, 0);
+  console.log(`Total QB labor expenses: $${totalLabor.toFixed(2)}`);
+
+  return laborExpenses;
+}
+
 // ============== Type Definitions ==============
 
 interface ProcoreCommitment {
@@ -568,10 +688,22 @@ interface QBPayment {
   invoiceIds: string[];
 }
 
+interface QBLaborExpense {
+  id: string;
+  accountName: string;
+  accountId: string;
+  description: string;
+  amount: number;
+  date: string;
+  customer?: string;
+  customerId?: string;
+  txnType: string; // 'Purchase', 'Check', 'JournalEntry', etc.
+}
+
 interface MatchResult {
   id: string;
-  matchType: 'invoice' | 'payment_app' | 'direct_cost' | 'commitment' | 'vendor_total';
-  category: 'accounts_payable' | 'accounts_receivable' | 'direct_cost';
+  matchType: 'invoice' | 'payment_app' | 'direct_cost' | 'commitment' | 'vendor_total' | 'labor';
+  category: 'accounts_payable' | 'accounts_receivable' | 'direct_cost' | 'labor';
   description: string;
   vendor: string | null;
   customer: string | null;
@@ -1598,6 +1730,169 @@ function matchDirectCostsToBills(
   return results;
 }
 
+// Check if a direct cost is a payroll/labor cost
+function isLaborDirectCost(dc: ProcoreDirectCost): boolean {
+  const desc = dc.description.toLowerCase();
+  return desc.includes('payroll') ||
+    desc.includes('labor') ||
+    desc.includes('wages') ||
+    desc.includes('salary') ||
+    desc.includes('worker') ||
+    desc.includes('employee');
+}
+
+// Match Procore payroll direct costs to QB labor expenses
+function matchLaborCosts(
+  directCosts: ProcoreDirectCost[],
+  qbLaborExpenses: QBLaborExpense[]
+): { laborResults: MatchResult[]; nonLaborDirectCosts: ProcoreDirectCost[] } {
+  const laborResults: MatchResult[] = [];
+  const nonLaborDirectCosts: ProcoreDirectCost[] = [];
+
+  // Separate labor from non-labor direct costs
+  const laborDirectCosts = directCosts.filter(isLaborDirectCost);
+  nonLaborDirectCosts.push(...directCosts.filter(dc => !isLaborDirectCost(dc)));
+
+  console.log(`Labor matching: ${laborDirectCosts.length} Procore payroll costs, ${qbLaborExpenses.length} QB labor expenses`);
+
+  // Calculate totals for summary matching
+  const procoreLaborTotal = laborDirectCosts.reduce((sum, dc) => sum + dc.amount, 0);
+  const qbLaborTotal = qbLaborExpenses.reduce((sum, e) => sum + e.amount, 0);
+
+  // If no labor on either side, return early
+  if (laborDirectCosts.length === 0 && qbLaborExpenses.length === 0) {
+    return { laborResults, nonLaborDirectCosts };
+  }
+
+  // Create results for each Procore payroll cost
+  for (const dc of laborDirectCosts) {
+    // Try to find a matching QB labor expense by date and approximate amount
+    let bestMatch: QBLaborExpense | null = null;
+    let bestScore = 0;
+
+    for (const qbLabor of qbLaborExpenses) {
+      let score = 0;
+
+      // Check amount match (within 5% or $10)
+      const amountDiff = Math.abs(dc.amount - qbLabor.amount);
+      const pctDiff = dc.amount > 0 ? amountDiff / dc.amount : 1;
+      if (pctDiff <= 0.05 || amountDiff <= 10) {
+        score += 60;
+      } else if (pctDiff <= 0.15 || amountDiff <= 50) {
+        score += 30;
+      }
+
+      // Check date proximity (within 7 days)
+      if (dc.date && qbLabor.date) {
+        const dcDate = new Date(dc.date);
+        const qbDate = new Date(qbLabor.date);
+        const daysDiff = Math.abs((dcDate.getTime() - qbDate.getTime()) / (1000 * 60 * 60 * 24));
+        if (daysDiff <= 3) {
+          score += 30;
+        } else if (daysDiff <= 7) {
+          score += 15;
+        }
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = qbLabor;
+      }
+    }
+
+    if (bestMatch && bestScore >= 50) {
+      const variance = dc.amount - bestMatch.amount;
+      const variancePct = dc.amount > 0 ? (variance / dc.amount) * 100 : 0;
+
+      laborResults.push({
+        id: generateId(),
+        matchType: 'labor',
+        category: 'labor',
+        description: dc.description || 'Payroll/Labor',
+        vendor: dc.vendor || null,
+        customer: null,
+        procoreRef: dc.invoiceNumber || `DC-${dc.id}`,
+        qbRef: `${bestMatch.accountName} - ${bestMatch.txnType}`,
+        procoreValue: dc.amount,
+        qbValue: bestMatch.amount,
+        variance,
+        variancePct: Math.abs(variancePct),
+        matchConfidence: bestScore,
+        matchMethod: 'labor_match',
+        severity: Math.abs(variancePct) <= 1 ? 'info' : Math.abs(variance) > 500 ? 'critical' : 'warning',
+        status: Math.abs(variancePct) <= 1 ? 'matched' : 'partial',
+        notes: Math.abs(variancePct) <= 1
+          ? 'Labor costs match'
+          : `Labor variance of $${Math.abs(variance).toFixed(2)}`,
+        procoreDate: dc.date,
+        qbDate: bestMatch.date,
+        requiresAction: Math.abs(variance) > 100,
+      });
+    } else {
+      // No QB match found
+      laborResults.push({
+        id: generateId(),
+        matchType: 'labor',
+        category: 'labor',
+        description: dc.description || 'Payroll/Labor',
+        vendor: dc.vendor || null,
+        customer: null,
+        procoreRef: dc.invoiceNumber || `DC-${dc.id}`,
+        qbRef: null,
+        procoreValue: dc.amount,
+        qbValue: null,
+        variance: dc.amount,
+        variancePct: 100,
+        matchConfidence: 0,
+        matchMethod: 'no_match',
+        severity: 'warning',
+        status: 'unmatched_procore',
+        notes: 'No matching QB labor expense found',
+        procoreDate: dc.date,
+        requiresAction: true,
+      });
+    }
+  }
+
+  // Add QB labor expenses that weren't matched to Procore
+  const matchedQBIds = new Set(laborResults.filter(r => r.qbRef).map(r => r.qbRef));
+  for (const qbLabor of qbLaborExpenses) {
+    const qbRef = `${qbLabor.accountName} - ${qbLabor.txnType}`;
+    // Only add if not already matched (check by creating a unique ID)
+    const isMatched = laborResults.some(r =>
+      r.qbValue === qbLabor.amount && r.qbDate === qbLabor.date
+    );
+
+    if (!isMatched) {
+      laborResults.push({
+        id: generateId(),
+        matchType: 'labor',
+        category: 'labor',
+        description: qbLabor.description || 'QB Labor Expense',
+        vendor: null,
+        customer: qbLabor.customer || null,
+        procoreRef: null,
+        qbRef,
+        procoreValue: null,
+        qbValue: qbLabor.amount,
+        variance: -qbLabor.amount,
+        variancePct: 100,
+        matchConfidence: 0,
+        matchMethod: 'qb_only',
+        severity: 'warning',
+        status: 'unmatched_qb',
+        notes: 'QB labor expense not found in Procore',
+        qbDate: qbLabor.date,
+        requiresAction: true,
+      });
+    }
+  }
+
+  console.log(`Labor matching complete: ${laborResults.length} results, Procore=$${procoreLaborTotal.toFixed(2)}, QB=$${qbLaborTotal.toFixed(2)}`);
+
+  return { laborResults, nonLaborDirectCosts };
+}
+
 // Find unmatched QB bills - now that bills are filtered by project CustomerRef,
 // we show ALL unmatched bills since they're all relevant to this project
 function findUnmatchedQBBills(
@@ -2061,7 +2356,10 @@ export const handler: Handler = async (event) => {
     const qbInvoices = normalizeQBInvoices({ invoices: qbInvoicesRaw });
     const qbPayments = normalizeQBPayments({ paymentsReceived: qbPaymentsRaw });
 
-    console.log(`QB data for project: ${qbBills.length} bills, ${qbInvoices.length} invoices`);
+    // STEP 9: Fetch QB labor expenses (accounts 5010-5012)
+    const qbLaborExpenses = await fetchQBLaborExpenses(qbTokens, userId, projectCustomerId);
+
+    console.log(`QB data for project: ${qbBills.length} bills, ${qbInvoices.length} invoices, ${qbLaborExpenses.length} labor expenses`);
 
     // Run all matching
     const allResults: MatchResult[] = [];
@@ -2082,9 +2380,13 @@ export const handler: Handler = async (event) => {
     console.log(`Procore invoices matched: ${matchedProcoreIds.size}`);
     console.log(`QB Bills remaining unmatched: ${qbBills.length - matchedQBBillIds.size}`);
 
-    // 2. Match direct costs to remaining QB bills
+    // 2. Separate labor costs from direct costs and match each
+    const { laborResults, nonLaborDirectCosts } = matchLaborCosts(directCosts, qbLaborExpenses);
+    allResults.push(...laborResults);
+
+    // 3. Match non-labor direct costs to remaining QB bills
     const directCostResults = matchDirectCostsToBills(
-      directCosts,
+      nonLaborDirectCosts,
       qbBills,
       matchedQBBillIds,
       qbVendors,
@@ -2093,7 +2395,7 @@ export const handler: Handler = async (event) => {
     allResults.push(...directCostResults);
     console.log(`After direct cost matching, total matched QB bills: ${matchedQBBillIds.size}`);
 
-    // 3. Find unmatched QB bills - categorize as sub invoice or direct cost based on subcontract existence
+    // 4. Find unmatched QB bills - categorize as sub invoice or direct cost based on subcontract existence
     const unmatchedBillResults = findUnmatchedQBBills(
       qbBills, matchedQBBillIds, commitments, qbVendors, aiVendorMap
     );
@@ -2101,11 +2403,11 @@ export const handler: Handler = async (event) => {
     console.log(`Unmatched QB bills added to results: ${unmatchedBillResults.length}`);
     console.log(`========== END MATCHING DEBUG ==========`);
 
-    // 4. Match payment applications to QB invoices (AR)
+    // 5. Match payment applications to QB invoices (AR)
     const paymentAppResults = matchPaymentAppsToInvoices(paymentApps, qbInvoices, projectName);
     allResults.push(...paymentAppResults);
 
-    // 5. Vendor-level totals
+    // 6. Vendor-level totals
     const vendorTotalResults = reconcileVendorTotals(commitments, qbBills, qbVendors, aiVendorMap);
     allResults.push(...vendorTotalResults);
 
@@ -2113,8 +2415,9 @@ export const handler: Handler = async (event) => {
     const invoiceCount = allResults.filter(r => r.matchType === 'invoice').length;
     const paymentAppCount = allResults.filter(r => r.matchType === 'payment_app').length;
     const directCostCount = allResults.filter(r => r.matchType === 'direct_cost').length;
+    const laborCount = allResults.filter(r => r.matchType === 'labor').length;
     const vendorTotalCount = allResults.filter(r => r.matchType === 'vendor_total').length;
-    console.log(`Results breakdown: ${invoiceCount} invoices, ${paymentAppCount} payment apps, ${directCostCount} direct costs, ${vendorTotalCount} vendor totals`);
+    console.log(`Results breakdown: ${invoiceCount} invoices, ${paymentAppCount} payment apps, ${directCostCount} direct costs, ${laborCount} labor, ${vendorTotalCount} vendor totals`);
     console.log(`Total results: ${allResults.length}`);
 
     // Generate closeout items
@@ -2172,12 +2475,11 @@ export const handler: Handler = async (event) => {
     const procoreRetentionPaid = 0; // TODO: Track from Procore retention releases
     const qboRetentionPaid = 0; // TODO: Track from QB retention payments
 
-    // Labor totals - will be implemented in Phase 2
+    // Labor totals - from Procore payroll direct costs and QB labor accounts (5010-5012)
     const procoreLabor = directCosts
-      .filter(dc => dc.description.toLowerCase().includes('payroll') ||
-                    dc.description.toLowerCase().includes('labor'))
+      .filter(dc => isLaborDirectCost(dc))
       .reduce((sum, dc) => sum + dc.amount, 0);
-    const qboLabor = 0; // TODO: Fetch from QB accounts 5010, 5011, 5012
+    const qboLabor = qbLaborExpenses.reduce((sum, e) => sum + e.amount, 0);
 
     const matchedCount = allResults.filter(r => r.status === 'matched').length;
     const partialCount = allResults.filter(r => r.status === 'partial').length;
