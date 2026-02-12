@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   Calendar,
@@ -14,6 +14,8 @@ import {
   Loader2,
   Search,
   Clock,
+  RefreshCw,
+  XCircle,
 } from 'lucide-react'
 import { supabase, isSupabaseConfigured, createWIPReport } from '../lib/supabase'
 import { formatCurrency } from '../lib/utils'
@@ -42,6 +44,13 @@ interface ReconciliationReport {
 }
 
 type ViewMode = 'portfolio' | 'project'
+type ReconciliationStatus = 'idle' | 'fetching_procore' | 'reconciling' | 'complete' | 'error'
+
+interface ProjectReconciliationState {
+  status: ReconciliationStatus
+  error?: string
+  report?: ReconciliationReport
+}
 
 function getUserId(): string {
   let userId = localStorage.getItem('closeout_user_id')
@@ -101,10 +110,16 @@ function getLastDayOfMonth(): string {
 
 export default function MonthEndCloseouts() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [viewMode, setViewMode] = useState<ViewMode>('portfolio')
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [isClosingMonth, setIsClosingMonth] = useState(false)
+  const [isRunningAll, setIsRunningAll] = useState(false)
+  const [reconciliationStates, setReconciliationStates] = useState<Map<number, ProjectReconciliationState>>(new Map())
+  const [currentProjectIndex, setCurrentProjectIndex] = useState<number>(-1)
+
+  const userId = getUserId()
 
   // Fetch projects from Procore
   const { data: allProjects, isLoading: projectsLoading, error: projectsError } = useQuery({
@@ -143,24 +158,20 @@ export default function MonthEndCloseouts() {
   // Build project display list with reconciliation status
   const projectsWithStatus = useMemo(() => {
     return filteredProjects.map(project => {
-      // Find report by looking for project ID match (reports store project as string UUID)
-      // We need to match by name since Procore IDs and our UUIDs differ
-      const matchingReport = reports?.find(r => {
-        // Check if project name is stored somewhere or if we can match
-        // For now, we'll match by the project_id field if it contains the procore id
-        return r.project_id === String(project.id)
-      })
+      const matchingReport = reports?.find(r => r.project_id === String(project.id))
+      const reconciliationState = reconciliationStates.get(project.id)
 
       return {
         ...project,
-        report: matchingReport,
-        isReconciled: matchingReport &&
-          (matchingReport.warning_items || 0) === 0 &&
-          (matchingReport.critical_items || 0) === 0,
-        hasReport: !!matchingReport,
+        report: reconciliationState?.report || matchingReport,
+        isReconciled: (reconciliationState?.report || matchingReport) &&
+          ((reconciliationState?.report || matchingReport)?.warning_items || 0) === 0 &&
+          ((reconciliationState?.report || matchingReport)?.critical_items || 0) === 0,
+        hasReport: !!(reconciliationState?.report || matchingReport),
+        reconciliationState,
       }
     })
-  }, [filteredProjects, reports])
+  }, [filteredProjects, reports, reconciliationStates])
 
   // Filter based on view mode
   const displayProjects = viewMode === 'project' && selectedProjectId
@@ -186,6 +197,95 @@ export default function MonthEndCloseouts() {
   const isFullyReconciled = portfolioTotals.notReconciledProjects === 0 &&
     portfolioTotals.projectsWithIssues === 0 &&
     portfolioTotals.totalProjects > 0
+
+  // Run reconciliation for a single project
+  async function runReconciliationForProject(project: ProcoreProject): Promise<ReconciliationReport | null> {
+    // Update state to fetching procore
+    setReconciliationStates(prev => new Map(prev).set(project.id, { status: 'fetching_procore' }))
+
+    try {
+      // Fetch Procore data for this project
+      const procoreResponse = await fetch('/.netlify/functions/procore-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'getFullProjectData',
+          projectId: project.id,
+          userId,
+        }),
+      })
+
+      const procoreData = await procoreResponse.json()
+      if (!procoreResponse.ok) {
+        throw new Error(procoreData.error || 'Failed to fetch Procore data')
+      }
+
+      // Update state to reconciling
+      setReconciliationStates(prev => new Map(prev).set(project.id, { status: 'reconciling' }))
+
+      // Run reconciliation
+      const projectId = String(project.id)
+      const reconResponse = await fetch('/.netlify/functions/run-reconciliation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          procoreData,
+          projectId,
+          userId,
+        }),
+      })
+
+      const reconResult = await reconResponse.json()
+      if (!reconResponse.ok) {
+        throw new Error(reconResult.error || 'Reconciliation failed')
+      }
+
+      // Create a report object from the result
+      const report: ReconciliationReport = {
+        id: reconResult.reportId || projectId,
+        project_id: projectId,
+        generated_at: new Date().toISOString(),
+        reconciliation_type: 'month_end',
+        total_committed: reconResult.summary?.totalCommitted || 0,
+        estimated_exposure: reconResult.summary?.estimatedExposure || 0,
+        warning_items: reconResult.summary?.warningItems || 0,
+        critical_items: reconResult.summary?.criticalItems || 0,
+        reconciled_items: reconResult.summary?.reconciledItems || 0,
+        procore_sub_invoiced: reconResult.summary?.procoreSubInvoiced || null,
+        qbo_sub_invoiced: reconResult.summary?.qboSubInvoiced || null,
+      }
+
+      // Update state to complete
+      setReconciliationStates(prev => new Map(prev).set(project.id, { status: 'complete', report }))
+
+      return report
+    } catch (error: any) {
+      // Update state to error
+      setReconciliationStates(prev => new Map(prev).set(project.id, { status: 'error', error: error.message }))
+      return null
+    }
+  }
+
+  // Run reconciliation for all projects
+  async function handleRunAllReconciliations() {
+    if (isRunningAll || cocProjects.length === 0) return
+
+    setIsRunningAll(true)
+    setReconciliationStates(new Map())
+
+    try {
+      for (let i = 0; i < cocProjects.length; i++) {
+        setCurrentProjectIndex(i)
+        await runReconciliationForProject(cocProjects[i])
+      }
+
+      // Refresh the reports data
+      await queryClient.invalidateQueries({ queryKey: ['reconciliation-reports'] })
+    } finally {
+      setIsRunningAll(false)
+      setCurrentProjectIndex(-1)
+    }
+  }
 
   async function handleCloseMonth() {
     if (!isFullyReconciled || isClosingMonth) return
@@ -235,6 +335,70 @@ export default function MonthEndCloseouts() {
 
   const isLoading = reportsLoading || projectsLoading
 
+  // Get status icon for a project during batch reconciliation
+  function getProjectStatusIcon(project: typeof projectsWithStatus[0]) {
+    const state = project.reconciliationState
+
+    if (state?.status === 'fetching_procore') {
+      return <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
+    }
+    if (state?.status === 'reconciling') {
+      return <RefreshCw className="w-6 h-6 text-blue-500 animate-spin" />
+    }
+    if (state?.status === 'error') {
+      return <XCircle className="w-6 h-6 text-red-500" />
+    }
+    if (state?.status === 'complete' || project.hasReport) {
+      if (project.isReconciled) {
+        return <CheckCircle className="w-6 h-6 text-green-600" />
+      }
+      if ((project.report?.critical_items || 0) > 0) {
+        return <AlertCircle className="w-6 h-6 text-red-600" />
+      }
+      return <AlertTriangle className="w-6 h-6 text-yellow-600" />
+    }
+    return <Clock className="w-6 h-6 text-gray-400" />
+  }
+
+  function getProjectStatusBg(project: typeof projectsWithStatus[0]) {
+    const state = project.reconciliationState
+
+    if (state?.status === 'fetching_procore' || state?.status === 'reconciling') {
+      return 'bg-blue-100'
+    }
+    if (state?.status === 'error') {
+      return 'bg-red-100'
+    }
+    if (!project.hasReport) {
+      return 'bg-gray-100'
+    }
+    if (project.isReconciled) {
+      return 'bg-green-100'
+    }
+    if ((project.report?.critical_items || 0) > 0) {
+      return 'bg-red-100'
+    }
+    return 'bg-yellow-100'
+  }
+
+  function getProjectStatusText(project: typeof projectsWithStatus[0]) {
+    const state = project.reconciliationState
+
+    if (state?.status === 'fetching_procore') {
+      return 'Fetching Procore data...'
+    }
+    if (state?.status === 'reconciling') {
+      return 'Running reconciliation...'
+    }
+    if (state?.status === 'error') {
+      return `Error: ${state.error}`
+    }
+    if (project.hasReport) {
+      return `Reconciled ${formatDate(project.report!.generated_at)}`
+    }
+    return 'Not reconciled yet'
+  }
+
   if (projectsError) {
     return (
       <div className="space-y-8">
@@ -267,23 +431,37 @@ export default function MonthEndCloseouts() {
           </p>
         </div>
         <div className="flex items-center space-x-3">
-          <Link
-            to="/run?mode=month-end"
-            className="flex items-center px-6 py-3 bg-procore-blue text-white rounded-lg hover:bg-blue-700 font-medium shadow-sm"
+          <button
+            onClick={handleRunAllReconciliations}
+            disabled={isRunningAll || cocProjects.length === 0}
+            className={`flex items-center px-6 py-3 font-medium rounded-lg shadow-sm ${
+              isRunningAll || cocProjects.length === 0
+                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                : 'bg-procore-blue text-white hover:bg-blue-700'
+            }`}
           >
-            <Play className="w-5 h-5 mr-2" />
-            Run Reconciliation
-          </Link>
+            {isRunningAll ? (
+              <>
+                <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                Reconciling {currentProjectIndex + 1}/{cocProjects.length}...
+              </>
+            ) : (
+              <>
+                <Play className="w-5 h-5 mr-2" />
+                Run All Reconciliations
+              </>
+            )}
+          </button>
           <button
             onClick={handleCloseMonth}
-            disabled={!isFullyReconciled || isClosingMonth}
+            disabled={!isFullyReconciled || isClosingMonth || isRunningAll}
             title={
               !isFullyReconciled
                 ? 'All projects must be reconciled with no warnings or critical items to close the month'
                 : 'Generate WIP report and close the month'
             }
             className={`flex items-center px-6 py-3 font-medium rounded-lg shadow-sm ${
-              isFullyReconciled
+              isFullyReconciled && !isRunningAll
                 ? 'bg-green-600 text-white hover:bg-green-700'
                 : 'bg-gray-100 text-gray-400 cursor-not-allowed'
             }`}
@@ -297,6 +475,29 @@ export default function MonthEndCloseouts() {
           </button>
         </div>
       </div>
+
+      {/* Progress Bar (when running all) */}
+      {isRunningAll && (
+        <div className="bg-white p-4 rounded-lg border border-gray-200">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-gray-700">
+              Running reconciliation for all projects...
+            </span>
+            <span className="text-sm text-gray-500">
+              {currentProjectIndex + 1} of {cocProjects.length}
+            </span>
+          </div>
+          <div className="w-full bg-gray-200 rounded-full h-2">
+            <div
+              className="bg-procore-blue h-2 rounded-full transition-all duration-300"
+              style={{ width: `${((currentProjectIndex + 1) / cocProjects.length) * 100}%` }}
+            />
+          </div>
+          <p className="text-sm text-gray-500 mt-2">
+            Currently processing: <span className="font-medium">{cocProjects[currentProjectIndex]?.name || '...'}</span>
+          </p>
+        </div>
+      )}
 
       {/* View Toggle */}
       <div className="flex items-center justify-between bg-white p-4 rounded-lg border border-gray-200">
@@ -432,34 +633,18 @@ export default function MonthEndCloseouts() {
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-4">
-                  <div className={`rounded-lg p-3 ${
-                    !project.hasReport
-                      ? 'bg-gray-100'
-                      : project.isReconciled
-                      ? 'bg-green-100'
-                      : (project.report?.critical_items || 0) > 0
-                      ? 'bg-red-100'
-                      : 'bg-yellow-100'
-                  }`}>
-                    {!project.hasReport ? (
-                      <Clock className="w-6 h-6 text-gray-400" />
-                    ) : project.isReconciled ? (
-                      <CheckCircle className="w-6 h-6 text-green-600" />
-                    ) : (project.report?.critical_items || 0) > 0 ? (
-                      <AlertCircle className="w-6 h-6 text-red-600" />
-                    ) : (
-                      <AlertTriangle className="w-6 h-6 text-yellow-600" />
-                    )}
+                  <div className={`rounded-lg p-3 ${getProjectStatusBg(project)}`}>
+                    {getProjectStatusIcon(project)}
                   </div>
                   <div>
                     <h3 className="font-semibold text-gray-900">{project.name}</h3>
                     <p className="text-sm text-gray-500">
                       {project.project_number && `#${project.project_number} • `}
-                      {project.hasReport
-                        ? `Reconciled ${formatDate(project.report!.generated_at)}`
-                        : 'Not reconciled yet'
-                      }
+                      {getProjectStatusText(project)}
                     </p>
+                    {project.reconciliationState?.status === 'error' && (
+                      <p className="text-xs text-red-500 mt-1">{project.reconciliationState.error}</p>
+                    )}
                   </div>
                 </div>
 
@@ -509,14 +694,26 @@ export default function MonthEndCloseouts() {
                         <ArrowRight className="w-5 h-5" />
                       </Link>
                     </>
+                  ) : project.reconciliationState?.status === 'fetching_procore' || project.reconciliationState?.status === 'reconciling' ? (
+                    <div className="flex items-center text-blue-500">
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      <span className="text-sm font-medium">
+                        {project.reconciliationState?.status === 'fetching_procore' ? 'Fetching data...' : 'Reconciling...'}
+                      </span>
+                    </div>
                   ) : (
-                    <Link
-                      to={`/run?mode=month-end&projectId=${project.id}`}
-                      className="flex items-center px-4 py-2 bg-procore-blue text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
+                    <button
+                      onClick={() => runReconciliationForProject(project)}
+                      disabled={isRunningAll}
+                      className={`flex items-center px-4 py-2 rounded-lg text-sm font-medium ${
+                        isRunningAll
+                          ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                          : 'bg-procore-blue text-white hover:bg-blue-700'
+                      }`}
                     >
                       <Play className="w-4 h-4 mr-2" />
                       Run Reconciliation
-                    </Link>
+                    </button>
                   )}
                 </div>
               </div>
