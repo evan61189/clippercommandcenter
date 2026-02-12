@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Calendar,
   FolderCheck,
+  Search,
 } from 'lucide-react'
 
 type ReconciliationMode = 'month-end' | 'project-closeout' | null
@@ -126,8 +127,23 @@ export default function RunReconciliation() {
   const [result, setResult] = useState<any>(null)
   const [procoreData, setProcoreData] = useState<any>(null)
   const [expandedView, setExpandedView] = useState<DataView>(null)
+  const [searchQuery, setSearchQuery] = useState<string>('')
 
   const userId = getUserId()
+
+  // Filter projects: only "Course of Construction" status and match search query
+  const filteredProjects = useMemo(() => {
+    return projects
+      .filter(p => p.status === 'Course of Construction')
+      .filter(p => {
+        if (!searchQuery.trim()) return true
+        const query = searchQuery.toLowerCase()
+        return (
+          p.name.toLowerCase().includes(query) ||
+          (p.project_number && p.project_number.toLowerCase().includes(query))
+        )
+      })
+  }, [projects, searchQuery])
 
   useEffect(() => {
     loadProjects()
@@ -389,13 +405,33 @@ export default function RunReconciliation() {
         <div className="space-y-4">
           <div className="card">
             <h3 className="font-medium text-gray-900 mb-4">Select Procore Project</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              Showing projects in "Course of Construction" status
+            </p>
+
+            {/* Search Bar */}
+            <div className="relative mb-4">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search projects by name or number..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-procore-blue focus:border-transparent"
+              />
+            </div>
+
             {projects.length === 0 ? (
               <p className="text-gray-500 text-center py-8">
                 No projects found in your Procore account.
               </p>
+            ) : filteredProjects.length === 0 ? (
+              <p className="text-gray-500 text-center py-8">
+                {searchQuery ? 'No projects match your search.' : 'No projects in "Course of Construction" status.'}
+              </p>
             ) : (
               <div className="space-y-2 max-h-96 overflow-y-auto">
-                {projects.map((project) => (
+                {filteredProjects.map((project) => (
                   <button
                     key={project.id}
                     onClick={() => setSelectedProject(project)}

@@ -299,3 +299,166 @@ export async function getDashboardStats() {
     totalCritical,
   }
 }
+
+// ===== Soft Closed Projects =====
+export interface SoftClosedProject {
+  id: string
+  project_id: string
+  soft_closed_at: string
+  soft_closed_by: string | null
+  notes: string | null
+  open_aps: number | null  // Open accounts payable count
+  open_ars: number | null  // Open accounts receivable count
+  pending_invoices: number | null  // Pending sub invoices
+  created_at: string
+}
+
+export async function getSoftClosedProjects() {
+  const { data, error } = await supabase
+    .from('soft_closed_projects')
+    .select('*, projects(*)')
+    .order('soft_closed_at', { ascending: false })
+
+  if (error) throw error
+  return data as (SoftClosedProject & { projects: Project })[]
+}
+
+export async function softCloseProject(
+  projectId: string,
+  userId: string,
+  notes?: string,
+  openAps?: number,
+  openArs?: number,
+  pendingInvoices?: number
+) {
+  const { data, error } = await supabase
+    .from('soft_closed_projects')
+    .insert({
+      project_id: projectId,
+      soft_closed_by: userId,
+      notes: notes || null,
+      open_aps: openAps || 0,
+      open_ars: openArs || 0,
+      pending_invoices: pendingInvoices || 0,
+    })
+    .select()
+    .single()
+
+  if (error) throw error
+  return data as SoftClosedProject
+}
+
+export async function removeSoftClose(projectId: string) {
+  const { error } = await supabase
+    .from('soft_closed_projects')
+    .delete()
+    .eq('project_id', projectId)
+
+  if (error) throw error
+  return true
+}
+
+export async function isProjectSoftClosed(projectId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('soft_closed_projects')
+    .select('id')
+    .eq('project_id', projectId)
+    .maybeSingle()
+
+  if (error) throw error
+  return !!data
+}
+
+// ===== WIP Reports (Work In Progress) =====
+export interface WIPReport {
+  id: string
+  month_end_date: string  // The last day of the month this WIP covers
+  generated_at: string
+  generated_by: string | null
+  total_projects: number
+  total_contract_value: number
+  total_cost_to_date: number
+  total_billing_to_date: number
+  total_over_under_billing: number  // Positive = over-billed, negative = under-billed
+  total_projected_gross_profit: number
+  report_data: any  // JSON blob with detailed project-by-project data
+  status: 'draft' | 'finalized'
+  finalized_at: string | null
+  created_at: string
+}
+
+export async function getWIPReports() {
+  const { data, error } = await supabase
+    .from('wip_reports')
+    .select('*')
+    .order('month_end_date', { ascending: false })
+
+  if (error) throw error
+  return data as WIPReport[]
+}
+
+export async function getWIPReport(id: string) {
+  const { data, error } = await supabase
+    .from('wip_reports')
+    .select('*')
+    .eq('id', id)
+    .single()
+
+  if (error) throw error
+  return data as WIPReport
+}
+
+export async function createWIPReport(
+  monthEndDate: string,
+  userId: string,
+  reportData: any
+) {
+  const totals = calculateWIPTotals(reportData)
+
+  const { data, error } = await supabase
+    .from('wip_reports')
+    .insert({
+      month_end_date: monthEndDate,
+      generated_by: userId,
+      total_projects: totals.totalProjects,
+      total_contract_value: totals.totalContractValue,
+      total_cost_to_date: totals.totalCostToDate,
+      total_billing_to_date: totals.totalBillingToDate,
+      total_over_under_billing: totals.totalOverUnderBilling,
+      total_projected_gross_profit: totals.totalProjectedGrossProfit,
+      report_data: reportData,
+      status: 'draft',
+    })
+    .select()
+    .single()
+
+  if (error) throw error
+  return data as WIPReport
+}
+
+export async function finalizeWIPReport(id: string) {
+  const { data, error } = await supabase
+    .from('wip_reports')
+    .update({
+      status: 'finalized',
+      finalized_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .select()
+    .single()
+
+  if (error) throw error
+  return data as WIPReport
+}
+
+function calculateWIPTotals(reportData: any) {
+  const projects = reportData?.projects || []
+  return {
+    totalProjects: projects.length,
+    totalContractValue: projects.reduce((sum: number, p: any) => sum + (p.contractValue || 0), 0),
+    totalCostToDate: projects.reduce((sum: number, p: any) => sum + (p.costToDate || 0), 0),
+    totalBillingToDate: projects.reduce((sum: number, p: any) => sum + (p.billingToDate || 0), 0),
+    totalOverUnderBilling: projects.reduce((sum: number, p: any) => sum + (p.overUnderBilling || 0), 0),
+    totalProjectedGrossProfit: projects.reduce((sum: number, p: any) => sum + (p.projectedGrossProfit || 0), 0),
+  }
+}
