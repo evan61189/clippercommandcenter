@@ -241,18 +241,19 @@ export default function MonthEndCloseouts() {
       }
 
       // Create a report object from the result
+      // The backend returns fields directly on the report object (snake_case), not nested under "summary"
       const report: ReconciliationReport = {
-        id: reconResult.reportId || projectId,
+        id: reconResult.id || projectId,
         project_id: projectId,
-        generated_at: new Date().toISOString(),
+        generated_at: reconResult.generated_at || new Date().toISOString(),
         reconciliation_type: 'month_end',
-        total_committed: reconResult.summary?.totalCommitted || 0,
-        estimated_exposure: reconResult.summary?.estimatedExposure || 0,
-        warning_items: reconResult.summary?.warningItems || 0,
-        critical_items: reconResult.summary?.criticalItems || 0,
-        reconciled_items: reconResult.summary?.reconciledItems || 0,
-        procore_sub_invoiced: reconResult.summary?.procoreSubInvoiced || null,
-        qbo_sub_invoiced: reconResult.summary?.qboSubInvoiced || null,
+        total_committed: reconResult.total_committed || 0,
+        estimated_exposure: reconResult.estimated_exposure || 0,
+        warning_items: reconResult.warning_items || 0,
+        critical_items: reconResult.critical_items || 0,
+        reconciled_items: reconResult.reconciled_items || 0,
+        procore_sub_invoiced: reconResult.procore_sub_invoiced ?? null,
+        qbo_sub_invoiced: reconResult.qbo_sub_invoiced ?? null,
       }
 
       // Update state to complete
