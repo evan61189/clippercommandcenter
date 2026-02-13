@@ -52,6 +52,13 @@ interface ProjectReconciliationState {
   report?: ReconciliationReport
 }
 
+// Convert a Procore numeric ID to a deterministic UUID for database storage
+// The DB project_id column is UUID type, but Procore IDs are large numbers
+function procoreIdToUUID(procoreId: number): string {
+  const hex = procoreId.toString(16).padStart(32, '0')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
+}
+
 function getUserId(): string {
   let userId = localStorage.getItem('closeout_user_id')
   if (!userId) {
@@ -158,7 +165,7 @@ export default function MonthEndCloseouts() {
   // Build project display list with reconciliation status
   const projectsWithStatus = useMemo(() => {
     return filteredProjects.map(project => {
-      const matchingReport = reports?.find(r => r.project_id === String(project.id))
+      const matchingReport = reports?.find(r => r.project_id === procoreIdToUUID(project.id))
       const reconciliationState = reconciliationStates.get(project.id)
 
       return {
@@ -223,8 +230,8 @@ export default function MonthEndCloseouts() {
       // Update state to reconciling
       setReconciliationStates(prev => new Map(prev).set(project.id, { status: 'reconciling' }))
 
-      // Run reconciliation
-      const projectId = String(project.id)
+      // Run reconciliation - use a deterministic UUID so the DB save succeeds
+      const projectId = procoreIdToUUID(project.id)
       const reconResponse = await fetch('/.netlify/functions/run-reconciliation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
