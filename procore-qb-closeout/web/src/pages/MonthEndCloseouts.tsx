@@ -194,7 +194,6 @@ export default function MonthEndCloseouts() {
       projectsWithIssues: projectsWithReports.filter(p => !p.isReconciled).length,
       notReconciledProjects: projectsWithStatus.filter(p => !p.hasReport).length,
       totalCommitted: projectsWithReports.reduce((sum, p) => sum + (p.report?.total_committed || 0), 0),
-      totalExposure: projectsWithReports.reduce((sum, p) => sum + (p.report?.estimated_exposure || 0), 0),
       totalWarnings: projectsWithReports.reduce((sum, p) => sum + (p.report?.warning_items || 0), 0),
       totalCritical: projectsWithReports.reduce((sum, p) => sum + (p.report?.critical_items || 0), 0),
     }
@@ -255,7 +254,7 @@ export default function MonthEndCloseouts() {
         generated_at: reconResult.generated_at || new Date().toISOString(),
         reconciliation_type: 'month_end',
         total_committed: reconResult.total_committed || 0,
-        estimated_exposure: reconResult.estimated_exposure || 0,
+        estimated_exposure: 0,
         warning_items: reconResult.warning_items || 0,
         critical_items: reconResult.critical_items || 0,
         reconciled_items: reconResult.reconciled_items || 0,
@@ -615,12 +614,6 @@ export default function MonthEndCloseouts() {
             <p className="text-2xl font-semibold text-gray-400">{portfolioTotals.notReconciledProjects}</p>
             <p className="text-xs text-gray-400">Needs reconciliation</p>
           </div>
-          <div className="card text-center">
-            <p className="text-sm text-gray-500">Total Exposure</p>
-            <p className={`text-xl font-semibold ${portfolioTotals.totalExposure > 0 ? 'text-red-600' : 'text-gray-900'}`}>
-              {formatCurrency(portfolioTotals.totalExposure)}
-            </p>
-          </div>
         </div>
       )}
 
@@ -663,13 +656,6 @@ export default function MonthEndCloseouts() {
                         <p className="text-xs text-gray-500 uppercase">Committed</p>
                         <p className="text-lg font-semibold text-gray-900">
                           {formatCurrency(project.report?.total_committed || 0)}
-                        </p>
-                      </div>
-
-                      <div className="text-right">
-                        <p className="text-xs text-gray-500 uppercase">Exposure</p>
-                        <p className={`text-lg font-semibold ${(project.report?.estimated_exposure || 0) > 0 ? 'text-red-600' : 'text-gray-900'}`}>
-                          {formatCurrency(project.report?.estimated_exposure || 0)}
                         </p>
                       </div>
 

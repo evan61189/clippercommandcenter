@@ -13,6 +13,7 @@ import {
   ChevronRight,
   Lock,
   Unlock,
+  X,
 } from 'lucide-react'
 import {
   getReport,
@@ -266,7 +267,7 @@ export default function ReportDetail() {
         </div>
 
         {/* Key Metrics */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-6">
           <div className="bg-gray-50 rounded-lg p-4">
             <p className="text-sm text-gray-500">Contract Value</p>
             <p className="text-xl font-semibold">
@@ -283,12 +284,6 @@ export default function ReportDetail() {
             <p className="text-sm text-gray-500">Retention Held</p>
             <p className="text-xl font-semibold">
               {formatCurrency(report.sub_retention_held)}
-            </p>
-          </div>
-          <div className="bg-red-50 rounded-lg p-4">
-            <p className="text-sm text-red-600">Estimated Exposure</p>
-            <p className="text-xl font-semibold text-red-700">
-              {formatCurrency(report.estimated_exposure)}
             </p>
           </div>
         </div>
@@ -624,12 +619,200 @@ function generateWarnings(results: any[], commitments: any[], _report: any): War
   return warnings
 }
 
+// Detail modal for viewing full Procore/QB data for a line item
+function InvoiceDetailModal({ result, onClose }: { result: any; onClose: () => void }) {
+  if (!result) return null
+
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto" onClick={onClose}>
+      <div className="flex items-center justify-center min-h-screen px-4">
+        <div className="fixed inset-0 bg-black/50" />
+        <div
+          className="relative bg-white rounded-xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="sticky top-0 bg-white border-b px-6 py-4 flex items-center justify-between rounded-t-xl">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">
+                {result.item_description || result.vendor || 'Line Item Detail'}
+              </h3>
+              <div className="flex items-center gap-2 mt-1">
+                <span className={`badge text-xs ${getSeverityColor(result.severity)}`}>
+                  {getSeverityText(result.severity)}
+                </span>
+                <span className={`badge text-xs ${getStatusColor(result.status)}`}>
+                  {result.status?.replace(/_/g, ' ') || '-'}
+                </span>
+              </div>
+            </div>
+            <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg">
+              <X className="w-5 h-5 text-gray-500" />
+            </button>
+          </div>
+
+          <div className="p-6 space-y-6">
+            {/* Side-by-side comparison */}
+            <div className="grid grid-cols-2 gap-4">
+              {/* Procore side */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-blue-800 uppercase tracking-wide mb-3">Procore</h4>
+                <dl className="space-y-2 text-sm">
+                  <div>
+                    <dt className="text-blue-600">Reference</dt>
+                    <dd className="font-medium text-gray-900">{result.procore_ref || '-'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-blue-600">Amount</dt>
+                    <dd className="font-medium text-gray-900 text-lg">
+                      {result.procore_value != null ? formatCurrency(result.procore_value) : '-'}
+                    </dd>
+                  </div>
+                  {result.procore_retainage != null && result.procore_retainage !== 0 && (
+                    <div>
+                      <dt className="text-blue-600">Retainage</dt>
+                      <dd className="font-medium text-orange-600">{formatCurrency(result.procore_retainage)}</dd>
+                    </div>
+                  )}
+                  {result.procore_date && (
+                    <div>
+                      <dt className="text-blue-600">Date</dt>
+                      <dd className="font-medium text-gray-900">{result.procore_date}</dd>
+                    </div>
+                  )}
+                </dl>
+              </div>
+
+              {/* QuickBooks side */}
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-green-800 uppercase tracking-wide mb-3">QuickBooks</h4>
+                <dl className="space-y-2 text-sm">
+                  <div>
+                    <dt className="text-green-600">Reference</dt>
+                    <dd className="font-medium text-gray-900">{result.qb_ref || '-'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-green-600">Amount</dt>
+                    <dd className="font-medium text-gray-900 text-lg">
+                      {result.qb_value != null ? formatCurrency(result.qb_value) : '-'}
+                    </dd>
+                  </div>
+                  {result.qb_retainage != null && result.qb_retainage !== 0 && (
+                    <div>
+                      <dt className="text-green-600">Retainage</dt>
+                      <dd className="font-medium text-orange-600">{formatCurrency(result.qb_retainage)}</dd>
+                    </div>
+                  )}
+                  {result.qb_date && (
+                    <div>
+                      <dt className="text-green-600">Date</dt>
+                      <dd className="font-medium text-gray-900">{result.qb_date}</dd>
+                    </div>
+                  )}
+                </dl>
+              </div>
+            </div>
+
+            {/* Variance */}
+            <div className="bg-gray-50 border rounded-lg p-4">
+              <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3">Variance</h4>
+              <div className="grid grid-cols-3 gap-4 text-sm">
+                <div>
+                  <dt className="text-gray-500">Amount</dt>
+                  <dd className={`text-lg font-semibold ${
+                    (result.variance || 0) > 0 ? 'text-red-600' : (result.variance || 0) < 0 ? 'text-green-600' : 'text-gray-500'
+                  }`}>
+                    {result.variance != null ? formatCurrency(result.variance) : '-'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-gray-500">Percentage</dt>
+                  <dd className={`text-lg font-semibold ${
+                    (result.variance_pct || 0) > 0 ? 'text-red-600' : (result.variance_pct || 0) < 0 ? 'text-green-600' : 'text-gray-500'
+                  }`}>
+                    {result.variance_pct != null ? `${result.variance_pct.toFixed(1)}%` : '-'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-gray-500">Requires Action</dt>
+                  <dd className="font-medium">{result.requires_action ? 'Yes' : 'No'}</dd>
+                </div>
+              </div>
+            </div>
+
+            {/* General details */}
+            <div className="bg-gray-50 border rounded-lg p-4">
+              <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3">Details</h4>
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                <div>
+                  <dt className="text-gray-500">Vendor</dt>
+                  <dd className="font-medium text-gray-900">{result.vendor || '-'}</dd>
+                </div>
+                <div>
+                  <dt className="text-gray-500">Type</dt>
+                  <dd className="font-medium text-gray-900">{result.item_type?.replace(/_/g, ' ') || '-'}</dd>
+                </div>
+                {result.cost_code && (
+                  <div>
+                    <dt className="text-gray-500">Cost Code</dt>
+                    <dd className="font-medium text-gray-900">{result.cost_code}</dd>
+                  </div>
+                )}
+                {result.notes && (
+                  <div className="col-span-2">
+                    <dt className="text-gray-500">Notes</dt>
+                    <dd className="font-medium text-gray-900">{result.notes}</dd>
+                  </div>
+                )}
+              </dl>
+            </div>
+
+            {/* AI Analysis (if available) */}
+            {(result.ai_likely_cause || result.ai_recommended_action || result.ai_risk_level) && (
+              <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-purple-800 uppercase tracking-wide mb-3">AI Analysis</h4>
+                <dl className="space-y-2 text-sm">
+                  {result.ai_likely_cause && (
+                    <div>
+                      <dt className="text-purple-600">Likely Cause</dt>
+                      <dd className="font-medium text-gray-900">{result.ai_likely_cause}</dd>
+                    </div>
+                  )}
+                  {result.ai_risk_level && (
+                    <div>
+                      <dt className="text-purple-600">Risk Level</dt>
+                      <dd className="font-medium text-gray-900">{result.ai_risk_level}</dd>
+                    </div>
+                  )}
+                  {result.ai_recommended_action && (
+                    <div>
+                      <dt className="text-purple-600">Recommended Action</dt>
+                      <dd className="font-medium text-gray-900">{result.ai_recommended_action}</dd>
+                    </div>
+                  )}
+                  {result.ai_is_timing_issue != null && (
+                    <div>
+                      <dt className="text-purple-600">Timing Issue</dt>
+                      <dd className="font-medium text-gray-900">{result.ai_is_timing_issue ? 'Yes' : 'No'}</dd>
+                    </div>
+                  )}
+                </dl>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 type SortField = 'item_description' | 'vendor' | 'procore_value' | 'qb_value' | 'variance' | 'severity' | 'notes' | 'status' | 'procore_ref' | 'qb_ref'
 type SortDir = 'asc' | 'desc'
 
 function ResultsTable({ results, title }: { results: any[]; title?: string }) {
   const [sortField, setSortField] = useState<SortField>('vendor')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
+  const [selectedResult, setSelectedResult] = useState<any>(null)
 
   if (results.length === 0) {
     return (
@@ -707,11 +890,15 @@ function ResultsTable({ results, title }: { results: any[]; title?: string }) {
         </thead>
         <tbody className="divide-y divide-gray-200 bg-white">
           {sortedResults.map((result, idx) => (
-            <tr key={result.id || idx} className="hover:bg-yellow-50">
+            <tr
+              key={result.id || idx}
+              className="hover:bg-yellow-50 cursor-pointer"
+              onClick={() => setSelectedResult(result)}
+            >
               <td className="px-3 py-2 font-medium text-gray-900 whitespace-nowrap">
                 {result.vendor || '-'}
               </td>
-              <td className="px-3 py-2 text-gray-700 max-w-xs truncate" title={result.item_description}>
+              <td className="px-3 py-2 text-procore-blue underline max-w-xs truncate" title={result.item_description}>
                 {result.item_description || '-'}
               </td>
               <td className="px-3 py-2 text-gray-500">
@@ -772,6 +959,9 @@ function ResultsTable({ results, title }: { results: any[]; title?: string }) {
         </tfoot>
       </table>
       <p className="text-xs text-gray-400 mt-2">Showing {sortedResults.length} results</p>
+      {selectedResult && (
+        <InvoiceDetailModal result={selectedResult} onClose={() => setSelectedResult(null)} />
+      )}
     </div>
   )
 }
@@ -790,6 +980,7 @@ interface VendorGroup {
 function GroupedResultsTable({ results, title }: { results: any[]; title?: string }) {
   const [expandedVendors, setExpandedVendors] = useState<Set<string>>(new Set())
   const [expandAll, setExpandAll] = useState(false)
+  const [selectedResult, setSelectedResult] = useState<any>(null)
 
   if (results.length === 0) {
     return (
@@ -957,9 +1148,13 @@ function GroupedResultsTable({ results, title }: { results: any[]; title?: strin
               </tr>
               {/* Invoice Detail Rows */}
               {expandedVendors.has(group.vendor) && group.invoices.map((inv, idx) => (
-                <tr key={`${group.vendor}-${idx}`} className="bg-white hover:bg-yellow-50">
+                <tr
+                  key={`${group.vendor}-${idx}`}
+                  className="bg-white hover:bg-yellow-50 cursor-pointer"
+                  onClick={() => setSelectedResult(inv)}
+                >
                   <td className="px-3 py-2"></td>
-                  <td className="px-3 py-2 pl-8 text-gray-600">
+                  <td className="px-3 py-2 pl-8 text-procore-blue underline">
                     {inv.item_description || inv.procore_ref || '-'}
                   </td>
                   <td className="px-3 py-2 text-right">
@@ -1005,6 +1200,9 @@ function GroupedResultsTable({ results, title }: { results: any[]; title?: strin
           </tr>
         </tfoot>
       </table>
+      {selectedResult && (
+        <InvoiceDetailModal result={selectedResult} onClose={() => setSelectedResult(null)} />
+      )}
     </div>
   )
 }

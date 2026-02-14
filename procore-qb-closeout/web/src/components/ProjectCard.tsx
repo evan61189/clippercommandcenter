@@ -12,7 +12,6 @@ interface ProjectCardProps {
     project_number: string | null
     status: string
     total_committed?: number
-    estimated_exposure?: number
     warning_items?: number
     critical_items?: number
   }
@@ -25,7 +24,6 @@ export default function ProjectCard({ project, isDemo, onDeleted }: ProjectCardP
   const [isDeleting, setIsDeleting] = useState(false)
 
   const totalCommitted = 'total_committed' in project ? project.total_committed : 0
-  const estimatedExposure = 'estimated_exposure' in project ? project.estimated_exposure : 0
   const warningItems = 'warning_items' in project ? project.warning_items : 0
   const criticalItems = 'critical_items' in project ? project.critical_items : 0
 
@@ -104,19 +102,11 @@ export default function ProjectCard({ project, isDemo, onDeleted }: ProjectCardP
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-4">
-        <div>
-          <p className="text-xs text-gray-500 uppercase">Total Committed</p>
-          <p className="text-lg font-semibold text-gray-900">
-            {formatCurrency(totalCommitted)}
-          </p>
-        </div>
-        <div>
-          <p className="text-xs text-gray-500 uppercase">Exposure</p>
-          <p className={`text-lg font-semibold ${estimatedExposure && estimatedExposure > 0 ? 'text-red-600' : 'text-gray-900'}`}>
-            {formatCurrency(estimatedExposure)}
-          </p>
-        </div>
+      <div className="mt-4">
+        <p className="text-xs text-gray-500 uppercase">Total Committed</p>
+        <p className="text-lg font-semibold text-gray-900">
+          {formatCurrency(totalCommitted)}
+        </p>
       </div>
 
       <div className="mt-4 flex items-center justify-between pt-4 border-t border-gray-100">

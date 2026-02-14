@@ -12,7 +12,6 @@ import {
   Wrench,
 } from 'lucide-react'
 import { getProjects, getDashboardStats, supabase, isSupabaseConfigured } from '../lib/supabase'
-import { formatCurrency } from '../lib/utils'
 import StatsCard from '../components/StatsCard'
 import ProjectCard from '../components/ProjectCard'
 
@@ -253,27 +252,6 @@ export default function Dashboard() {
               color="red"
             />
           </div>
-
-          {/* Total Exposure - Only show if there are projects */}
-          {hasProjects && (
-            <div className="card">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-medium text-gray-900">
-                    Total Estimated Exposure
-                  </h3>
-                  <p className="text-sm text-gray-500">
-                    Combined financial risk across all reconciled projects
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="text-3xl font-bold text-red-600">
-                    {formatCurrency(stats?.totalExposure || 0)}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* Projects List */}
           <div>
