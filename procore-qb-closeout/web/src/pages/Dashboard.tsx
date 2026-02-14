@@ -12,7 +12,6 @@ import {
   Wrench,
 } from 'lucide-react'
 import { getProjects, getDashboardStats, supabase, isSupabaseConfigured } from '../lib/supabase'
-import { formatCurrency } from '../lib/utils'
 import StatsCard from '../components/StatsCard'
 import ProjectCard from '../components/ProjectCard'
 
