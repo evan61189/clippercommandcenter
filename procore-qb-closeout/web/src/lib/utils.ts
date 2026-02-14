@@ -48,7 +48,8 @@ export function formatDateTime(dateString: string | null | undefined): string {
 /**
  * Get severity color class
  */
-export function getSeverityColor(severity: string): string {
+export function getSeverityColor(severity: string | null | undefined): string {
+  if (!severity) return 'text-gray-600 bg-gray-100'
   switch (severity.toLowerCase()) {
     case 'info':
       return 'text-green-600 bg-green-100'
@@ -64,7 +65,8 @@ export function getSeverityColor(severity: string): string {
 /**
  * Get severity display text (Phase 7: "info" -> "Reconciled")
  */
-export function getSeverityText(severity: string): string {
+export function getSeverityText(severity: string | null | undefined): string {
+  if (!severity) return 'Unknown'
   switch (severity.toLowerCase()) {
     case 'info':
       return 'Reconciled'
@@ -80,7 +82,8 @@ export function getSeverityText(severity: string): string {
 /**
  * Get status color class
  */
-export function getStatusColor(status: string): string {
+export function getStatusColor(status: string | null | undefined): string {
+  if (!status) return 'text-gray-600 bg-gray-100'
   switch (status.toLowerCase()) {
     case 'open':
       return 'text-red-600 bg-red-100'
