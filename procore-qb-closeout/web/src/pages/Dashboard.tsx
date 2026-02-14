@@ -254,27 +254,6 @@ export default function Dashboard() {
             />
           </div>
 
-          {/* Total Exposure - Only show if there are projects */}
-          {hasProjects && (
-            <div className="card">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-medium text-gray-900">
-                    Total Estimated Exposure
-                  </h3>
-                  <p className="text-sm text-gray-500">
-                    Combined financial risk across all reconciled projects
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="text-3xl font-bold text-red-600">
-                    {formatCurrency(stats?.totalExposure || 0)}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* Projects List */}
           <div>
             <h2 className="text-lg font-semibold text-gray-900 mb-4">

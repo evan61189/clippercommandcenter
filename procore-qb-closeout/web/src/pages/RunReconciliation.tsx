@@ -836,7 +836,7 @@ export default function RunReconciliation() {
           </div>
 
           {/* Financial Summary Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             <div className="card text-center">
               <p className="text-sm text-gray-500">Total Committed</p>
               <p className="text-xl font-semibold text-gray-900">
@@ -853,12 +853,6 @@ export default function RunReconciliation() {
               <p className="text-sm text-gray-500">Retention Held</p>
               <p className="text-xl font-semibold text-gray-900">
                 ${(result.sub_retention_held || 0).toLocaleString()}
-              </p>
-            </div>
-            <div className="card text-center">
-              <p className="text-sm text-gray-500">Exposure</p>
-              <p className="text-xl font-semibold text-red-600">
-                ${(result.estimated_exposure || 0).toLocaleString()}
               </p>
             </div>
           </div>

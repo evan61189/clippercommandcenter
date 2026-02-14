@@ -107,12 +107,6 @@ export default function ProjectDetail() {
                         {formatCurrency(report.total_committed)}
                       </p>
                     </div>
-                    <div className="text-center">
-                      <p className="text-gray-500">Exposure</p>
-                      <p className={`font-semibold ${report.estimated_exposure > 0 ? 'text-red-600' : ''}`}>
-                        {formatCurrency(report.estimated_exposure)}
-                      </p>
-                    </div>
                     <div className="flex space-x-2">
                       {report.warning_items > 0 && (
                         <span className="badge badge-warning">

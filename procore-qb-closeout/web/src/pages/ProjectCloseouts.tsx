@@ -12,7 +12,6 @@ interface ProjectCloseoutReport {
   generated_at: string
   reconciliation_type: string
   total_committed: number
-  estimated_exposure: number
   warning_items: number
   critical_items: number
 }
@@ -138,13 +137,6 @@ export default function ProjectCloseouts() {
                     <p className="text-xs text-gray-500 uppercase">Total Committed</p>
                     <p className="text-lg font-semibold text-gray-900">
                       {formatCurrency(report.total_committed || 0)}
-                    </p>
-                  </div>
-
-                  <div className="text-right">
-                    <p className="text-xs text-gray-500 uppercase">Exposure</p>
-                    <p className={`text-lg font-semibold ${(report.estimated_exposure || 0) > 0 ? 'text-red-600' : 'text-gray-900'}`}>
-                      {formatCurrency(report.estimated_exposure || 0)}
                     </p>
                   </div>
 
