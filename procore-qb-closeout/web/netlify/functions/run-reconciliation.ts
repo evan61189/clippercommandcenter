@@ -264,9 +264,24 @@ interface ProcoreInvoiceRef {
 function filterBillsByProjectCustomer(
   bills: any[],
   projectCustomerId: string,
-  procoreInvoiceRefs: ProcoreInvoiceRef[] = []
+  procoreInvoiceRefs: ProcoreInvoiceRef[] = [],
+  projectVendorIds: Set<string> = new Set()
 ): any[] {
-  if (!projectCustomerId) return bills;
+  if (!projectCustomerId) {
+    // Without a project customer, only include bills from known project vendors
+    // This prevents bills for other jobs from leaking into results
+    if (projectVendorIds.size === 0 && procoreInvoiceRefs.length === 0) return [];
+    const knownVendorIds = new Set(projectVendorIds);
+    for (const ref of procoreInvoiceRefs) {
+      if (ref.qbVendorId) knownVendorIds.add(ref.qbVendorId);
+    }
+    const filtered = bills.filter(bill => {
+      const billVendorId = bill.VendorRef?.value;
+      return billVendorId && knownVendorIds.has(String(billVendorId));
+    });
+    console.log(`No project customer ID - filtered ${bills.length} bills to ${filtered.length} by project vendor IDs (${knownVendorIds.size} vendors)`);
+    return filtered;
+  }
 
   // Build a map of amount -> list of QB vendor IDs that have invoices at that amount
   const amountToVendorIds = new Map<number, Set<string>>();
@@ -386,7 +401,8 @@ async function fetchAllBillsForProject(
   tokens: QBTokenData,
   userId: string,
   projectCustomerId: string | null,
-  procoreInvoiceRefs: ProcoreInvoiceRef[] = []
+  procoreInvoiceRefs: ProcoreInvoiceRef[] = [],
+  projectVendorIds: Set<string> = new Set()
 ): Promise<any[]> {
   console.log('Fetching ALL QB bills to filter by project...');
 
@@ -394,15 +410,10 @@ async function fetchAllBillsForProject(
   const allBills = await paginatedQBQuery('SELECT * FROM Bill', 'Bill', tokens, userId);
   console.log(`Total QB bills fetched: ${allBills.length}`);
 
-  // If no project customer ID, we can't filter by project
-  if (!projectCustomerId) {
-    console.log('No project customer ID - returning all bills');
-    return allBills;
-  }
-
   // Filter to only bills that have the project CustomerRef in any line item
   // Bills with NO CustomerRef only included if they have exact amount + vendor match
-  return filterBillsByProjectCustomer(allBills, projectCustomerId, procoreInvoiceRefs);
+  // When no project customer ID, filter by project vendor IDs only
+  return filterBillsByProjectCustomer(allBills, projectCustomerId, procoreInvoiceRefs, projectVendorIds);
 }
 
 // Fetch other QB data (invoices, payments) - filtered by project customer
@@ -1368,7 +1379,8 @@ function matchInvoicesToBills(
   procoreInvoices: ProcoreInvoice[],
   qbBills: QBBill[],
   qbVendors: any[],
-  aiVendorMap: Map<string, { name: string; id: string; score: number }>
+  aiVendorMap: Map<string, { name: string; id: string; score: number }>,
+  vendorEquivalenceMap: Map<string, Set<string>> = new Map()
 ): { results: MatchResult[]; matchedQBBillIds: Set<string>; matchedProcoreIds: Set<string> } {
   const results: MatchResult[] = [];
   const matchedQBBillIds = new Set<string>();
@@ -1403,9 +1415,10 @@ function matchInvoicesToBills(
       continue;
     }
 
-    // Find matching bills for this vendor
+    // Find matching bills for this vendor (include LLC/Inc/Corp equivalents)
+    const equivalentIds = vendorEquivalenceMap.get(vendorMatch.id) || new Set([vendorMatch.id]);
     const vendorBills = qbBills.filter(
-      b => b.vendorId === vendorMatch.id && !matchedQBBillIds.has(b.id)
+      b => equivalentIds.has(b.vendorId) && !matchedQBBillIds.has(b.id)
     );
 
     // Try to find exact or close match
@@ -1650,7 +1663,8 @@ function matchDirectCostsToBills(
   qbBills: QBBill[],
   matchedBillIds: Set<string>,
   qbVendors: any[],
-  aiVendorMap: Map<string, { name: string; id: string; score: number }>
+  aiVendorMap: Map<string, { name: string; id: string; score: number }>,
+  vendorEquivalenceMap: Map<string, Set<string>> = new Map()
 ): MatchResult[] {
   const results: MatchResult[] = [];
 
@@ -1707,9 +1721,10 @@ function matchDirectCostsToBills(
       continue;
     }
 
-    // Find matching bill
+    // Find matching bill (include LLC/Inc/Corp equivalents)
+    const equivalentIds = vendorEquivalenceMap.get(vendorMatch.id) || new Set([vendorMatch.id]);
     const vendorBills = qbBills.filter(
-      b => b.vendorId === vendorMatch.id && !matchedBillIds.has(b.id)
+      b => equivalentIds.has(b.vendorId) && !matchedBillIds.has(b.id)
     );
 
     let bestBill: QBBill | null = null;
@@ -1960,44 +1975,53 @@ function matchLaborCosts(
   return { laborResults, nonLaborDirectCosts };
 }
 
-// Find unmatched QB bills - now that bills are filtered by project CustomerRef,
-// we show ALL unmatched bills since they're all relevant to this project
+// Find unmatched QB bills - only include bills from vendors that have Procore
+// commitments/invoices on this project to avoid pulling in other projects' bills
 function findUnmatchedQBBills(
   qbBills: QBBill[],
   matchedQBIds: Set<string>,
   commitments: ProcoreCommitment[],
   qbVendors: any[],
-  aiVendorMap: Map<string, { name: string; id: string; score: number }>
+  aiVendorMap: Map<string, { name: string; id: string; score: number }>,
+  projectVendorIds: Set<string> = new Set()
 ): MatchResult[] {
   const results: MatchResult[] = [];
 
-  // Build a set of vendors that have subcontracts (normalized for matching)
+  // Build a set of vendors that have subcontracts (strip suffixes to merge LLC/Inc/Corp variants)
   const subcontractVendors = new Set<string>();
   for (const c of commitments) {
     if (c.type === 'subcontract') {
-      subcontractVendors.add(c.vendor.toLowerCase().trim());
+      subcontractVendors.add(stripCompanySuffixes(c.vendor).toLowerCase().trim());
     }
   }
 
-  // Also add AI-mapped vendor names for subcontract vendors
+  // Also add AI-mapped vendor names for subcontract vendors (stripped)
   for (const c of commitments) {
     if (c.type === 'subcontract') {
       const aiMatch = aiVendorMap.get(c.vendor);
       if (aiMatch) {
-        subcontractVendors.add(aiMatch.name.toLowerCase().trim());
+        subcontractVendors.add(stripCompanySuffixes(aiMatch.name).toLowerCase().trim());
       }
     }
   }
 
-  // Show all unmatched QB bills - they're already filtered by project CustomerRef
+  // Only include unmatched QB bills from vendors with Procore presence on this project
+  // This prevents bills from other projects (same customer) from flooding results
+  let skippedNonProjectVendors = 0;
   for (const bill of qbBills) {
     if (matchedQBIds.has(bill.id)) continue;
 
-    // Check if this vendor has a subcontract
-    const billVendorLower = bill.vendor.toLowerCase().trim();
-    const hasSubcontract = subcontractVendors.has(billVendorLower) ||
+    // Skip bills from vendors not associated with this project
+    if (projectVendorIds.size > 0 && !projectVendorIds.has(bill.vendorId)) {
+      skippedNonProjectVendors++;
+      continue;
+    }
+
+    // Check if this vendor has a subcontract (use stripped name for comparison)
+    const billVendorStripped = stripCompanySuffixes(bill.vendor).toLowerCase().trim();
+    const hasSubcontract = subcontractVendors.has(billVendorStripped) ||
       [...subcontractVendors].some(sv => {
-        const score = fuzzyMatch(billVendorLower, sv);
+        const score = fuzzyMatch(billVendorStripped, sv);
         return score >= 65;
       });
 
@@ -2042,7 +2066,7 @@ function findUnmatchedQBBills(
 
   const subInvoiceCount = results.filter(r => r.matchType === 'invoice').length;
   const directCostCount = results.filter(r => r.matchType === 'direct_cost').length;
-  console.log(`Found ${results.length} unmatched QB bills: ${subInvoiceCount} sub invoices, ${directCostCount} direct costs`);
+  console.log(`Found ${results.length} unmatched QB bills: ${subInvoiceCount} sub invoices, ${directCostCount} direct costs (skipped ${skippedNonProjectVendors} bills from non-project vendors)`);
   return results;
 }
 
@@ -2051,33 +2075,37 @@ function reconcileVendorTotals(
   commitments: ProcoreCommitment[],
   qbBills: QBBill[],
   qbVendors: any[],
-  aiVendorMap: Map<string, { name: string; id: string; score: number }>
+  aiVendorMap: Map<string, { name: string; id: string; score: number }>,
+  vendorEquivalenceMap: Map<string, Set<string>> = new Map()
 ): MatchResult[] {
   const results: MatchResult[] = [];
 
-  // Group by vendor
-  const commitmentsByVendor = new Map<string, ProcoreCommitment[]>();
+  // Group commitments by matched QB vendor ID (or suffix-stripped name if no match)
+  // This prevents LLC/Inc/Corp variants from creating duplicate vendor entries
+  const commitmentsByVendor = new Map<string, { comms: ProcoreCommitment[]; matchedVendor: { name: string; id: string; score: number } | null }>();
   for (const c of commitments) {
-    const key = c.vendor.toLowerCase();
-    if (!commitmentsByVendor.has(key)) commitmentsByVendor.set(key, []);
-    commitmentsByVendor.get(key)!.push(c);
+    const match = findVendorMatch(c.vendor, qbVendors, aiVendorMap);
+    const key = match ? `qb:${match.id}` : stripCompanySuffixes(c.vendor).toLowerCase().trim();
+    if (!commitmentsByVendor.has(key)) {
+      commitmentsByVendor.set(key, { comms: [], matchedVendor: match });
+    }
+    commitmentsByVendor.get(key)!.comms.push(c);
   }
 
-  const billsByVendor = new Map<string, QBBill[]>();
+  // Group QB bills by vendor ID for reliable lookup
+  const billsByVendorId = new Map<string, QBBill[]>();
   for (const b of qbBills) {
-    const key = b.vendor.toLowerCase();
-    if (!billsByVendor.has(key)) billsByVendor.set(key, []);
-    billsByVendor.get(key)!.push(b);
+    const key = b.vendorId;
+    if (!billsByVendorId.has(key)) billsByVendorId.set(key, []);
+    billsByVendorId.get(key)!.push(b);
   }
 
-  for (const [vendorKey, comms] of commitmentsByVendor) {
+  for (const [vendorKey, { comms, matchedVendor }] of commitmentsByVendor) {
     const procoreTotal = comms.reduce((sum, c) => sum + c.currentValue, 0);
     const procoreBilled = comms.reduce((sum, c) => sum + c.billedToDate, 0);
     const vendorName = comms[0].vendor;
 
-    const vendorMatch = findVendorMatch(vendorName, qbVendors, aiVendorMap);
-
-    if (!vendorMatch) {
+    if (!matchedVendor) {
       results.push({
         id: generateId(),
         matchType: 'vendor_total',
@@ -2101,7 +2129,17 @@ function reconcileVendorTotals(
       continue;
     }
 
-    const vendorBills = billsByVendor.get(vendorMatch.name.toLowerCase()) || [];
+    // Include bills from equivalent vendor IDs (LLC/Inc/Corp variants)
+    const equivalentIds = vendorEquivalenceMap.get(matchedVendor.id) || new Set([matchedVendor.id]);
+    const vendorBills: QBBill[] = [];
+    for (const eqId of equivalentIds) {
+      const bills = billsByVendorId.get(eqId);
+      if (bills) vendorBills.push(...bills);
+    }
+    if (!vendorEquivalenceMap.has(matchedVendor.id)) {
+      const directBills = billsByVendorId.get(matchedVendor.id);
+      if (directBills) vendorBills.push(...directBills);
+    }
     const qbTotal = vendorBills.reduce((sum, b) => sum + b.amount, 0);
 
     const variance = procoreBilled - qbTotal;
@@ -2119,7 +2157,7 @@ function reconcileVendorTotals(
       qbValue: qbTotal,
       variance,
       variancePct: procoreBilled ? (variance / procoreBilled) * 100 : 0,
-      matchConfidence: vendorMatch.score,
+      matchConfidence: matchedVendor.score,
       matchMethod: 'vendor_aggregate',
       severity: calculateSeverity(variance, procoreBilled),
       status: Math.abs(variance) < 100 ? 'matched' : 'partial',
@@ -2352,8 +2390,17 @@ export const handler: Handler = async (event) => {
       ...procoreInvoices.map(inv => inv.vendor),
       ...directCosts.map(dc => dc.vendor).filter(Boolean) as string[],
     ];
-    const uniqueProcoreVendors = [...new Set(allProcoreVendors)].filter(v => v && v !== 'Unknown' && v !== 'Unknown Vendor');
-    console.log(`Found ${uniqueProcoreVendors.length} unique Procore vendors`);
+    // Deduplicate by suffix-stripped name so "ABC LLC" and "ABC Inc." don't create separate entries
+    const vendorByStripped = new Map<string, string>();
+    for (const v of allProcoreVendors) {
+      if (!v || v === 'Unknown' || v === 'Unknown Vendor') continue;
+      const stripped = stripCompanySuffixes(v).toLowerCase().trim();
+      if (stripped && !vendorByStripped.has(stripped)) {
+        vendorByStripped.set(stripped, v);
+      }
+    }
+    const uniqueProcoreVendors = [...vendorByStripped.values()];
+    console.log(`Found ${uniqueProcoreVendors.length} unique Procore vendors (after suffix dedup)`);
 
     // STEP 3: Fetch only QB vendors (lightweight query)
     console.log('Fetching QuickBooks vendors...');
@@ -2404,6 +2451,37 @@ export const handler: Handler = async (event) => {
     console.log(`Found ${projectVendorIds.size} QB vendors relevant to this project`);
     console.log(`Built ${procoreInvoiceRefs.length} Procore invoice refs for bill matching`);
 
+    // STEP 5b: Build vendor equivalence map - groups QB vendor IDs that represent the same
+    // company (e.g., "JB Smith LLC" and "JB Smith Inc" should share bills)
+    const strippedToVendorIds = new Map<string, Set<string>>();
+    for (const v of qbVendors) {
+      const stripped = normalizeString(stripCompanySuffixes(v.DisplayName));
+      if (!stripped) continue;
+      if (!strippedToVendorIds.has(stripped)) strippedToVendorIds.set(stripped, new Set());
+      strippedToVendorIds.get(stripped)!.add(v.Id);
+    }
+    const vendorEquivalenceMap = new Map<string, Set<string>>();
+    for (const ids of strippedToVendorIds.values()) {
+      if (ids.size > 1) {
+        for (const id of ids) vendorEquivalenceMap.set(id, ids);
+      }
+    }
+    if (vendorEquivalenceMap.size > 0) {
+      console.log(`Found ${vendorEquivalenceMap.size / 2} vendor equivalence groups (LLC/Inc/Corp variants)`);
+    }
+
+    // Expand projectVendorIds to include equivalent vendor IDs
+    const expandedProjectVendorIds = new Set(projectVendorIds);
+    for (const vendorId of projectVendorIds) {
+      const equivalents = vendorEquivalenceMap.get(vendorId);
+      if (equivalents) {
+        for (const eqId of equivalents) expandedProjectVendorIds.add(eqId);
+      }
+    }
+    if (expandedProjectVendorIds.size > projectVendorIds.size) {
+      console.log(`Expanded project vendors from ${projectVendorIds.size} to ${expandedProjectVendorIds.size} (including LLC/Inc equivalents)`);
+    }
+
     // STEP 6: Find the project customer first (needed for filtering bills)
     const projectCustomer = await findProjectCustomer(qbTokens, userId, projectName);
     const projectCustomerId = projectCustomer?.customerId || null;
@@ -2411,7 +2489,7 @@ export const handler: Handler = async (event) => {
 
     // STEP 7: Fetch ALL QB bills and filter by project CustomerRef
     // Bills without CustomerRef only included if exact amount+vendor match to Procore invoice
-    const qbBillsRaw = await fetchAllBillsForProject(qbTokens, userId, projectCustomerId, procoreInvoiceRefs);
+    const qbBillsRaw = await fetchAllBillsForProject(qbTokens, userId, projectCustomerId, procoreInvoiceRefs, expandedProjectVendorIds);
     console.log(`Found ${qbBillsRaw.length} QB bills for project "${projectCustomerName || projectName}"`);
 
     // STEP 8: Fetch AR data (invoices and payments) - only if we have payment apps
@@ -2448,7 +2526,8 @@ export const handler: Handler = async (event) => {
       procoreInvoices,
       qbBills,
       qbVendors,
-      aiVendorMap
+      aiVendorMap,
+      vendorEquivalenceMap
     );
     allResults.push(...invoiceResults);
 
@@ -2469,14 +2548,15 @@ export const handler: Handler = async (event) => {
       qbBills,
       matchedQBBillIds,
       qbVendors,
-      aiVendorMap
+      aiVendorMap,
+      vendorEquivalenceMap
     );
     allResults.push(...directCostResults);
     console.log(`After direct cost matching, total matched QB bills: ${matchedQBBillIds.size}`);
 
-    // 4. Find unmatched QB bills - categorize as sub invoice or direct cost based on subcontract existence
+    // 4. Find unmatched QB bills - only from vendors with Procore presence on this project
     const unmatchedBillResults = findUnmatchedQBBills(
-      qbBills, matchedQBBillIds, commitments, qbVendors, aiVendorMap
+      qbBills, matchedQBBillIds, commitments, qbVendors, aiVendorMap, expandedProjectVendorIds
     );
     allResults.push(...unmatchedBillResults);
     console.log(`Unmatched QB bills added to results: ${unmatchedBillResults.length}`);
@@ -2487,7 +2567,7 @@ export const handler: Handler = async (event) => {
     allResults.push(...paymentAppResults);
 
     // 6. Vendor-level totals
-    const vendorTotalResults = reconcileVendorTotals(commitments, qbBills, qbVendors, aiVendorMap);
+    const vendorTotalResults = reconcileVendorTotals(commitments, qbBills, qbVendors, aiVendorMap, vendorEquivalenceMap);
     allResults.push(...vendorTotalResults);
 
     // Log results breakdown by type
