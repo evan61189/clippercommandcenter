@@ -223,28 +223,56 @@ async function fetchQBBillsForVendors(
 }
 
 // Find the QB customer that matches the project name
+// Checks both DisplayName and FullyQualifiedName (with ":" -> " ") for sub-customer matching
+// Returns the matched customer ID, name, and ancestor customer IDs (parent chain)
 async function findProjectCustomer(
   tokens: QBTokenData,
   userId: string,
   projectName: string
-): Promise<{ customerId: string; customerName: string } | null> {
+): Promise<{ customerId: string; customerName: string; ancestorCustomerIds: string[] } | null> {
   console.log('Finding QB customer for project...');
 
   const customers = await paginatedQBQuery('SELECT * FROM Customer WHERE Active = true', 'Customer', tokens, userId);
   console.log(`Found ${customers.length} QB customers`);
 
-  let bestCustomer: { Id: string; DisplayName: string; score: number } | null = null;
+  // Build a map for quick lookup by ID (needed for parent chain traversal)
+  const customerById = new Map<string, any>();
+  for (const c of customers) {
+    customerById.set(c.Id, c);
+  }
+
+  let bestCustomer: { Id: string; DisplayName: string; FullyQualifiedName: string; score: number } | null = null;
   for (const customer of customers) {
-    const customerName = customer.DisplayName || customer.FullyQualifiedName || '';
-    const score = fuzzyMatch(projectName, customerName);
+    const displayName = customer.DisplayName || '';
+    const fqn = customer.FullyQualifiedName || '';
+    // Normalize FQN: replace ":" separator with space so "Domino Sugar:Restrooms Phase 1B" -> "Domino Sugar Restrooms Phase 1B"
+    const fqnNormalized = fqn.replace(/:/g, ' ');
+
+    // Score against both DisplayName and FQN, take the higher score
+    const displayScore = displayName ? fuzzyMatch(projectName, displayName) : 0;
+    const fqnScore = fqnNormalized ? fuzzyMatch(projectName, fqnNormalized) : 0;
+    const score = Math.max(displayScore, fqnScore);
+
     if (score >= 70 && (!bestCustomer || score > bestCustomer.score)) {
-      bestCustomer = { Id: customer.Id, DisplayName: customerName, score };
+      bestCustomer = { Id: customer.Id, DisplayName: displayName || fqn, FullyQualifiedName: fqn, score };
     }
   }
 
   if (bestCustomer) {
-    console.log(`Matched project "${projectName}" to QB customer "${bestCustomer.DisplayName}" (ID: ${bestCustomer.Id}, score: ${bestCustomer.score})`);
-    return { customerId: bestCustomer.Id, customerName: bestCustomer.DisplayName };
+    // Walk up the ParentRef chain to collect ancestor customer IDs
+    const ancestorCustomerIds: string[] = [];
+    let currentCustomer = customerById.get(bestCustomer.Id);
+    while (currentCustomer?.ParentRef?.value) {
+      const parentId = currentCustomer.ParentRef.value;
+      ancestorCustomerIds.push(parentId);
+      currentCustomer = customerById.get(parentId);
+    }
+
+    console.log(`Matched project "${projectName}" to QB customer "${bestCustomer.DisplayName}" (FQN: "${bestCustomer.FullyQualifiedName}", ID: ${bestCustomer.Id}, score: ${bestCustomer.score})`);
+    if (ancestorCustomerIds.length > 0) {
+      console.log(`  Ancestor customer IDs (parent chain): [${ancestorCustomerIds.join(', ')}]`);
+    }
+    return { customerId: bestCustomer.Id, customerName: bestCustomer.DisplayName, ancestorCustomerIds };
   }
 
   console.log(`No matching QB customer found for project "${projectName}"`);
@@ -265,7 +293,8 @@ function filterBillsByProjectCustomer(
   bills: any[],
   projectCustomerId: string,
   procoreInvoiceRefs: ProcoreInvoiceRef[] = [],
-  projectVendorIds: Set<string> = new Set()
+  projectVendorIds: Set<string> = new Set(),
+  ancestorCustomerIds: string[] = []
 ): any[] {
   if (!projectCustomerId) {
     // Without a project customer, only include bills from known project vendors
@@ -295,15 +324,20 @@ function filterBillsByProjectCustomer(
     }
   }
 
+  // Build a set of ancestor customer IDs for quick lookup
+  const ancestorIdSet = new Set(ancestorCustomerIds);
+
   const included: any[] = [];
+  const ancestorMatched: any[] = [];
   const noCustomerRefMatched: any[] = [];
   const noCustomerRefExcluded: any[] = [];
   const excluded: any[] = [];
 
   for (const bill of bills) {
-    // Check if any line item has a CustomerRef matching the project
+    // Check if any line item has a CustomerRef matching the project or an ancestor
     const lines = bill.Line || [];
     let matchFound = false;
+    let ancestorMatchFound = false;
     let hasAnyCustomerRef = false;
     const lineCustomerRefs: string[] = [];
 
@@ -322,12 +356,32 @@ function filterBillsByProjectCustomer(
 
       if (customerRef === projectCustomerId) {
         matchFound = true;
+      } else if (customerRef && ancestorIdSet.has(customerRef)) {
+        ancestorMatchFound = true;
       }
     }
 
     if (matchFound) {
       // Bill has CustomerRef matching project - include it
       included.push(bill);
+    } else if (ancestorMatchFound) {
+      // Bill is tagged to a parent/ancestor customer - include only if vendor is a known project vendor
+      // This handles cases where bills are tagged to the parent job (e.g. "Domino Sugar") rather than sub-job
+      const billVendorId = bill.VendorRef?.value;
+      if (billVendorId && projectVendorIds.has(String(billVendorId))) {
+        ancestorMatched.push(bill);
+        included.push(bill);
+      } else {
+        excluded.push({
+          Id: bill.Id,
+          DocNumber: bill.DocNumber,
+          VendorRef: bill.VendorRef,
+          TotalAmt: bill.TotalAmt,
+          TxnDate: bill.TxnDate,
+          lineCustomerRefs,
+          reason: 'ancestor-customer-non-project-vendor',
+        });
+      }
     } else if (!hasAnyCustomerRef) {
       // Bill has NO CustomerRef - only include if exact amount AND vendor match
       const billAmount = Math.round(parseFloat(bill.TotalAmt || 0) * 100) / 100;
@@ -373,8 +427,10 @@ function filterBillsByProjectCustomer(
   // Log filtering results
   console.log(`========== BILL FILTER DEBUG ==========`);
   console.log(`Project CustomerRef ID: ${projectCustomerId}`);
+  console.log(`Ancestor CustomerRef IDs: [${ancestorCustomerIds.join(', ')}]`);
   console.log(`Procore invoices for matching: ${procoreInvoiceRefs.length}`);
-  console.log(`Bills with matching CustomerRef: ${included.length - noCustomerRefMatched.length}`);
+  console.log(`Bills with matching CustomerRef: ${included.length - noCustomerRefMatched.length - ancestorMatched.length}`);
+  console.log(`Bills with ancestor CustomerRef + project vendor: ${ancestorMatched.length}`);
   console.log(`Bills with NO CustomerRef + exact amount+vendor match: ${noCustomerRefMatched.length}`);
   console.log(`Bills with NO CustomerRef excluded (no match): ${noCustomerRefExcluded.length}`);
   console.log(`Bills excluded (different CustomerRef): ${excluded.length}`);
@@ -402,7 +458,8 @@ async function fetchAllBillsForProject(
   userId: string,
   projectCustomerId: string | null,
   procoreInvoiceRefs: ProcoreInvoiceRef[] = [],
-  projectVendorIds: Set<string> = new Set()
+  projectVendorIds: Set<string> = new Set(),
+  ancestorCustomerIds: string[] = []
 ): Promise<any[]> {
   console.log('Fetching ALL QB bills to filter by project...');
 
@@ -412,8 +469,9 @@ async function fetchAllBillsForProject(
 
   // Filter to only bills that have the project CustomerRef in any line item
   // Bills with NO CustomerRef only included if they have exact amount + vendor match
+  // Bills tagged to ancestor/parent customer only included if vendor is a known project vendor
   // When no project customer ID, filter by project vendor IDs only
-  return filterBillsByProjectCustomer(allBills, projectCustomerId, procoreInvoiceRefs, projectVendorIds);
+  return filterBillsByProjectCustomer(allBills, projectCustomerId, procoreInvoiceRefs, projectVendorIds, ancestorCustomerIds);
 }
 
 // Fetch other QB data (invoices, payments) - filtered by project customer
@@ -440,14 +498,18 @@ async function fetchQBInvoicesAndPayments(
     }
   }
 
-  // Otherwise find by name matching
+  // Otherwise find by name matching (check both DisplayName and FQN)
   if (!bestCustomer) {
     for (const customer of customers) {
-      const customerName = customer.DisplayName || customer.FullyQualifiedName || '';
-      const score = fuzzyMatch(projectName, customerName);
+      const displayName = customer.DisplayName || '';
+      const fqn = customer.FullyQualifiedName || '';
+      const fqnNormalized = fqn.replace(/:/g, ' ');
+      const displayScore = displayName ? fuzzyMatch(projectName, displayName) : 0;
+      const fqnScore = fqnNormalized ? fuzzyMatch(projectName, fqnNormalized) : 0;
+      const score = Math.max(displayScore, fqnScore);
       // Require at least 70% match for customer selection
       if (score >= 70 && (!bestCustomer || score > bestCustomer.score)) {
-        bestCustomer = { Id: customer.Id, DisplayName: customerName, score };
+        bestCustomer = { Id: customer.Id, DisplayName: displayName || fqn, score };
       }
     }
   }
@@ -501,11 +563,15 @@ const LABOR_ACCOUNT_PATTERNS = [
 async function fetchQBLaborExpenses(
   tokens: QBTokenData,
   userId: string,
-  projectCustomerId: string | null
+  projectCustomerId: string | null,
+  ancestorCustomerIds: string[] = []
 ): Promise<QBLaborExpense[]> {
   console.log('Fetching QB labor expenses for accounts 5010-5012...');
 
   const laborExpenses: QBLaborExpense[] = [];
+  const acceptableCustomerIds = new Set<string>();
+  if (projectCustomerId) acceptableCustomerIds.add(projectCustomerId);
+  for (const id of ancestorCustomerIds) acceptableCustomerIds.add(id);
 
   // First, find the labor account IDs
   const accounts = await paginatedQBQuery('SELECT * FROM Account WHERE Active = true', 'Account', tokens, userId);
@@ -561,15 +627,15 @@ async function fetchQBLaborExpenses(
 
         if (lineCustomerId) {
           lineItemsWithCustomer++;
-          if (lineCustomerId === projectCustomerId) {
+          if (acceptableCustomerIds.has(lineCustomerId)) {
             lineItemsMatchingProject++;
           }
         } else {
           lineItemsWithoutCustomer++;
         }
 
-        // Filter by project if we have a customer ID
-        if (projectCustomerId && lineCustomerId !== projectCustomerId) {
+        // Filter by project if we have a customer ID (accept exact match or ancestor match)
+        if (projectCustomerId && (!lineCustomerId || !acceptableCustomerIds.has(lineCustomerId))) {
           continue;
         }
 
@@ -601,15 +667,15 @@ async function fetchQBLaborExpenses(
 
         if (lineCustomerId) {
           lineItemsWithCustomer++;
-          if (lineCustomerId === projectCustomerId) {
+          if (acceptableCustomerIds.has(lineCustomerId)) {
             lineItemsMatchingProject++;
           }
         } else {
           lineItemsWithoutCustomer++;
         }
 
-        // Filter by project if we have a customer ID
-        if (projectCustomerId && lineCustomerId !== projectCustomerId) {
+        // Filter by project if we have a customer ID (accept exact match or ancestor match)
+        if (projectCustomerId && (!lineCustomerId || !acceptableCustomerIds.has(lineCustomerId))) {
           continue;
         }
 
@@ -2483,13 +2549,16 @@ export const handler: Handler = async (event) => {
     }
 
     // STEP 6: Find the project customer first (needed for filtering bills)
+    // Now also returns ancestor (parent) customer IDs for sub-customer hierarchy matching
     const projectCustomer = await findProjectCustomer(qbTokens, userId, projectName);
     const projectCustomerId = projectCustomer?.customerId || null;
     const projectCustomerName = projectCustomer?.customerName || null;
+    const ancestorCustomerIds = projectCustomer?.ancestorCustomerIds || [];
 
     // STEP 7: Fetch ALL QB bills and filter by project CustomerRef
     // Bills without CustomerRef only included if exact amount+vendor match to Procore invoice
-    const qbBillsRaw = await fetchAllBillsForProject(qbTokens, userId, projectCustomerId, procoreInvoiceRefs, expandedProjectVendorIds);
+    // Bills tagged to ancestor/parent customer included only if vendor is a known project vendor
+    const qbBillsRaw = await fetchAllBillsForProject(qbTokens, userId, projectCustomerId, procoreInvoiceRefs, expandedProjectVendorIds, ancestorCustomerIds);
     console.log(`Found ${qbBillsRaw.length} QB bills for project "${projectCustomerName || projectName}"`);
 
     // STEP 8: Fetch AR data (invoices and payments) - only if we have payment apps
@@ -2511,7 +2580,7 @@ export const handler: Handler = async (event) => {
     const qbPayments = normalizeQBPayments({ paymentsReceived: qbPaymentsRaw });
 
     // STEP 9: Fetch QB labor expenses (accounts 5010-5012)
-    const { expenses: qbLaborExpenses, stats: laborStats } = await fetchQBLaborExpenses(qbTokens, userId, projectCustomerId);
+    const { expenses: qbLaborExpenses, stats: laborStats } = await fetchQBLaborExpenses(qbTokens, userId, projectCustomerId, ancestorCustomerIds);
 
     console.log(`QB data for project: ${qbBills.length} bills, ${qbInvoices.length} invoices, ${qbLaborExpenses.length} labor expenses`);
     if (laborStats.withoutCustomerRef > 0) {
