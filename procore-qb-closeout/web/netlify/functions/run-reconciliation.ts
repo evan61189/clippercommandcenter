@@ -53,9 +53,20 @@ async function refreshQBToken(tokens: QBTokenData, userId: string): Promise<QBTo
     }),
   });
 
-  if (!response.ok) return null;
+  if (!response.ok) {
+    console.error(`QB token refresh failed: ${response.status}`);
+    return null;
+  }
 
-  const data = await response.json();
+  // Guard against HTML responses (e.g. proxy/gateway errors)
+  const responseText = await response.text();
+  let data: any;
+  try {
+    data = JSON.parse(responseText);
+  } catch {
+    console.error(`QB token refresh returned non-JSON: ${responseText.slice(0, 200)}`);
+    return null;
+  }
   const newTokens: QBTokenData = {
     ...tokens,
     access_token: data.access_token,
@@ -101,10 +112,17 @@ async function qbRequest(endpoint: string, tokens: QBTokenData, userId: string):
   }
 
   if (!response.ok) {
-    throw new Error(`QuickBooks API error: ${response.status}`);
+    const errorBody = await response.text().catch(() => '');
+    throw new Error(`QuickBooks API error: ${response.status} - ${errorBody.slice(0, 200)}`);
   }
 
-  return response.json();
+  // Guard against HTML responses (e.g. proxy/gateway errors returning 200 with HTML)
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`QuickBooks returned non-JSON response (status ${response.status}): ${text.slice(0, 200)}`);
+  }
 }
 
 async function qbQuery(query: string, tokens: QBTokenData, userId: string): Promise<any> {
