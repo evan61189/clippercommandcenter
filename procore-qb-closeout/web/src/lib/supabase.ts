@@ -125,15 +125,46 @@ export interface Commitment {
   created_at: string
 }
 
+// Project with its latest reconciliation report metrics
+export interface ProjectWithReport extends Project {
+  latest_report?: {
+    id: string
+    total_committed: number
+    warning_items: number
+    critical_items: number
+    generated_at: string
+  } | null
+}
+
 // API functions
-export async function getProjects() {
+export async function getProjects(): Promise<ProjectWithReport[]> {
   const { data, error } = await supabase
     .from('projects')
-    .select('*')
+    .select('*, reconciliation_reports(*)')
     .order('updated_at', { ascending: false })
 
   if (error) throw error
-  return data as Project[]
+
+  // For each project, pick the most recent report
+  return (data || []).map((project: any) => {
+    const reports = project.reconciliation_reports || []
+    // Sort by generated_at descending, pick first
+    const sorted = reports.sort((a: any, b: any) =>
+      new Date(b.generated_at).getTime() - new Date(a.generated_at).getTime()
+    )
+    const latest = sorted[0] || null
+    const { reconciliation_reports, ...proj } = project
+    return {
+      ...proj,
+      latest_report: latest ? {
+        id: latest.id,
+        total_committed: latest.total_committed || 0,
+        warning_items: latest.warning_items || 0,
+        critical_items: latest.critical_items || 0,
+        generated_at: latest.generated_at,
+      } : null,
+    } as ProjectWithReport
+  })
 }
 
 export async function getProject(id: string) {

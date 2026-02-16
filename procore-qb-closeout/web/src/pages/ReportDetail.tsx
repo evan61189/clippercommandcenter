@@ -1,6 +1,6 @@
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   ArrowLeft,
   AlertCircle,
@@ -47,10 +47,25 @@ function getUserId(): string {
 
 export default function ReportDetail() {
   const { reportId } = useParams<{ reportId: string }>()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [activeTab, setActiveTab] = useState<TabType>('summary')
+  const [severityFilter, setSeverityFilter] = useState<'warning' | 'critical' | null>(null)
   const [isUpdating, setIsUpdating] = useState(false)
   const [isSoftClosing, setIsSoftClosing] = useState(false)
   const [isSoftClosed, setIsSoftClosed] = useState(false)
+
+  // Handle ?filter= query param from dashboard links
+  useEffect(() => {
+    const filter = searchParams.get('filter')
+    if (filter === 'warning' || filter === 'critical') {
+      setSeverityFilter(filter)
+    }
+  }, [searchParams])
+
+  function clearSeverityFilter() {
+    setSeverityFilter(null)
+    setSearchParams({})
+  }
 
   const { data: report, isLoading: reportLoading, refetch: refetchReport } = useQuery({
     queryKey: ['report', reportId],
@@ -386,73 +401,119 @@ export default function ReportDetail() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="border-b border-gray-200">
-        <nav className="-mb-px flex space-x-8">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                activeTab === tab.id
-                  ? 'border-procore-blue text-procore-blue'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              {tab.label}
-              {tab.count !== null && (
-                <span className="ml-2 px-2 py-0.5 rounded-full text-xs bg-gray-100">
-                  {tab.count}
-                </span>
-              )}
-            </button>
-          ))}
-        </nav>
-      </div>
-
-      {/* Tab Content */}
-      <div className="card">
-        {activeTab === 'summary' && (
-          <div className="space-y-6">
-            <h2 className="text-lg font-semibold">Executive Summary</h2>
-            {report.executive_summary ? (
-              <div className="prose max-w-none">
-                <p className="whitespace-pre-wrap text-gray-700">
-                  {report.executive_summary}
-                </p>
-              </div>
+      {/* Severity Filter Banner */}
+      {severityFilter && (
+        <div className={`rounded-lg p-4 flex items-center justify-between ${
+          severityFilter === 'critical'
+            ? 'bg-red-50 border border-red-200'
+            : 'bg-yellow-50 border border-yellow-200'
+        }`}>
+          <div className="flex items-center">
+            {severityFilter === 'critical' ? (
+              <AlertCircle className="w-5 h-5 text-red-500 mr-2" />
             ) : (
-              <p className="text-gray-500 italic">
-                No executive summary available. Run AI analysis to generate.
-              </p>
+              <AlertTriangle className="w-5 h-5 text-yellow-500 mr-2" />
+            )}
+            <span className={`font-medium ${
+              severityFilter === 'critical' ? 'text-red-700' : 'text-yellow-700'
+            }`}>
+              Showing {severityFilter === 'critical' ? 'critical issues' : 'warnings'} only
+              ({(results || []).filter(r => r.severity === severityFilter).length} items)
+            </span>
+          </div>
+          <button
+            onClick={clearSeverityFilter}
+            className={`flex items-center px-3 py-1 text-sm font-medium rounded-lg ${
+              severityFilter === 'critical'
+                ? 'text-red-700 hover:bg-red-100'
+                : 'text-yellow-700 hover:bg-yellow-100'
+            }`}
+          >
+            <X className="w-4 h-4 mr-1" />
+            Clear Filter
+          </button>
+        </div>
+      )}
+
+      {/* Filtered Results View (when severity filter is active) */}
+      {severityFilter ? (
+        <div className="card">
+          <GroupedResultsTable
+            results={(results || []).filter(r => r.severity === severityFilter)}
+            title={severityFilter === 'critical' ? 'Critical Issues' : 'Warnings'}
+          />
+        </div>
+      ) : (
+        <>
+          {/* Tabs */}
+          <div className="border-b border-gray-200">
+            <nav className="-mb-px flex space-x-8">
+              {tabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                    activeTab === tab.id
+                      ? 'border-procore-blue text-procore-blue'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  {tab.label}
+                  {tab.count !== null && (
+                    <span className="ml-2 px-2 py-0.5 rounded-full text-xs bg-gray-100">
+                      {tab.count}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </nav>
+          </div>
+
+          {/* Tab Content */}
+          <div className="card">
+            {activeTab === 'summary' && (
+              <div className="space-y-6">
+                <h2 className="text-lg font-semibold">Executive Summary</h2>
+                {report.executive_summary ? (
+                  <div className="prose max-w-none">
+                    <p className="whitespace-pre-wrap text-gray-700">
+                      {report.executive_summary}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-gray-500 italic">
+                    No executive summary available. Run AI analysis to generate.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'sub_invoices' && (
+              <GroupedResultsTable results={subInvoiceResults} title="Subcontractor Invoices" />
+            )}
+
+            {activeTab === 'owner_invoices' && (
+              <ResultsTable results={ownerInvoiceResults} title="Owner Invoices" />
+            )}
+
+            {activeTab === 'direct_costs' && (
+              <ResultsTable results={directCostResults} title="Direct Costs" />
+            )}
+
+            {activeTab === 'labor' && (
+              <ResultsTable results={laborResults} title="Labor Costs" />
+            )}
+
+            {activeTab === 'warnings' && (
+              <WarningsTable warnings={warnings} />
+            )}
+
+            {activeTab === 'closeout' && (
+              <CloseoutItemsTable items={closeoutItems || []} />
             )}
           </div>
-        )}
-
-        {activeTab === 'sub_invoices' && (
-          <GroupedResultsTable results={subInvoiceResults} title="Subcontractor Invoices" />
-        )}
-
-        {activeTab === 'owner_invoices' && (
-          <ResultsTable results={ownerInvoiceResults} title="Owner Invoices" />
-        )}
-
-        {activeTab === 'direct_costs' && (
-          <ResultsTable results={directCostResults} title="Direct Costs" />
-        )}
-
-        {activeTab === 'labor' && (
-          <ResultsTable results={laborResults} title="Labor Costs" />
-        )}
-
-        {activeTab === 'warnings' && (
-          <WarningsTable warnings={warnings} />
-        )}
-
-        {activeTab === 'closeout' && (
-          <CloseoutItemsTable items={closeoutItems || []} />
-        )}
-      </div>
+        </>
+      )}
 
       {/* AI Chat for project questions */}
       <AIChat
