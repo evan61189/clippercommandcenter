@@ -11,7 +11,7 @@ import {
   XCircle,
   Wrench,
 } from 'lucide-react'
-import { getProjects, getDashboardStats, supabase, isSupabaseConfigured, type ProjectWithReport } from '../lib/supabase'
+import { getProjects, getDashboardStats, supabase, isSupabaseConfigured } from '../lib/supabase'
 import StatsCard from '../components/StatsCard'
 import ProjectCard from '../components/ProjectCard'
 
