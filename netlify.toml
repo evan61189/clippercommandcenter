@@ -13,6 +13,11 @@
 [functions]
   node_bundler = "esbuild"
 
+# Reconciliation makes many sequential API calls (QB vendors, customers, bills, AI matching)
+# Default 10s is too short - request max allowed timeout (26s on Pro plans)
+[functions."run-reconciliation"]
+  timeout = 26
+
 # API routes for serverless functions
 [[redirects]]
   from = "/.netlify/functions/*"

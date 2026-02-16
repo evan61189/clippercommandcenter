@@ -231,7 +231,17 @@ export default function RunReconciliation() {
         }),
       })
 
-      const reconResult = await reconResponse.json()
+      const reconText = await reconResponse.text()
+      let reconResult: any
+      try {
+        reconResult = JSON.parse(reconText)
+      } catch {
+        // Netlify may return HTML on timeout or gateway errors
+        if (reconText.includes('<HTML') || reconText.includes('<!DOCTYPE')) {
+          throw new Error('Reconciliation timed out. The server took too long to respond. Please try again.')
+        }
+        throw new Error(`Server returned an unexpected response. Please try again.`)
+      }
       if (!reconResponse.ok) {
         throw new Error(reconResult.error || 'Reconciliation failed')
       }

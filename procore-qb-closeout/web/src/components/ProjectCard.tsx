@@ -1,20 +1,12 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Building2, AlertTriangle, AlertCircle, ArrowRight, Trash2 } from 'lucide-react'
+import { Building2, AlertTriangle, AlertCircle, ArrowRight, Trash2, DollarSign } from 'lucide-react'
 import { formatCurrency } from '../lib/utils'
 import { deleteProject } from '../lib/supabase'
-import type { Project } from '../lib/supabase'
+import type { ProjectWithReport } from '../lib/supabase'
 
 interface ProjectCardProps {
-  project: Project | {
-    id: string
-    name: string
-    project_number: string | null
-    status: string
-    total_committed?: number
-    warning_items?: number
-    critical_items?: number
-  }
+  project: ProjectWithReport
   isDemo?: boolean
   onDeleted?: () => void
 }
@@ -23,9 +15,11 @@ export default function ProjectCard({ project, isDemo, onDeleted }: ProjectCardP
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
 
-  const totalCommitted = 'total_committed' in project ? project.total_committed : 0
-  const warningItems = 'warning_items' in project ? project.warning_items : 0
-  const criticalItems = 'critical_items' in project ? project.critical_items : 0
+  const report = project.latest_report
+  const totalCommitted = report?.total_committed || 0
+  const warningItems = report?.warning_items || 0
+  const criticalItems = report?.critical_items || 0
+  const reportId = report?.id
 
   async function handleDelete() {
     setIsDeleting(true)
@@ -102,38 +96,98 @@ export default function ProjectCard({ project, isDemo, onDeleted }: ProjectCardP
         </div>
       </div>
 
-      <div className="mt-4">
-        <p className="text-xs text-gray-500 uppercase">Total Committed</p>
-        <p className="text-lg font-semibold text-gray-900">
-          {formatCurrency(totalCommitted)}
-        </p>
+      {/* Metrics row */}
+      <div className="mt-4 grid grid-cols-3 gap-3">
+        {/* Total Committed */}
+        {reportId && !isDemo ? (
+          <Link
+            to={`/report/${reportId}`}
+            className="group rounded-lg p-2 hover:bg-blue-50 transition-colors"
+          >
+            <p className="text-xs text-gray-500 uppercase flex items-center">
+              <DollarSign className="w-3 h-3 mr-0.5" />
+              Committed
+            </p>
+            <p className="text-lg font-semibold text-gray-900 group-hover:text-procore-blue">
+              {formatCurrency(totalCommitted)}
+            </p>
+          </Link>
+        ) : (
+          <div className="rounded-lg p-2">
+            <p className="text-xs text-gray-500 uppercase flex items-center">
+              <DollarSign className="w-3 h-3 mr-0.5" />
+              Committed
+            </p>
+            <p className="text-lg font-semibold text-gray-900">
+              {report ? formatCurrency(totalCommitted) : '--'}
+            </p>
+          </div>
+        )}
+
+        {/* Warnings */}
+        {reportId && !isDemo && warningItems > 0 ? (
+          <Link
+            to={`/report/${reportId}?filter=warning`}
+            className="group rounded-lg p-2 hover:bg-yellow-50 transition-colors"
+          >
+            <p className="text-xs text-gray-500 uppercase flex items-center">
+              <AlertTriangle className="w-3 h-3 mr-0.5 text-yellow-500" />
+              Warnings
+            </p>
+            <p className="text-lg font-semibold text-yellow-600 group-hover:text-yellow-700">
+              {warningItems}
+            </p>
+          </Link>
+        ) : (
+          <div className="rounded-lg p-2">
+            <p className="text-xs text-gray-500 uppercase flex items-center">
+              <AlertTriangle className="w-3 h-3 mr-0.5 text-yellow-500" />
+              Warnings
+            </p>
+            <p className="text-lg font-semibold text-gray-400">
+              {report ? warningItems : '--'}
+            </p>
+          </div>
+        )}
+
+        {/* Critical Issues */}
+        {reportId && !isDemo && criticalItems > 0 ? (
+          <Link
+            to={`/report/${reportId}?filter=critical`}
+            className="group rounded-lg p-2 hover:bg-red-50 transition-colors"
+          >
+            <p className="text-xs text-gray-500 uppercase flex items-center">
+              <AlertCircle className="w-3 h-3 mr-0.5 text-red-500" />
+              Critical
+            </p>
+            <p className="text-lg font-semibold text-red-600 group-hover:text-red-700">
+              {criticalItems}
+            </p>
+          </Link>
+        ) : (
+          <div className="rounded-lg p-2">
+            <p className="text-xs text-gray-500 uppercase flex items-center">
+              <AlertCircle className="w-3 h-3 mr-0.5 text-red-500" />
+              Critical
+            </p>
+            <p className="text-lg font-semibold text-gray-400">
+              {report ? criticalItems : '--'}
+            </p>
+          </div>
+        )}
       </div>
 
-      <div className="mt-4 flex items-center justify-between pt-4 border-t border-gray-100">
-        <div className="flex items-center space-x-4">
-          {warningItems && warningItems > 0 && (
-            <div className="flex items-center text-yellow-600">
-              <AlertTriangle className="w-4 h-4 mr-1" />
-              <span className="text-sm font-medium">{warningItems}</span>
-            </div>
-          )}
-          {criticalItems && criticalItems > 0 && (
-            <div className="flex items-center text-red-600">
-              <AlertCircle className="w-4 h-4 mr-1" />
-              <span className="text-sm font-medium">{criticalItems}</span>
-            </div>
-          )}
-        </div>
+      <div className="mt-3 flex items-center justify-end pt-3 border-t border-gray-100">
         {isDemo ? (
           <span className="text-sm text-gray-400 flex items-center">
             Demo Data
           </span>
         ) : (
           <Link
-            to={`/project/${project.id}`}
+            to={reportId ? `/report/${reportId}` : `/project/${project.id}`}
             className="text-sm text-procore-blue hover:text-blue-700 flex items-center"
           >
-            View Details
+            View Full Report
             <ArrowRight className="w-4 h-4 ml-1" />
           </Link>
         )}

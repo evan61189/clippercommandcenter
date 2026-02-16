@@ -241,7 +241,16 @@ export default function MonthEndCloseouts() {
         }),
       })
 
-      const reconResult = await reconResponse.json()
+      const reconText = await reconResponse.text()
+      let reconResult: any
+      try {
+        reconResult = JSON.parse(reconText)
+      } catch {
+        if (reconText.includes('<HTML') || reconText.includes('<!DOCTYPE')) {
+          throw new Error('Reconciliation timed out. The server took too long to respond. Please try again.')
+        }
+        throw new Error(`Server returned an unexpected response. Please try again.`)
+      }
       if (!reconResponse.ok) {
         throw new Error(reconResult.error || 'Reconciliation failed')
       }
