@@ -1144,8 +1144,14 @@ console.log('Sample invoice AMOUNTS:', JSON.stringify({
       amount: parseFloat(inv.payment_summary?.invoiced_amount_due || inv.summary?.current_payment_due || inv.total_claimed_amount || 0),
       billingDate: inv.billing_date || inv.invoice_date || '',
       paymentDue: parseFloat(inv.payment_due || inv.balance || 0),
-      // Phase 6: Extract retainage from summary object
-      retainage: parseFloat(inv.summary?.total_retainage || inv.summary?.completed_work_retainage_amount || 0),
+      // Phase 6: Extract retainage — try top-level fields first (v1.1 API), then nested summary
+      retainage: parseFloat(
+        inv.total_retainage
+        || inv.total_completed_work_retainage_to_date
+        || inv.summary?.total_retainage
+        || inv.summary?.completed_work_retainage_amount
+        || 0
+      ),
     });
   }
 
@@ -2493,6 +2499,29 @@ export const handler: Handler = async (event) => {
       console.log(`Backfilled billedToDate for ${backfillCount}/${commitments.length} commitments from sub invoices`);
     }
 
+    // Backfill retentionHeld from invoice retainage when the Procore
+    // subcontract list endpoint doesn't include retention_amount.
+    // total_retainage on a requisition is cumulative, so take the max
+    // across all invoices for each commitment (= latest running total).
+    let retentionBackfillCount = 0;
+    for (const commitment of commitments) {
+      if (commitment.retentionHeld > 0) continue; // already populated from API
+      const matchingInvoices = procoreInvoices.filter(
+        inv => inv.commitmentId === commitment.id
+      );
+      if (matchingInvoices.length > 0) {
+        const maxRetainage = Math.max(...matchingInvoices.map(inv => inv.retainage || 0));
+        if (maxRetainage > 0) {
+          commitment.retentionHeld = maxRetainage;
+          retentionBackfillCount++;
+          console.log(`Backfilled retentionHeld for ${commitment.vendor}: $${maxRetainage.toFixed(2)} from ${matchingInvoices.length} invoice(s)`);
+        }
+      }
+    }
+    if (retentionBackfillCount > 0) {
+      console.log(`Backfilled retentionHeld for ${retentionBackfillCount}/${commitments.length} commitments from invoice retainage`);
+    }
+
     console.log(`Procore data: ${commitments.length} commitments, ${procoreInvoices.length} invoices, ${paymentApps.length} pay apps, ${directCosts.length} direct costs`);
 
     // Debug: Log direct cost descriptions to understand labor detection
@@ -3053,6 +3082,7 @@ export const handler: Handler = async (event) => {
                 procore_ref: r.procoreRef,
                 qb_ref: r.qbRef,
                 requires_action: r.requiresAction,
+                procore_retainage: r.procoreRetainage || 0,
               }))
             );
             if (resultsError) {
