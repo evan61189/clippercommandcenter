@@ -2475,7 +2475,10 @@ export const handler: Handler = async (event) => {
         inv => inv.commitmentId === commitment.id
       );
       if (matchingInvoices.length > 0) {
-        const invoicedTotal = matchingInvoices.reduce((sum, inv) => sum + inv.amount, 0);
+        // Use amount + retainage to get the gross billed total (total work completed).
+        // inv.amount is net-of-retainage (current_payment_due), but for the "fully billed"
+        // check we need the gross amount since retainage is a payment timing issue, not a billing gap.
+        const invoicedTotal = matchingInvoices.reduce((sum, inv) => sum + inv.amount + (inv.retainage || 0), 0);
         // Only overwrite if the commitment had no billed amount from the API
         if (commitment.billedToDate === 0 && invoicedTotal > 0) {
           commitment.billedToDate = invoicedTotal;
