@@ -2278,9 +2278,10 @@ function generateCloseoutItems(
     }
   }
 
-  // Critical variances
+  // Critical variances (skip vendor_total since those are aggregate summaries —
+  // individual invoice/direct_cost results already capture line-level discrepancies)
   for (const r of matchResults) {
-    if (r.severity === 'critical' && r.status !== 'matched') {
+    if (r.severity === 'critical' && r.status !== 'matched' && r.matchType !== 'vendor_total') {
       items.push({
         itemId: `CI-${String(itemNum++).padStart(4, '0')}`,
         category: 'variance',
@@ -2460,6 +2461,7 @@ export const handler: Handler = async (event) => {
     // Backfill commitment billedToDate from sub invoices when the Procore
     // subcontract object doesn't carry invoiced_amount / bill_amount fields.
     // Sub invoices have a commitmentId that links back to the commitment.
+    let backfillCount = 0;
     for (const commitment of commitments) {
       const matchingInvoices = procoreInvoices.filter(
         inv => inv.commitmentId === commitment.id
@@ -2469,8 +2471,15 @@ export const handler: Handler = async (event) => {
         // Only overwrite if the commitment had no billed amount from the API
         if (commitment.billedToDate === 0 && invoicedTotal > 0) {
           commitment.billedToDate = invoicedTotal;
+          backfillCount++;
+          console.log(`Backfilled billedToDate for ${commitment.vendor}: $${invoicedTotal.toFixed(2)} from ${matchingInvoices.length} invoice(s)`);
         }
+      } else {
+        console.log(`No matching invoices found for commitment ${commitment.vendor} (id: ${commitment.id})`);
       }
+    }
+    if (backfillCount > 0) {
+      console.log(`Backfilled billedToDate for ${backfillCount}/${commitments.length} commitments from sub invoices`);
     }
 
     console.log(`Procore data: ${commitments.length} commitments, ${procoreInvoices.length} invoices, ${paymentApps.length} pay apps, ${directCosts.length} direct costs`);
