@@ -1572,11 +1572,20 @@ function matchInvoicesToBills(
 
       // When QB bill includes retainage in its total (gross match), compare
       // on a gross-to-gross basis so retainage doesn't create a false variance.
-      const retainageInQB = bestMatchIsGross ? (pInv.retainage || 0) : 0;
       const comparableProcore = bestMatchIsGross ? grossProcoreAmount : pInv.amount;
       const variance = comparableProcore - bestBill.amount;
-      const retainageNote = bestMatchIsGross
-        ? ` (QB bill includes $${(pInv.retainage || 0).toFixed(2)} retainage)`
+
+      // QB retainage: When invoices match, the retainage tracked in Procore
+      // applies to the QB side too. QB doesn't expose retainage as a separate
+      // API field — it's either baked into the bill total (gross match) or
+      // tracked outside the bill (net match). Either way the retainage is the
+      // same for both systems on a matched invoice.
+      const retainageInQB = (pInv.retainage || 0);
+
+      const retainageNote = retainageInQB > 0
+        ? bestMatchIsGross
+          ? ` (QB bill includes $${retainageInQB.toFixed(2)} retainage)`
+          : ` (retainage: $${retainageInQB.toFixed(2)})`
         : '';
       results.push({
         id: generateId(),
