@@ -2807,7 +2807,7 @@ export const handler: Handler = async (event) => {
     for (const b of commitmentBills) {
       const paid = b.amount - b.balance;
       qboSubPaid += paid;
-      console.log(`  Bill ${b.docNumber}: ${b.vendorName}, amount=${b.amount}, balance=${b.balance}, paid=${paid}`);
+      console.log(`  Bill ${b.docNumber}: ${b.vendor}, amount=${b.amount}, balance=${b.balance}, paid=${paid}`);
     }
     console.log(`QBO Sub Paid Total: ${qboSubPaid}`);
 
@@ -2952,7 +2952,7 @@ export const handler: Handler = async (event) => {
         open_ap_count: openApCount,
         open_ap_amount: openApAmount,
         open_ap_items: openApBills.map(b => ({
-          vendor: b.vendorName,
+          vendor: b.vendor,
           bill_ref: b.docNumber || b.id,
           amount: b.amount,
           balance: b.balance,
