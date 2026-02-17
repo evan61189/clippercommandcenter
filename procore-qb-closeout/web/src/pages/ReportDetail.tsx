@@ -120,10 +120,36 @@ export default function ReportDetail() {
 
     setIsSoftClosing(true)
     try {
-      // Count outstanding items from reconciliation data
-      const openAps = report.ai_analysis?.open_ap_count || 0
-      const openArs = report.ai_analysis?.open_ar_count || 0
-      const pendingInvoices = report.ai_analysis?.pending_invoice_count || 0
+      // Calculate outstanding items from available data
+      // Open APs: sub invoices matched to QB bills where vendor has unpaid amounts
+      // Use ai_analysis from backend if available, otherwise derive from commitments/results
+      let openAps = report.ai_analysis?.open_ap_count ?? 0
+      let openArs = report.ai_analysis?.open_ar_count ?? 0
+      let pendingInvoices = report.ai_analysis?.pending_invoice_count ?? 0
+
+      // If backend didn't populate ai_analysis, calculate from frontend data
+      if (!report.ai_analysis) {
+        // Open APs: count sub invoices matched to QB bills (bills exist for these vendors)
+        // If total QB paid < QB invoiced, there are unpaid bills
+        const matchedSubInvoices = results?.filter(r =>
+          r.item_type === 'invoice' && r.qb_ref
+        ) || []
+        const hasUnpaidBills = (report.qbo_sub_invoiced || 0) > (report.qbo_sub_paid || 0)
+        openAps = hasUnpaidBills ? matchedSubInvoices.length : 0
+
+        // Open ARs: owner invoices/pay apps that aren't fully matched or have issues
+        const unmatchedOwnerInvoices = results?.filter(r =>
+          r.item_type === 'payment_app' && r.severity !== 'info'
+        ) || []
+        openArs = unmatchedOwnerInvoices.length
+
+        // Pending invoices: commitments with retainage held or unbilled amounts
+        const pendingCommitments = commitments?.filter(c =>
+          (c.retention_held || 0) > 0 ||
+          (c.current_value || 0) > (c.billed_to_date || 0) + 0.01
+        ) || []
+        pendingInvoices = pendingCommitments.length
+      }
 
       await softCloseProject(
         report.project_id,
