@@ -131,13 +131,20 @@ export default function ReportDetail() {
 
       // If backend didn't populate ai_analysis, calculate from frontend data
       if (!report.ai_analysis) {
-        // Open APs: count sub invoices matched to QB bills (bills exist for these vendors)
-        // If total QB paid < QB invoiced, there are unpaid bills
+        // Open APs: count sub invoices matched to QB bills where vendor is NOT fully paid
         const matchedSubInvoices = results?.filter(r =>
           r.item_type === 'invoice' && r.qb_ref
         ) || []
-        const hasUnpaidBills = (report.qbo_sub_invoiced || 0) > (report.qbo_sub_paid || 0)
-        openAps = hasUnpaidBills ? matchedSubInvoices.length : 0
+        // Cross-reference with commitments to exclude fully paid vendors
+        const unpaidInvoices = matchedSubInvoices.filter(r => {
+          const commitment = commitments?.find(c =>
+            c.vendor && r.vendor &&
+            c.vendor.toLowerCase().trim() === r.vendor.toLowerCase().trim()
+          )
+          if (!commitment) return true
+          return (commitment.paid_to_date || 0) < (commitment.billed_to_date || 0) - 0.01
+        })
+        openAps = unpaidInvoices.length
 
         // Open ARs: owner invoices/pay apps that aren't fully matched or have issues
         const unmatchedOwnerInvoices = results?.filter(r =>
@@ -1444,17 +1451,31 @@ function FinancialTails({
   expandedTail: 'open_aps' | 'open_ars' | 'pending_invoices' | null
   onToggle: (type: 'open_aps' | 'open_ars' | 'pending_invoices') => void
 }) {
-  const hasUnpaidBills = (report.qbo_sub_invoiced || 0) > (report.qbo_sub_paid || 0)
-  const openApItems = hasUnpaidBills
-    ? results.filter((r: any) => r.item_type === 'invoice' && r.qb_ref)
-    : []
+  // Cross-reference invoice results with commitments to exclude fully paid vendors
+  const matchedInvoices = results.filter((r: any) => r.item_type === 'invoice' && r.qb_ref)
+  const openApItems = matchedInvoices.filter((r: any) => {
+    const commitment = commitments.find((c: any) =>
+      c.vendor && r.vendor &&
+      c.vendor.toLowerCase().trim() === r.vendor.toLowerCase().trim()
+    )
+    if (!commitment) return true
+    return (commitment.paid_to_date || 0) < (commitment.billed_to_date || 0) - 0.01
+  })
   const openArItems = results.filter((r: any) => r.item_type === 'payment_app' && r.severity !== 'info')
   const pendingItems = commitments.filter((c: any) =>
     (c.retention_held || 0) > 0 ||
     (c.current_value || 0) > (c.billed_to_date || 0) + 0.01
   )
 
-  const unpaidApAmount = (report.qbo_sub_invoiced || 0) - (report.qbo_sub_paid || 0)
+  // Sum outstanding amounts for open AP items from their commitment data
+  const unpaidApAmount = openApItems.reduce((sum: number, r: any) => {
+    const commitment = commitments.find((c: any) =>
+      c.vendor && r.vendor &&
+      c.vendor.toLowerCase().trim() === r.vendor.toLowerCase().trim()
+    )
+    if (!commitment) return sum + (r.qb_value || r.procore_value || 0)
+    return sum + ((commitment.billed_to_date || 0) - (commitment.paid_to_date || 0))
+  }, 0)
 
   if (openApItems.length === 0 && openArItems.length === 0 && pendingItems.length === 0) {
     return null

@@ -2886,9 +2886,26 @@ export const handler: Handler = async (event) => {
       ai_analysis: {
         open_ap_count: openApCount,
         open_ap_amount: openApAmount,
+        open_ap_items: openApBills.map(b => ({
+          vendor: b.vendorName,
+          bill_ref: b.docNumber || b.id,
+          amount: b.amount,
+          balance: b.balance,
+        })),
         open_ar_count: openArCount,
         open_ar_amount: openArAmount,
+        open_ar_items: openArInvoices.map(inv => ({
+          description: `Invoice #${inv.DocNumber || inv.Id}`,
+          amount: inv.TotalAmt || 0,
+          balance: inv.Balance || 0,
+        })),
         pending_invoice_count: pendingInvoiceCount,
+        pending_invoice_items: pendingInvoiceCommitments.map(c => ({
+          vendor: c.vendor,
+          current_value: c.currentValue,
+          billed_to_date: c.billedToDate,
+          retention_held: c.retentionHeld,
+        })),
       },
       results: allResults,
       closeout_items: closeoutItems,

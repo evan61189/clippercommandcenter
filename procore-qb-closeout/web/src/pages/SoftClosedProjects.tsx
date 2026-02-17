@@ -40,9 +40,17 @@ interface FinancialTailData {
 
 // Derive the financial tail items from report data
 function getOpenAPs(data: FinancialTailData) {
-  const hasUnpaidBills = (data.report.qbo_sub_invoiced || 0) > (data.report.qbo_sub_paid || 0)
-  if (!hasUnpaidBills) return []
-  return data.results.filter(r => r.item_type === 'invoice' && r.qb_ref)
+  const matchedInvoices = data.results.filter(r => r.item_type === 'invoice' && r.qb_ref)
+  // Cross-reference with commitments to exclude fully paid vendors
+  return matchedInvoices.filter(r => {
+    const commitment = data.commitments.find(c =>
+      c.vendor && r.vendor &&
+      c.vendor.toLowerCase().trim() === r.vendor.toLowerCase().trim()
+    )
+    if (!commitment) return true // If no matching commitment found, assume open
+    // Vendor is fully paid if paid_to_date >= billed_to_date
+    return (commitment.paid_to_date || 0) < (commitment.billed_to_date || 0) - 0.01
+  })
 }
 
 function getOpenARs(data: FinancialTailData) {
