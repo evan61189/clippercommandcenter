@@ -2748,6 +2748,24 @@ export const handler: Handler = async (event) => {
     }
     console.log(`QBO Sub Paid Total: ${qboSubPaid}`);
 
+    // Calculate open AP/AR/pending invoice counts for soft close tracking
+    const openApBills = commitmentBills.filter(b => b.balance > 0);
+    const openApCount = openApBills.length;
+    const openApAmount = openApBills.reduce((sum, b) => sum + b.balance, 0);
+    console.log(`Open APs: ${openApCount} bills with outstanding balance totaling $${openApAmount.toFixed(2)}`);
+
+    const openArInvoices = qbInvoices.filter(inv => inv.balance > 0);
+    const openArCount = openArInvoices.length;
+    const openArAmount = openArInvoices.reduce((sum, inv) => sum + inv.balance, 0);
+    console.log(`Open ARs: ${openArCount} invoices with outstanding balance totaling $${openArAmount.toFixed(2)}`);
+
+    // Pending invoices: commitments where retainage is still held or not fully billed
+    const pendingInvoiceCommitments = commitments.filter(c =>
+      c.retentionHeld > 0 || c.currentValue > c.billedToDate + 0.01
+    );
+    const pendingInvoiceCount = pendingInvoiceCommitments.length;
+    console.log(`Pending invoices: ${pendingInvoiceCount} commitments with retainage or unbilled amounts`);
+
     // Retention breakdown
     const procoreRetentionHeld = totalRetention;
     // QBO retention would need to come from specific tracking - placeholder for now
@@ -2864,6 +2882,14 @@ export const handler: Handler = async (event) => {
       soft_close_eligible: canSoftClose,
       hard_close_eligible: canHardClose,
       executive_summary: aiSummary,
+      // Financial tail tracking for soft close
+      ai_analysis: {
+        open_ap_count: openApCount,
+        open_ap_amount: openApAmount,
+        open_ar_count: openArCount,
+        open_ar_amount: openArAmount,
+        pending_invoice_count: pendingInvoiceCount,
+      },
       results: allResults,
       closeout_items: closeoutItems,
       commitments: commitments.map(c => ({
@@ -2978,6 +3004,7 @@ export const handler: Handler = async (event) => {
             soft_close_eligible: report.soft_close_eligible,
             hard_close_eligible: report.hard_close_eligible,
             executive_summary: report.executive_summary,
+            ai_analysis: report.ai_analysis,
           })
           .select()
           .single();
