@@ -2792,6 +2792,9 @@ export const handler: Handler = async (event) => {
 
     // Hard Close: Soft close + all payments complete
     // Check if subcontractors are fully billed and paid
+    for (const c of commitments) {
+      console.log(`  Hard close check: ${c.vendor} — billedToDate=$${c.billedToDate.toFixed(2)}, currentValue=$${c.currentValue.toFixed(2)}, diff=$${Math.abs(c.billedToDate - c.currentValue).toFixed(2)}`);
+    }
     const subcontractorsFullyBilled = commitments.every(c =>
       Math.abs(c.billedToDate - c.currentValue) < 1 // Within $1 of full billing
     );
