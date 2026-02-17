@@ -2457,6 +2457,22 @@ export const handler: Handler = async (event) => {
     const paymentApps = normalizePaymentApps(procoreData);
     const directCosts = normalizeDirectCosts(procoreData);
 
+    // Backfill commitment billedToDate from sub invoices when the Procore
+    // subcontract object doesn't carry invoiced_amount / bill_amount fields.
+    // Sub invoices have a commitmentId that links back to the commitment.
+    for (const commitment of commitments) {
+      const matchingInvoices = procoreInvoices.filter(
+        inv => inv.commitmentId === commitment.id
+      );
+      if (matchingInvoices.length > 0) {
+        const invoicedTotal = matchingInvoices.reduce((sum, inv) => sum + inv.amount, 0);
+        // Only overwrite if the commitment had no billed amount from the API
+        if (commitment.billedToDate === 0 && invoicedTotal > 0) {
+          commitment.billedToDate = invoicedTotal;
+        }
+      }
+    }
+
     console.log(`Procore data: ${commitments.length} commitments, ${procoreInvoices.length} invoices, ${paymentApps.length} pay apps, ${directCosts.length} direct costs`);
 
     // Debug: Log direct cost descriptions to understand labor detection
@@ -2994,6 +3010,7 @@ export const handler: Handler = async (event) => {
                 vendor: c.vendor,
                 procore_id: c.procore_id,
                 commitment_type: c.commitment_type,
+                status: c.status,
                 title: c.title,
                 original_amount: c.original_amount,
                 approved_changes: c.approved_changes,

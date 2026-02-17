@@ -610,8 +610,10 @@ function generateWarnings(results: any[], commitments: any[], _report: any): War
   }
 
   // Check for commitments not in proper status
+  // Accept all valid "closed" Procore statuses and skip commitments with no status data
+  const validStatuses = ['approved', 'complete', 'completed', 'executed', 'closed', 'void', 'voided', 'terminated']
   const uncommittedContracts = commitments?.filter(
-    c => !['approved', 'void', 'terminated'].includes(c.status?.toLowerCase())
+    c => c.status && !validStatuses.includes(c.status.toLowerCase())
   )
   if (uncommittedContracts && uncommittedContracts.length > 0) {
     warnings.push({
