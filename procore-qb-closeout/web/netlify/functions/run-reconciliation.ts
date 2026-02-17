@@ -1516,16 +1516,32 @@ function matchInvoicesToBills(
     let bestScore = 0;
     let matchMethod = '';
 
+    // Gross Procore amount (net + retainage) for retainage-aware matching.
+    // QB bills typically include retainage in TotalAmt, while Procore's
+    // invoice amount is net-of-retainage (current_payment_due).
+    const grossProcoreAmount = pInv.amount + (pInv.retainage || 0);
+    let bestMatchIsGross = false;
+
     for (const bill of vendorBills) {
       let score = 0;
+      let isGrossMatch = false;
 
-      // Exact amount match
+      // Exact amount match (net-to-net)
       if (amountMatches(pInv.amount, bill.amount, 0.001)) {
         score += 50;
         matchMethod = 'amount_match';
+      } else if (pInv.retainage > 0 && amountMatches(grossProcoreAmount, bill.amount, 0.001)) {
+        // Gross match: QB bill includes retainage in its total
+        score += 50;
+        matchMethod = 'amount_match_gross';
+        isGrossMatch = true;
       } else if (amountMatches(pInv.amount, bill.amount, 0.05)) {
         score += 30;
         matchMethod = 'amount_close';
+      } else if (pInv.retainage > 0 && amountMatches(grossProcoreAmount, bill.amount, 0.05)) {
+        score += 30;
+        matchMethod = 'amount_close_gross';
+        isGrossMatch = true;
       }
 
       // Invoice number match
@@ -1546,6 +1562,7 @@ function matchInvoicesToBills(
       if (score > bestScore) {
         bestScore = score;
         bestBill = bill;
+        bestMatchIsGross = isGrossMatch;
       }
     }
 
@@ -1553,7 +1570,14 @@ function matchInvoicesToBills(
       matchedQBBillIds.add(bestBill.id);
       matchedProcoreIds.add(pInv.id);
 
-      const variance = pInv.amount - bestBill.amount;
+      // When QB bill includes retainage in its total (gross match), compare
+      // on a gross-to-gross basis so retainage doesn't create a false variance.
+      const retainageInQB = bestMatchIsGross ? (pInv.retainage || 0) : 0;
+      const comparableProcore = bestMatchIsGross ? grossProcoreAmount : pInv.amount;
+      const variance = comparableProcore - bestBill.amount;
+      const retainageNote = bestMatchIsGross
+        ? ` (QB bill includes $${(pInv.retainage || 0).toFixed(2)} retainage)`
+        : '';
       results.push({
         id: generateId(),
         matchType: 'invoice',
@@ -1563,21 +1587,22 @@ function matchInvoicesToBills(
         customer: null,
         procoreRef: `Invoice ${pInv.number || pInv.id}`,
         qbRef: `Bill ${bestBill.docNumber || bestBill.id}`,
-        procoreValue: pInv.amount,
+        procoreValue: bestMatchIsGross ? grossProcoreAmount : pInv.amount,
         qbValue: bestBill.amount,
         variance,
-        variancePct: pInv.amount ? (variance / pInv.amount) * 100 : 0,
+        variancePct: comparableProcore ? (variance / comparableProcore) * 100 : 0,
         matchConfidence: Math.min(bestScore, 100),
         matchMethod,
-        severity: calculateSeverity(variance, pInv.amount),
+        severity: calculateSeverity(variance, comparableProcore),
         status: Math.abs(variance) < 1 ? 'matched' : 'partial',
         notes: Math.abs(variance) < 1
-          ? `Matched to QB Bill #${bestBill.docNumber}`
-          : `Variance of $${Math.abs(variance).toFixed(2)} with QB Bill #${bestBill.docNumber}`,
+          ? `Matched to QB Bill #${bestBill.docNumber}${retainageNote}`
+          : `Variance of $${Math.abs(variance).toFixed(2)} with QB Bill #${bestBill.docNumber}${retainageNote}`,
         procoreDate: pInv.billingDate,
         qbDate: bestBill.date,
         requiresAction: Math.abs(variance) >= 100,
         procoreRetainage: pInv.retainage,
+        qbRetainage: retainageInQB,
       });
     } else {
       // No good match found - could be timing (not yet entered in QB)
@@ -2797,8 +2822,10 @@ export const handler: Handler = async (event) => {
 
     // Retention breakdown
     const procoreRetentionHeld = totalRetention;
-    // QBO retention would need to come from specific tracking - placeholder for now
-    const qboRetentionHeld = 0; // TODO: Calculate from QB retention tracking
+    // QBO retention: sum qbRetainage from matched invoice results (retainage baked into QB bill totals)
+    const qboRetentionHeld = allResults
+      .filter(r => r.matchType === 'invoice' && r.qbRetainage && r.qbRetainage > 0)
+      .reduce((sum, r) => sum + (r.qbRetainage || 0), 0);
 
     // Retention paid - would need to track retention releases
     const procoreRetentionPaid = 0; // TODO: Track from Procore retention releases
@@ -3083,6 +3110,7 @@ export const handler: Handler = async (event) => {
                 qb_ref: r.qbRef,
                 requires_action: r.requiresAction,
                 procore_retainage: r.procoreRetainage || 0,
+                qb_retainage: r.qbRetainage || 0,
               }))
             );
             if (resultsError) {
