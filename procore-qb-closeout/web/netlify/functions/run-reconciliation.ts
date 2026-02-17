@@ -2754,8 +2754,11 @@ export const handler: Handler = async (event) => {
 
     const matchedCount = allResults.filter(r => r.status === 'matched').length;
     const partialCount = allResults.filter(r => r.status === 'partial').length;
-    const warningCount = allResults.filter(r => r.severity === 'warning').length;
-    const criticalCount = allResults.filter(r => r.severity === 'critical').length;
+    // Exclude vendor_total from severity counts — they are aggregate summaries that
+    // duplicate individual invoice results and create misleading critical/warning counts
+    const nonAggregateResults = allResults.filter(r => r.matchType !== 'vendor_total');
+    const warningCount = nonAggregateResults.filter(r => r.severity === 'warning').length;
+    const criticalCount = nonAggregateResults.filter(r => r.severity === 'critical').length;
     const totalExposure = closeoutItems.reduce((sum, i) => sum + i.amountAtRisk, 0);
 
     // Calculate Soft/Hard Close Eligibility (Phase 8+9)
@@ -2801,8 +2804,10 @@ export const handler: Handler = async (event) => {
 
     const summaryData = { totalCommitted, totalBilled, totalPaid, totalRetention };
 
-    // Get AI summary
-    const aiSummary = await getAIAnalysis(allResults, summaryData);
+    // Get AI summary — exclude vendor_total aggregate results so the AI doesn't
+    // report false variances from summary-level comparisons
+    const resultsForAI = allResults.filter(r => r.matchType !== 'vendor_total');
+    const aiSummary = await getAIAnalysis(resultsForAI, summaryData);
 
     // Build report
     const report = {
