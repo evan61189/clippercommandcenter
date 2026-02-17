@@ -2452,6 +2452,14 @@ export const handler: Handler = async (event) => {
     }
     console.log('========== END DEBUG ==========');
 
+    // Extract total contract value from prime contracts
+    const primeContracts = procoreData.primeContract || [];
+    const totalContractValue = primeContracts.reduce(
+      (sum: number, pc: any) => sum + parseFloat(pc.grand_total || pc.revised_contract_amount || pc.original_contract_amount || 0),
+      0
+    );
+    console.log(`Total contract value from ${primeContracts.length} prime contract(s): $${totalContractValue.toFixed(2)}`);
+
     // STEP 1: Normalize Procore data first (before fetching QB data)
     const commitments = normalizeCommitments(procoreData);
     const procoreInvoices = normalizeProcoreInvoices(procoreData);
@@ -2815,6 +2823,7 @@ export const handler: Handler = async (event) => {
       project_id: projectId,
       project_name: projectName,
       generated_at: new Date().toISOString(),
+      total_contract_value: totalContractValue,
       total_committed: totalCommitted,
       total_billed_by_subs: totalBilled,
       total_paid_to_subs: totalPaid,
@@ -2937,6 +2946,7 @@ export const handler: Handler = async (event) => {
           .insert({
             project_id: projectId,
             generated_at: report.generated_at,
+            total_contract_value: report.total_contract_value,
             total_committed: report.total_committed,
             total_billed_by_subs: report.total_billed_by_subs,
             total_paid_to_subs: report.total_paid_to_subs,
@@ -2958,6 +2968,9 @@ export const handler: Handler = async (event) => {
             critical_items: report.critical_items,
             open_closeout_items: report.open_closeout_items,
             estimated_exposure: report.estimated_exposure,
+            // Close eligibility
+            soft_close_eligible: report.soft_close_eligible,
+            hard_close_eligible: report.hard_close_eligible,
             executive_summary: report.executive_summary,
           })
           .select()
