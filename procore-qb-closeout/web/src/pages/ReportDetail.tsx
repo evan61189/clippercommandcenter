@@ -120,10 +120,10 @@ export default function ReportDetail() {
 
     setIsSoftClosing(true)
     try {
-      // Count outstanding items
-      const openAps = closeoutItems?.filter(i => i.category === 'open_ap' && i.status !== 'resolved').length || 0
-      const openArs = closeoutItems?.filter(i => i.category === 'open_ar' && i.status !== 'resolved').length || 0
-      const pendingInvoices = results?.filter(r => r.severity === 'warning' && r.item_type === 'invoice').length || 0
+      // Count outstanding items from reconciliation data
+      const openAps = report.ai_analysis?.open_ap_count || 0
+      const openArs = report.ai_analysis?.open_ar_count || 0
+      const pendingInvoices = report.ai_analysis?.pending_invoice_count || 0
 
       await softCloseProject(
         report.project_id,
