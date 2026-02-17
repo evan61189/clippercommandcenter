@@ -14,6 +14,7 @@ import {
   Lock,
   Unlock,
   X,
+  DollarSign,
 } from 'lucide-react'
 import {
   getReport,
@@ -53,6 +54,7 @@ export default function ReportDetail() {
   const [isUpdating, setIsUpdating] = useState(false)
   const [isSoftClosing, setIsSoftClosing] = useState(false)
   const [isSoftClosed, setIsSoftClosed] = useState(false)
+  const [expandedTail, setExpandedTail] = useState<'open_aps' | 'open_ars' | 'pending_invoices' | null>(null)
 
   // Handle ?filter= query param from dashboard links
   useEffect(() => {
@@ -511,6 +513,15 @@ export default function ReportDetail() {
                     No executive summary available. Run AI analysis to generate.
                   </p>
                 )}
+
+                {/* Financial Tails */}
+                <FinancialTails
+                  report={report}
+                  results={results || []}
+                  commitments={commitments || []}
+                  expandedTail={expandedTail}
+                  onToggle={(type) => setExpandedTail(expandedTail === type ? null : type)}
+                />
               </div>
             )}
 
@@ -1416,6 +1427,243 @@ function CloseoutItemsTable({ items }: { items: any[] }) {
           ))}
         </tbody>
       </table>
+    </div>
+  )
+}
+
+function FinancialTails({
+  report,
+  results,
+  commitments,
+  expandedTail,
+  onToggle,
+}: {
+  report: any
+  results: any[]
+  commitments: any[]
+  expandedTail: 'open_aps' | 'open_ars' | 'pending_invoices' | null
+  onToggle: (type: 'open_aps' | 'open_ars' | 'pending_invoices') => void
+}) {
+  const hasUnpaidBills = (report.qbo_sub_invoiced || 0) > (report.qbo_sub_paid || 0)
+  const openApItems = hasUnpaidBills
+    ? results.filter((r: any) => r.item_type === 'invoice' && r.qb_ref)
+    : []
+  const openArItems = results.filter((r: any) => r.item_type === 'payment_app' && r.severity !== 'info')
+  const pendingItems = commitments.filter((c: any) =>
+    (c.retention_held || 0) > 0 ||
+    (c.current_value || 0) > (c.billed_to_date || 0) + 0.01
+  )
+
+  const unpaidApAmount = (report.qbo_sub_invoiced || 0) - (report.qbo_sub_paid || 0)
+
+  if (openApItems.length === 0 && openArItems.length === 0 && pendingItems.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="border-t pt-6">
+      <h3 className="text-sm font-medium text-gray-700 mb-4">Financial Tails</h3>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Open APs Card */}
+        <button
+          onClick={() => onToggle('open_aps')}
+          className={`rounded-lg p-4 text-left transition-all ${
+            expandedTail === 'open_aps'
+              ? 'bg-orange-100 border-2 border-orange-400 shadow-md'
+              : 'bg-orange-50 border-2 border-transparent hover:border-orange-300 hover:shadow'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              <DollarSign className="w-5 h-5 text-orange-500 mr-2" />
+              <span className="text-sm font-medium text-orange-800">Open APs</span>
+            </div>
+            {expandedTail === 'open_aps' ? (
+              <ChevronDown className="w-4 h-4 text-orange-500" />
+            ) : (
+              <ChevronRight className="w-4 h-4 text-orange-400" />
+            )}
+          </div>
+          <p className="text-2xl font-semibold text-orange-600 mt-1">{openApItems.length}</p>
+          {unpaidApAmount > 0 && (
+            <p className="text-xs text-orange-500 mt-1">{formatCurrency(unpaidApAmount)} outstanding</p>
+          )}
+        </button>
+
+        {/* Open ARs Card */}
+        <button
+          onClick={() => onToggle('open_ars')}
+          className={`rounded-lg p-4 text-left transition-all ${
+            expandedTail === 'open_ars'
+              ? 'bg-blue-100 border-2 border-blue-400 shadow-md'
+              : 'bg-blue-50 border-2 border-transparent hover:border-blue-300 hover:shadow'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              <DollarSign className="w-5 h-5 text-blue-500 mr-2" />
+              <span className="text-sm font-medium text-blue-800">Open ARs</span>
+            </div>
+            {expandedTail === 'open_ars' ? (
+              <ChevronDown className="w-4 h-4 text-blue-500" />
+            ) : (
+              <ChevronRight className="w-4 h-4 text-blue-400" />
+            )}
+          </div>
+          <p className="text-2xl font-semibold text-blue-600 mt-1">{openArItems.length}</p>
+        </button>
+
+        {/* Pending Invoices Card */}
+        <button
+          onClick={() => onToggle('pending_invoices')}
+          className={`rounded-lg p-4 text-left transition-all ${
+            expandedTail === 'pending_invoices'
+              ? 'bg-purple-100 border-2 border-purple-400 shadow-md'
+              : 'bg-purple-50 border-2 border-transparent hover:border-purple-300 hover:shadow'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              <FileText className="w-5 h-5 text-purple-500 mr-2" />
+              <span className="text-sm font-medium text-purple-800">Pending Invoices</span>
+            </div>
+            {expandedTail === 'pending_invoices' ? (
+              <ChevronDown className="w-4 h-4 text-purple-500" />
+            ) : (
+              <ChevronRight className="w-4 h-4 text-purple-400" />
+            )}
+          </div>
+          <p className="text-2xl font-semibold text-purple-600 mt-1">{pendingItems.length}</p>
+          {pendingItems.length > 0 && (
+            <p className="text-xs text-purple-500 mt-1">
+              {formatCurrency(pendingItems.reduce((sum: number, c: any) => sum + (c.retention_held || 0), 0))} retainage
+            </p>
+          )}
+        </button>
+      </div>
+
+      {/* Expanded Detail Panels */}
+      {expandedTail === 'open_aps' && openApItems.length > 0 && (
+        <div className="mt-4 border border-orange-200 rounded-lg overflow-hidden">
+          <div className="bg-orange-50 px-4 py-3">
+            <h4 className="font-semibold text-orange-800">Open Accounts Payable</h4>
+            <p className="text-xs text-orange-600">QB bills with outstanding balance for this project</p>
+          </div>
+          <div className="p-4 overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-2 pr-4 font-medium text-gray-500">Vendor</th>
+                  <th className="text-left py-2 px-4 font-medium text-gray-500">QB Bill</th>
+                  <th className="text-right py-2 px-4 font-medium text-gray-500">Procore Amt</th>
+                  <th className="text-right py-2 px-4 font-medium text-gray-500">QB Amt</th>
+                  <th className="text-left py-2 pl-4 font-medium text-gray-500">Notes</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {openApItems.map((r: any) => (
+                  <tr key={r.id} className="hover:bg-gray-50">
+                    <td className="py-2 pr-4 text-gray-900 font-medium">{r.vendor || '-'}</td>
+                    <td className="py-2 px-4 text-gray-600">{r.qb_ref || '-'}</td>
+                    <td className="py-2 px-4 text-right">{r.procore_value != null ? formatCurrency(r.procore_value) : '-'}</td>
+                    <td className="py-2 px-4 text-right">{r.qb_value != null ? formatCurrency(r.qb_value) : '-'}</td>
+                    <td className="py-2 pl-4 text-gray-500 text-xs max-w-xs truncate" title={r.notes || ''}>{r.notes || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {expandedTail === 'open_aps' && openApItems.length === 0 && (
+        <div className="mt-4 border border-orange-200 rounded-lg p-6 text-center">
+          <CheckCircle className="w-8 h-8 text-green-500 mx-auto mb-2" />
+          <p className="text-sm text-gray-600">All accounts payable are settled</p>
+        </div>
+      )}
+
+      {expandedTail === 'open_ars' && openArItems.length > 0 && (
+        <div className="mt-4 border border-blue-200 rounded-lg overflow-hidden">
+          <div className="bg-blue-50 px-4 py-3">
+            <h4 className="font-semibold text-blue-800">Open Accounts Receivable</h4>
+            <p className="text-xs text-blue-600">Customer invoices with outstanding issues</p>
+          </div>
+          <div className="p-4 overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-2 pr-4 font-medium text-gray-500">Description</th>
+                  <th className="text-left py-2 px-4 font-medium text-gray-500">QB Invoice</th>
+                  <th className="text-right py-2 px-4 font-medium text-gray-500">Procore Amt</th>
+                  <th className="text-right py-2 px-4 font-medium text-gray-500">QB Amt</th>
+                  <th className="text-left py-2 pl-4 font-medium text-gray-500">Notes</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {openArItems.map((r: any) => (
+                  <tr key={r.id} className="hover:bg-gray-50">
+                    <td className="py-2 pr-4 text-gray-900 font-medium">{r.item_description || '-'}</td>
+                    <td className="py-2 px-4 text-gray-600">{r.qb_ref || '-'}</td>
+                    <td className="py-2 px-4 text-right">{r.procore_value != null ? formatCurrency(r.procore_value) : '-'}</td>
+                    <td className="py-2 px-4 text-right">{r.qb_value != null ? formatCurrency(r.qb_value) : '-'}</td>
+                    <td className="py-2 pl-4 text-gray-500 text-xs max-w-xs truncate" title={r.notes || ''}>{r.notes || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {expandedTail === 'open_ars' && openArItems.length === 0 && (
+        <div className="mt-4 border border-blue-200 rounded-lg p-6 text-center">
+          <CheckCircle className="w-8 h-8 text-green-500 mx-auto mb-2" />
+          <p className="text-sm text-gray-600">All accounts receivable are reconciled</p>
+        </div>
+      )}
+
+      {expandedTail === 'pending_invoices' && pendingItems.length > 0 && (
+        <div className="mt-4 border border-purple-200 rounded-lg overflow-hidden">
+          <div className="bg-purple-50 px-4 py-3">
+            <h4 className="font-semibold text-purple-800">Pending Invoices</h4>
+            <p className="text-xs text-purple-600">Commitments with retainage held or unbilled amounts</p>
+          </div>
+          <div className="p-4 overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-2 pr-4 font-medium text-gray-500">Vendor</th>
+                  <th className="text-right py-2 px-4 font-medium text-gray-500">Contract Value</th>
+                  <th className="text-right py-2 px-4 font-medium text-gray-500">Billed to Date</th>
+                  <th className="text-right py-2 px-4 font-medium text-gray-500">Retainage Held</th>
+                  <th className="text-right py-2 pl-4 font-medium text-gray-500">Remaining</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {pendingItems.map((c: any) => (
+                  <tr key={c.id} className="hover:bg-gray-50">
+                    <td className="py-2 pr-4 text-gray-900 font-medium">{c.vendor}</td>
+                    <td className="py-2 px-4 text-right">{formatCurrency(c.current_value)}</td>
+                    <td className="py-2 px-4 text-right">{formatCurrency(c.billed_to_date)}</td>
+                    <td className="py-2 px-4 text-right text-orange-600">{formatCurrency(c.retention_held)}</td>
+                    <td className="py-2 pl-4 text-right font-medium text-purple-600">
+                      {formatCurrency((c.current_value || 0) - (c.billed_to_date || 0))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {expandedTail === 'pending_invoices' && pendingItems.length === 0 && (
+        <div className="mt-4 border border-purple-200 rounded-lg p-6 text-center">
+          <CheckCircle className="w-8 h-8 text-green-500 mx-auto mb-2" />
+          <p className="text-sm text-gray-600">All commitments fully billed with no retainage outstanding</p>
+        </div>
+      )}
     </div>
   )
 }

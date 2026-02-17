@@ -269,6 +269,45 @@ export async function getCommitmentsForReport(reportId: string) {
   return data as Commitment[]
 }
 
+// Get financial tail details for a project (latest report's results + commitments)
+export async function getFinancialTailsForProject(projectId: string) {
+  // Get latest report
+  const { data: reports, error: reportError } = await supabase
+    .from('reconciliation_reports')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('generated_at', { ascending: false })
+    .limit(1)
+
+  if (reportError) throw reportError
+  if (!reports || reports.length === 0) return null
+
+  const report = reports[0] as ReconciliationReport
+
+  // Fetch results and commitments in parallel
+  const [resultsRes, commitmentsRes] = await Promise.all([
+    supabase
+      .from('reconciliation_results')
+      .select('*')
+      .eq('report_id', report.id)
+      .order('severity', { ascending: false }),
+    supabase
+      .from('commitments')
+      .select('*')
+      .eq('report_id', report.id)
+      .order('vendor', { ascending: true }),
+  ])
+
+  if (resultsRes.error) throw resultsRes.error
+  if (commitmentsRes.error) throw commitmentsRes.error
+
+  return {
+    report,
+    results: resultsRes.data as ReconciliationResult[],
+    commitments: commitmentsRes.data as Commitment[],
+  }
+}
+
 // Delete a project and all its associated data (via server-side function to bypass RLS)
 export async function deleteProject(projectId: string) {
   const response = await fetch('/.netlify/functions/delete-report', {
