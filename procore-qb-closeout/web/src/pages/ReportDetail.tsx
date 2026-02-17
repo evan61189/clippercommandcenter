@@ -523,7 +523,6 @@ export default function ReportDetail() {
 
                 {/* Financial Tails */}
                 <FinancialTails
-                  report={report}
                   results={results || []}
                   commitments={commitments || []}
                   expandedTail={expandedTail}
@@ -1439,13 +1438,11 @@ function CloseoutItemsTable({ items }: { items: any[] }) {
 }
 
 function FinancialTails({
-  report,
   results,
   commitments,
   expandedTail,
   onToggle,
 }: {
-  report: any
   results: any[]
   commitments: any[]
   expandedTail: 'open_aps' | 'open_ars' | 'pending_invoices' | null
