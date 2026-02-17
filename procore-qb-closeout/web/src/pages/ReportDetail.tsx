@@ -525,6 +525,7 @@ export default function ReportDetail() {
                 <FinancialTails
                   results={results || []}
                   commitments={commitments || []}
+                  aiAnalysis={report.ai_analysis}
                   expandedTail={expandedTail}
                   onToggle={(type) => setExpandedTail(expandedTail === type ? null : type)}
                 />
@@ -1440,39 +1441,54 @@ function CloseoutItemsTable({ items }: { items: any[] }) {
 function FinancialTails({
   results,
   commitments,
+  aiAnalysis,
   expandedTail,
   onToggle,
 }: {
   results: any[]
   commitments: any[]
+  aiAnalysis?: any
   expandedTail: 'open_aps' | 'open_ars' | 'pending_invoices' | null
   onToggle: (type: 'open_aps' | 'open_ars' | 'pending_invoices') => void
 }) {
-  // Cross-reference invoice results with commitments to exclude fully paid vendors
-  const matchedInvoices = results.filter((r: any) => r.item_type === 'invoice' && r.qb_ref)
-  const openApItems = matchedInvoices.filter((r: any) => {
-    const commitment = commitments.find((c: any) =>
-      c.vendor && r.vendor &&
-      c.vendor.toLowerCase().trim() === r.vendor.toLowerCase().trim()
-    )
-    if (!commitment) return true
-    return (commitment.paid_to_date || 0) < (commitment.billed_to_date || 0) - 0.01
-  })
+  // Open APs: use backend-computed QB bills with outstanding balance when available,
+  // since the backend has direct access to QB bill balances. Fall back to client-side
+  // cross-reference only when ai_analysis is missing.
+  let openApItems: any[]
+  let unpaidApAmount: number
+  if (aiAnalysis?.open_ap_items && aiAnalysis.open_ap_items.length > 0) {
+    openApItems = aiAnalysis.open_ap_items
+    unpaidApAmount = aiAnalysis.open_ap_amount || 0
+  } else if (aiAnalysis && aiAnalysis.open_ap_count === 0) {
+    // Backend explicitly computed 0 open APs
+    openApItems = []
+    unpaidApAmount = 0
+  } else {
+    // Fallback: cross-reference invoice results with commitments
+    const matchedInvoices = results.filter((r: any) => r.item_type === 'invoice' && r.qb_ref)
+    openApItems = matchedInvoices.filter((r: any) => {
+      const commitment = commitments.find((c: any) =>
+        c.vendor && r.vendor &&
+        c.vendor.toLowerCase().trim() === r.vendor.toLowerCase().trim()
+      )
+      if (!commitment) return true
+      return (commitment.paid_to_date || 0) < (commitment.billed_to_date || 0) - 0.01
+    })
+    unpaidApAmount = openApItems.reduce((sum: number, r: any) => {
+      const commitment = commitments.find((c: any) =>
+        c.vendor && r.vendor &&
+        c.vendor.toLowerCase().trim() === r.vendor.toLowerCase().trim()
+      )
+      if (!commitment) return sum + (r.qb_value || r.procore_value || 0)
+      return sum + ((commitment.billed_to_date || 0) - (commitment.paid_to_date || 0))
+    }, 0)
+  }
+
   const openArItems = results.filter((r: any) => r.item_type === 'payment_app' && r.severity !== 'info')
   const pendingItems = commitments.filter((c: any) =>
     (c.retention_held || 0) > 0 ||
     (c.current_value || 0) > (c.billed_to_date || 0) + 0.01
   )
-
-  // Sum outstanding amounts for open AP items from their commitment data
-  const unpaidApAmount = openApItems.reduce((sum: number, r: any) => {
-    const commitment = commitments.find((c: any) =>
-      c.vendor && r.vendor &&
-      c.vendor.toLowerCase().trim() === r.vendor.toLowerCase().trim()
-    )
-    if (!commitment) return sum + (r.qb_value || r.procore_value || 0)
-    return sum + ((commitment.billed_to_date || 0) - (commitment.paid_to_date || 0))
-  }, 0)
 
   if (openApItems.length === 0 && openArItems.length === 0 && pendingItems.length === 0) {
     return null
@@ -1573,19 +1589,17 @@ function FinancialTails({
                 <tr className="border-b">
                   <th className="text-left py-2 pr-4 font-medium text-gray-500">Vendor</th>
                   <th className="text-left py-2 px-4 font-medium text-gray-500">QB Bill</th>
-                  <th className="text-right py-2 px-4 font-medium text-gray-500">Procore Amt</th>
-                  <th className="text-right py-2 px-4 font-medium text-gray-500">QB Amt</th>
-                  <th className="text-left py-2 pl-4 font-medium text-gray-500">Notes</th>
+                  <th className="text-right py-2 px-4 font-medium text-gray-500">Bill Amt</th>
+                  <th className="text-right py-2 pl-4 font-medium text-gray-500">Balance</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {openApItems.map((r: any) => (
-                  <tr key={r.id} className="hover:bg-gray-50">
+                {openApItems.map((r: any, idx: number) => (
+                  <tr key={r.id || r.bill_ref || idx} className="hover:bg-gray-50">
                     <td className="py-2 pr-4 text-gray-900 font-medium">{r.vendor || '-'}</td>
-                    <td className="py-2 px-4 text-gray-600">{r.qb_ref || '-'}</td>
-                    <td className="py-2 px-4 text-right">{r.procore_value != null ? formatCurrency(r.procore_value) : '-'}</td>
-                    <td className="py-2 px-4 text-right">{r.qb_value != null ? formatCurrency(r.qb_value) : '-'}</td>
-                    <td className="py-2 pl-4 text-gray-500 text-xs max-w-xs truncate" title={r.notes || ''}>{r.notes || '-'}</td>
+                    <td className="py-2 px-4 text-gray-600">{r.bill_ref || r.qb_ref || '-'}</td>
+                    <td className="py-2 px-4 text-right">{formatCurrency(r.amount || r.qb_value || 0)}</td>
+                    <td className="py-2 pl-4 text-right font-medium text-orange-600">{formatCurrency(r.balance || r.qb_value || 0)}</td>
                   </tr>
                 ))}
               </tbody>
