@@ -40,15 +40,22 @@ interface FinancialTailData {
 
 // Derive the financial tail items from report data
 function getOpenAPs(data: FinancialTailData) {
+  // Prefer backend-computed open AP items (from actual QB bill balances)
+  const aiAnalysis = data.report.ai_analysis as any
+  if (aiAnalysis?.open_ap_items && aiAnalysis.open_ap_items.length > 0) {
+    return aiAnalysis.open_ap_items
+  }
+  if (aiAnalysis && aiAnalysis.open_ap_count === 0) {
+    return []
+  }
+  // Fallback: client-side cross-reference
   const matchedInvoices = data.results.filter(r => r.item_type === 'invoice' && r.qb_ref)
-  // Cross-reference with commitments to exclude fully paid vendors
   return matchedInvoices.filter(r => {
     const commitment = data.commitments.find(c =>
       c.vendor && r.vendor &&
       c.vendor.toLowerCase().trim() === r.vendor.toLowerCase().trim()
     )
-    if (!commitment) return true // If no matching commitment found, assume open
-    // Vendor is fully paid if paid_to_date >= billed_to_date
+    if (!commitment) return true
     return (commitment.paid_to_date || 0) < (commitment.billed_to_date || 0) - 0.01
   })
 }
@@ -398,7 +405,43 @@ function FinancialTailModal({
                     )
                   }
 
-                  // Open APs or Open ARs — show reconciliation results
+                  if (type === 'open_aps') {
+                    // Open APs — items may be backend open_ap_items or reconciliation results
+                    const apItems = items as any[]
+                    if (apItems.length === 0) return null
+                    return (
+                      <ProjectSection key={project.projectId} name={project.projectName} projectId={project.projectId} color={config.color}>
+                        <table className="min-w-full text-sm">
+                          <thead>
+                            <tr className="border-b">
+                              <th className="text-left py-2 pr-4 font-medium text-gray-500">Vendor</th>
+                              <th className="text-left py-2 px-4 font-medium text-gray-500">QB Bill</th>
+                              <th className="text-right py-2 px-4 font-medium text-gray-500">Amount</th>
+                              <th className="text-right py-2 pl-4 font-medium text-gray-500">Outstanding</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {apItems.map((r: any, idx: number) => (
+                              <tr key={r.id || r.bill_ref || idx} className="hover:bg-gray-50">
+                                <td className="py-2 pr-4 text-gray-900 font-medium">
+                                  {r.vendor || r.item_description || '-'}
+                                </td>
+                                <td className="py-2 px-4 text-gray-600">{r.bill_ref || r.qb_ref || '-'}</td>
+                                <td className="py-2 px-4 text-right">
+                                  {r.amount != null ? formatCurrency(r.amount) : r.procore_value != null ? formatCurrency(r.procore_value) : '-'}
+                                </td>
+                                <td className="py-2 pl-4 text-right font-medium text-orange-600">
+                                  {r.balance != null ? formatCurrency(r.balance) : r.qb_value != null ? formatCurrency(r.qb_value) : '-'}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </ProjectSection>
+                    )
+                  }
+
+                  // Open ARs — show reconciliation results
                   const results = items as ReconciliationResult[]
                   if (results.length === 0) return null
                   return (
@@ -406,12 +449,8 @@ function FinancialTailModal({
                       <table className="min-w-full text-sm">
                         <thead>
                           <tr className="border-b">
-                            <th className="text-left py-2 pr-4 font-medium text-gray-500">
-                              {type === 'open_aps' ? 'Vendor' : 'Description'}
-                            </th>
-                            <th className="text-left py-2 px-4 font-medium text-gray-500">
-                              {type === 'open_aps' ? 'QB Bill' : 'QB Invoice'}
-                            </th>
+                            <th className="text-left py-2 pr-4 font-medium text-gray-500">Description</th>
+                            <th className="text-left py-2 px-4 font-medium text-gray-500">QB Invoice</th>
                             <th className="text-right py-2 px-4 font-medium text-gray-500">Procore Amt</th>
                             <th className="text-right py-2 px-4 font-medium text-gray-500">QB Amt</th>
                             <th className="text-left py-2 pl-4 font-medium text-gray-500">Notes</th>
