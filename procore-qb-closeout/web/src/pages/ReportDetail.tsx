@@ -215,10 +215,36 @@ export default function ReportDetail() {
   }
 
   // Filter results by type
-  const subInvoiceResults = results?.filter(r => r.item_type === 'invoice') || []
+  const subInvoiceResultsRaw = results?.filter(r => r.item_type === 'invoice') || []
   const ownerInvoiceResults = results?.filter(r => r.item_type === 'payment_app') || []
   const directCostResults = results?.filter(r => r.item_type === 'direct_cost') || []
   const laborResults = results?.filter(r => r.item_type === 'labor') || []
+
+  // When no reconciliation results exist for sub invoices but the report has
+  // backend-computed open_ap_items (from QB bill balances), use those so the
+  // Sub Invoices tab isn't empty while Open APs shows items.
+  const aiAnalysis = report.ai_analysis as any
+  const openApItems = aiAnalysis?.open_ap_items || []
+  const subInvoiceResults = subInvoiceResultsRaw.length > 0
+    ? subInvoiceResultsRaw
+    : openApItems.map((item: any, idx: number) => ({
+        id: `ap-${idx}`,
+        report_id: report.id,
+        result_id: `ap-${idx}`,
+        item_type: 'invoice',
+        item_description: `QB Bill #${item.bill_ref || 'N/A'}`,
+        vendor: item.vendor || null,
+        procore_value: item.amount ?? null,
+        qb_value: item.amount ?? null,
+        variance: item.balance != null && item.amount != null ? item.balance - item.amount : 0,
+        variance_pct: null,
+        severity: item.balance > 0 ? 'warning' as const : 'info' as const,
+        notes: item.balance > 0 ? `Outstanding balance: ${formatCurrency(item.balance)}` : 'Paid',
+        procore_ref: null,
+        qb_ref: item.bill_ref ? `Bill #${item.bill_ref}` : null,
+        requires_action: item.balance > 0,
+        created_at: '',
+      }))
 
   // Generate warnings based on the data
   const warnings = generateWarnings(results || [], commitments || [], report)
