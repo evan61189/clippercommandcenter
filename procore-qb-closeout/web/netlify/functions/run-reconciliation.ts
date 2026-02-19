@@ -2723,6 +2723,13 @@ export const handler: Handler = async (event) => {
     console.log(`QB Bills matched to Procore invoices: ${matchedQBBillIds.size}`);
     console.log(`Procore invoices matched: ${matchedProcoreIds.size}`);
     console.log(`QB Bills remaining unmatched: ${qbBills.length - matchedQBBillIds.size}`);
+    const unmatchedProcoreInvoices = invoiceResults.filter(r => r.status === 'timing' || r.status === 'unmatched_procore');
+    if (unmatchedProcoreInvoices.length > 0) {
+      console.log(`Procore invoices with no QB match (${unmatchedProcoreInvoices.length}):`);
+      for (const u of unmatchedProcoreInvoices) {
+        console.log(`  - ${u.vendor}: ${u.procoreRef} ($${u.procoreValue?.toFixed(2)}) — ${u.status}: ${u.notes}`);
+      }
+    }
 
     // 2. Separate labor costs from direct costs and match each
     const { laborResults, nonLaborDirectCosts } = matchLaborCosts(directCosts, qbLaborExpenses);
@@ -3122,26 +3129,40 @@ export const handler: Handler = async (event) => {
           // Insert results
           if (allResults.length > 0) {
             console.log(`Inserting ${allResults.length} reconciliation results...`);
-            const { error: resultsError } = await supabase.from('reconciliation_results').insert(
-              allResults.map(r => ({
-                report_id: reportData.id,
-                result_id: r.id,
-                item_type: r.matchType,
-                item_description: r.description,
-                vendor: r.vendor,
-                procore_value: r.procoreValue,
-                qb_value: r.qbValue,
-                variance: r.variance,
-                variance_pct: r.variancePct,
-                severity: r.severity,
-                notes: r.notes,
-                procore_ref: r.procoreRef,
-                qb_ref: r.qbRef,
-                requires_action: r.requiresAction,
-                procore_retainage: r.procoreRetainage || 0,
-                qb_retainage: r.qbRetainage || 0,
-              }))
-            );
+            // Build base result rows (columns that exist in the initial schema)
+            const baseResultRows = allResults.map(r => ({
+              report_id: reportData.id,
+              result_id: r.id,
+              item_type: r.matchType,
+              item_description: r.description,
+              vendor: r.vendor,
+              procore_value: r.procoreValue,
+              qb_value: r.qbValue,
+              variance: r.variance,
+              variance_pct: r.variancePct,
+              severity: r.severity,
+              notes: r.notes,
+              procore_ref: r.procoreRef,
+              qb_ref: r.qbRef,
+              requires_action: r.requiresAction,
+            }));
+
+            // Try inserting with retainage columns (from migration 005);
+            // fall back to base columns if the migration hasn't been applied
+            let resultsError: any = null;
+            const retainageRows = allResults.map((r, i) => ({
+              ...baseResultRows[i],
+              procore_retainage: r.procoreRetainage || 0,
+              qb_retainage: r.qbRetainage || 0,
+            }));
+            const { error: firstErr } = await supabase.from('reconciliation_results').insert(retainageRows);
+            if (firstErr && firstErr.code === 'PGRST204') {
+              console.log(`Column not found (${firstErr.message}), inserting with base columns only...`);
+              const { error: secondErr } = await supabase.from('reconciliation_results').insert(baseResultRows);
+              resultsError = secondErr;
+            } else {
+              resultsError = firstErr;
+            }
             if (resultsError) {
               console.error('Error inserting results:', resultsError);
             } else {
