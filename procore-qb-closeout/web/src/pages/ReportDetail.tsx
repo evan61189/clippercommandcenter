@@ -225,8 +225,46 @@ export default function ReportDetail() {
   // Sub Invoices tab isn't empty while Open APs shows items.
   const aiAnalysis = report.ai_analysis as any
   const openApItems = aiAnalysis?.open_ap_items || []
+  // all_bill_details includes fully-paid bills too; fall back to open_ap_items for older reports
+  const allBillDetails: any[] = aiAnalysis?.all_bill_details || openApItems
   const subInvoiceResults = subInvoiceResultsRaw.length > 0
-    ? subInvoiceResultsRaw
+    ? subInvoiceResultsRaw.map((r: any) => {
+        // Enrich reconciliation results with bill detail data for the modal.
+        // Prefer exact bill ref match, then vendor+amount, then vendor-only.
+        const vendorLower = r.vendor?.toLowerCase()
+        const apMatch =
+          allBillDetails.find((ap: any) =>
+            ap.bill_ref && r.qb_ref &&
+            (r.qb_ref.includes(String(ap.bill_ref)) || String(ap.bill_ref) === String(r.qb_ref))
+          ) ||
+          allBillDetails.find((ap: any) =>
+            ap.vendor?.toLowerCase() === vendorLower &&
+            r.qb_value != null && ap.amount != null &&
+            Math.abs(ap.amount - r.qb_value) < 0.01
+          ) ||
+          allBillDetails.find((ap: any) =>
+            ap.vendor?.toLowerCase() === vendorLower
+          )
+        if (!apMatch) return r
+        const paid = apMatch.paid ?? (apMatch.amount != null && apMatch.balance != null ? apMatch.amount - apMatch.balance : null)
+        return {
+          ...r,
+          _ap_detail: {
+            balance: apMatch.balance,
+            paid: paid,
+            date: apMatch.date,
+            due_date: apMatch.due_date,
+            memo: apMatch.memo,
+            contract_value: apMatch.contract_value,
+            billed_to_date: apMatch.billed_to_date,
+            paid_to_date: apMatch.paid_to_date,
+            retention_held: apMatch.retention_held,
+            commitment_type: apMatch.commitment_type,
+            commitment_status: apMatch.commitment_status,
+            commitment_title: apMatch.commitment_title,
+          },
+        }
+      })
     : openApItems.map((item: any, idx: number) => {
         const paid = item.paid ?? (item.amount != null && item.balance != null ? item.amount - item.balance : null)
         const pctPaid = item.amount ? ((paid ?? 0) / item.amount * 100) : 0
