@@ -2951,12 +2951,32 @@ export const handler: Handler = async (event) => {
       ai_analysis: {
         open_ap_count: openApCount,
         open_ap_amount: openApAmount,
-        open_ap_items: openApBills.map(b => ({
-          vendor: b.vendor,
-          bill_ref: b.docNumber || b.id,
-          amount: b.amount,
-          balance: b.balance,
-        })),
+        open_ap_items: openApBills.map(b => {
+          const paid = b.amount - b.balance;
+          // Find matching Procore commitment for this vendor
+          const commitment = commitments.find(c => {
+            const match = findVendorMatch(c.vendor, qbVendors, aiVendorMap);
+            return match && match.id === b.vendorId;
+          });
+          return {
+            vendor: b.vendor,
+            bill_ref: b.docNumber || b.id,
+            amount: b.amount,
+            balance: b.balance,
+            paid,
+            date: b.date || null,
+            due_date: b.dueDate || null,
+            memo: b.memo || null,
+            // Commitment-level context
+            contract_value: commitment?.currentValue ?? null,
+            billed_to_date: commitment?.billedToDate ?? null,
+            paid_to_date: commitment?.paidToDate ?? null,
+            retention_held: commitment?.retentionHeld ?? null,
+            commitment_type: commitment?.type ?? null,
+            commitment_status: commitment?.status ?? null,
+            commitment_title: commitment?.title ?? null,
+          };
+        }),
         open_ar_count: openArCount,
         open_ar_amount: openArAmount,
         open_ar_items: openArInvoices.map(inv => ({

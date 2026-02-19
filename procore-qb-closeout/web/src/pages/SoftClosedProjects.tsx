@@ -416,25 +416,42 @@ function FinancialTailModal({
                             <tr className="border-b">
                               <th className="text-left py-2 pr-4 font-medium text-gray-500">Vendor</th>
                               <th className="text-left py-2 px-4 font-medium text-gray-500">QB Bill</th>
+                              <th className="text-left py-2 px-4 font-medium text-gray-500">Date</th>
                               <th className="text-right py-2 px-4 font-medium text-gray-500">Amount</th>
-                              <th className="text-right py-2 pl-4 font-medium text-gray-500">Outstanding</th>
+                              <th className="text-right py-2 px-4 font-medium text-gray-500">Paid</th>
+                              <th className="text-right py-2 px-4 font-medium text-gray-500">Outstanding</th>
+                              {apItems.some((r: any) => r.retention_held > 0) && (
+                                <th className="text-right py-2 pl-4 font-medium text-gray-500">Retainage</th>
+                              )}
                             </tr>
                           </thead>
                           <tbody className="divide-y">
-                            {apItems.map((r: any, idx: number) => (
-                              <tr key={r.id || r.bill_ref || idx} className="hover:bg-gray-50">
-                                <td className="py-2 pr-4 text-gray-900 font-medium">
-                                  {r.vendor || r.item_description || '-'}
-                                </td>
-                                <td className="py-2 px-4 text-gray-600">{r.bill_ref || r.qb_ref || '-'}</td>
-                                <td className="py-2 px-4 text-right">
-                                  {r.amount != null ? formatCurrency(r.amount) : r.procore_value != null ? formatCurrency(r.procore_value) : '-'}
-                                </td>
-                                <td className="py-2 pl-4 text-right font-medium text-orange-600">
-                                  {r.balance != null ? formatCurrency(r.balance) : r.qb_value != null ? formatCurrency(r.qb_value) : '-'}
-                                </td>
-                              </tr>
-                            ))}
+                            {apItems.map((r: any, idx: number) => {
+                              const paid = r.paid ?? (r.amount != null && r.balance != null ? r.amount - r.balance : null)
+                              return (
+                                <tr key={r.id || r.bill_ref || idx} className="hover:bg-gray-50">
+                                  <td className="py-2 pr-4 text-gray-900 font-medium">
+                                    {r.vendor || r.item_description || '-'}
+                                  </td>
+                                  <td className="py-2 px-4 text-gray-600">{r.bill_ref || r.qb_ref || '-'}</td>
+                                  <td className="py-2 px-4 text-gray-500 text-xs">{r.date || '-'}</td>
+                                  <td className="py-2 px-4 text-right">
+                                    {r.amount != null ? formatCurrency(r.amount) : r.procore_value != null ? formatCurrency(r.procore_value) : '-'}
+                                  </td>
+                                  <td className="py-2 px-4 text-right text-green-600">
+                                    {paid != null ? formatCurrency(paid) : '-'}
+                                  </td>
+                                  <td className="py-2 px-4 text-right font-medium text-orange-600">
+                                    {r.balance != null ? formatCurrency(r.balance) : r.qb_value != null ? formatCurrency(r.qb_value) : '-'}
+                                  </td>
+                                  {apItems.some((i: any) => i.retention_held > 0) && (
+                                    <td className="py-2 pl-4 text-right text-orange-500">
+                                      {r.retention_held != null && r.retention_held > 0 ? formatCurrency(r.retention_held) : '-'}
+                                    </td>
+                                  )}
+                                </tr>
+                              )
+                            })}
                           </tbody>
                         </table>
                       </ProjectSection>
