@@ -35,7 +35,7 @@ import {
   getPriorityColor,
 } from '../lib/utils'
 
-type TabType = 'summary' | 'sub_invoices' | 'owner_invoices' | 'direct_costs' | 'labor' | 'warnings' | 'closeout'
+type TabType = 'summary' | 'sub_invoices' | 'owner_invoices' | 'direct_costs' | 'labor' | 'unbilled_commitments' | 'warnings' | 'closeout'
 
 function getUserId(): string {
   let userId = localStorage.getItem('closeout_user_id')
@@ -272,12 +272,18 @@ export default function ReportDetail() {
   // Generate warnings based on the data
   const warnings = generateWarnings(results || [], commitments || [], report)
 
+  // Unbilled commitments: subcontracts/POs with contract value but zero billing
+  const unbilledCommitments = (commitments || []).filter((c: any) =>
+    c.current_value > 0 && (!c.billed_to_date || c.billed_to_date <= 0)
+  )
+
   const tabs = [
     { id: 'summary' as TabType, label: 'Summary', count: null },
     { id: 'sub_invoices' as TabType, label: 'Sub Invoices', count: subInvoiceResults.length },
     { id: 'owner_invoices' as TabType, label: 'Owner Invoices', count: ownerInvoiceResults.length },
     { id: 'direct_costs' as TabType, label: 'Direct Costs', count: directCostResults.length },
     { id: 'labor' as TabType, label: 'Labor', count: laborResults.length },
+    ...(unbilledCommitments.length > 0 ? [{ id: 'unbilled_commitments' as TabType, label: 'Unbilled Commitments', count: unbilledCommitments.length }] : []),
     { id: 'warnings' as TabType, label: 'Warnings', count: warnings.length },
     { id: 'closeout' as TabType, label: 'Closeout Items', count: closeoutItems?.length || 0 },
   ]
@@ -595,6 +601,10 @@ export default function ReportDetail() {
 
             {activeTab === 'labor' && (
               <ResultsTable results={laborResults} title="Labor Costs" />
+            )}
+
+            {activeTab === 'unbilled_commitments' && (
+              <UnbilledCommitmentsTable commitments={unbilledCommitments} />
             )}
 
             {activeTab === 'warnings' && (
@@ -1604,6 +1614,107 @@ function WarningsTable({ warnings }: { warnings: Warning[] }) {
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+function UnbilledCommitmentsTable({ commitments }: { commitments: any[] }) {
+  if (commitments.length === 0) {
+    return (
+      <div className="text-center py-8">
+        <CheckCircle className="w-10 h-10 text-green-400 mx-auto mb-2" />
+        <p className="text-gray-500">All commitments have billing activity</p>
+      </div>
+    )
+  }
+
+  const totalExposure = commitments.reduce((sum: number, c: any) => sum + (c.current_value || 0), 0)
+
+  return (
+    <div>
+      {/* Warning banner */}
+      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
+        <div className="flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-amber-500 mt-0.5 flex-shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-amber-800">
+              {commitments.length} commitment{commitments.length !== 1 ? 's' : ''} with no invoices submitted
+            </p>
+            <p className="text-sm text-amber-700 mt-1">
+              These subcontracts or purchase orders have contract value but zero billing to date.
+              Do not close out this project until these are resolved — they may still bill against the job.
+            </p>
+            <p className="text-sm font-semibold text-amber-900 mt-2">
+              Total unbilled exposure: {formatCurrency(totalExposure)}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-gray-200">
+            <th className="text-left px-3 py-2 text-gray-500 font-medium">Vendor</th>
+            <th className="text-left px-3 py-2 text-gray-500 font-medium">Commitment</th>
+            <th className="text-left px-3 py-2 text-gray-500 font-medium">Type</th>
+            <th className="text-left px-3 py-2 text-gray-500 font-medium">Status</th>
+            <th className="text-right px-3 py-2 text-gray-500 font-medium">Contract Value</th>
+            <th className="text-right px-3 py-2 text-gray-500 font-medium">Billed</th>
+            <th className="text-right px-3 py-2 text-gray-500 font-medium">Paid</th>
+            <th className="text-right px-3 py-2 text-gray-500 font-medium">Retainage</th>
+          </tr>
+        </thead>
+        <tbody>
+          {commitments.map((c: any) => (
+            <tr key={c.id} className="border-b border-gray-100 hover:bg-amber-50/50">
+              <td className="px-3 py-3 font-medium text-gray-900">{c.vendor || '-'}</td>
+              <td className="px-3 py-3 text-gray-600 max-w-xs truncate" title={c.title}>{c.title || '-'}</td>
+              <td className="px-3 py-3">
+                <span className="badge text-xs bg-gray-100 text-gray-600">
+                  {c.commitment_type === 'purchase_order' ? 'Purchase Order' : 'Subcontract'}
+                </span>
+              </td>
+              <td className="px-3 py-3">
+                <span className={`badge text-xs ${
+                  c.status === 'approved' || c.status === 'complete' ? 'bg-green-100 text-green-700'
+                    : c.status === 'draft' ? 'bg-gray-100 text-gray-600'
+                    : 'bg-blue-100 text-blue-700'
+                }`}>
+                  {c.status || '-'}
+                </span>
+              </td>
+              <td className="px-3 py-3 text-right font-semibold text-gray-900">
+                {formatCurrency(c.current_value || 0)}
+              </td>
+              <td className="px-3 py-3 text-right text-red-500 font-medium">
+                {formatCurrency(0)}
+              </td>
+              <td className="px-3 py-3 text-right text-gray-500">
+                {formatCurrency(c.paid_to_date || 0)}
+              </td>
+              <td className="px-3 py-3 text-right text-orange-500">
+                {c.retention_held > 0 ? formatCurrency(c.retention_held) : '-'}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className="border-t-2 border-gray-300 font-semibold">
+            <td className="px-3 py-2 text-gray-700" colSpan={4}>Total Unbilled Exposure</td>
+            <td className="px-3 py-2 text-right text-gray-900">{formatCurrency(totalExposure)}</td>
+            <td className="px-3 py-2 text-right text-red-500">{formatCurrency(0)}</td>
+            <td className="px-3 py-2 text-right text-gray-500">
+              {formatCurrency(commitments.reduce((s: number, c: any) => s + (c.paid_to_date || 0), 0))}
+            </td>
+            <td className="px-3 py-2 text-right text-orange-500">
+              {formatCurrency(commitments.reduce((s: number, c: any) => s + (c.retention_held || 0), 0))}
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+      <p className="text-xs text-gray-400 mt-2">
+        {commitments.length} unbilled commitment{commitments.length !== 1 ? 's' : ''}
+      </p>
     </div>
   )
 }
