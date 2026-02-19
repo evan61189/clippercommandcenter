@@ -227,24 +227,47 @@ export default function ReportDetail() {
   const openApItems = aiAnalysis?.open_ap_items || []
   const subInvoiceResults = subInvoiceResultsRaw.length > 0
     ? subInvoiceResultsRaw
-    : openApItems.map((item: any, idx: number) => ({
-        id: `ap-${idx}`,
-        report_id: report.id,
-        result_id: `ap-${idx}`,
-        item_type: 'invoice',
-        item_description: `QB Bill #${item.bill_ref || 'N/A'}`,
-        vendor: item.vendor || null,
-        procore_value: item.amount ?? null,
-        qb_value: item.amount ?? null,
-        variance: item.balance != null && item.amount != null ? item.balance - item.amount : 0,
-        variance_pct: null,
-        severity: item.balance > 0 ? 'warning' as const : 'info' as const,
-        notes: item.balance > 0 ? `Outstanding balance: ${formatCurrency(item.balance)}` : 'Paid',
-        procore_ref: null,
-        qb_ref: item.bill_ref ? `Bill #${item.bill_ref}` : null,
-        requires_action: item.balance > 0,
-        created_at: '',
-      }))
+    : openApItems.map((item: any, idx: number) => {
+        const paid = item.paid ?? (item.amount != null && item.balance != null ? item.amount - item.balance : null)
+        const pctPaid = item.amount ? ((paid ?? 0) / item.amount * 100) : 0
+        return {
+          id: `ap-${idx}`,
+          report_id: report.id,
+          result_id: `ap-${idx}`,
+          item_type: 'invoice',
+          item_description: `QB Bill #${item.bill_ref || 'N/A'}`,
+          vendor: item.vendor || null,
+          procore_value: item.amount ?? null,
+          qb_value: item.amount ?? null,
+          variance: 0,
+          variance_pct: 0,
+          severity: 'info' as const,
+          notes: item.balance > 0
+            ? `Outstanding balance: ${formatCurrency(item.balance)} of ${formatCurrency(item.amount)} (${pctPaid.toFixed(0)}% paid)`
+            : 'Paid in full',
+          procore_ref: item.commitment_title || null,
+          qb_ref: item.bill_ref ? `Bill #${item.bill_ref}` : null,
+          qb_date: item.date || null,
+          procore_date: item.due_date ? `Due: ${item.due_date}` : null,
+          requires_action: item.balance > 0,
+          created_at: '',
+          // Pass through all the rich data for InvoiceDetailModal
+          _ap_detail: {
+            balance: item.balance,
+            paid: paid,
+            date: item.date,
+            due_date: item.due_date,
+            memo: item.memo,
+            contract_value: item.contract_value,
+            billed_to_date: item.billed_to_date,
+            paid_to_date: item.paid_to_date,
+            retention_held: item.retention_held,
+            commitment_type: item.commitment_type,
+            commitment_status: item.commitment_status,
+            commitment_title: item.commitment_title,
+          },
+        }
+      })
 
   // Generate warnings based on the data
   const warnings = generateWarnings(results || [], commitments || [], report)
@@ -756,6 +779,39 @@ function generateWarnings(results: any[], commitments: any[], _report: any): War
 function InvoiceDetailModal({ result, onClose }: { result: any; onClose: () => void }) {
   if (!result) return null
 
+  const ap = result._ap_detail as {
+    balance: number; paid: number; date: string; due_date: string; memo: string;
+    contract_value: number; billed_to_date: number; paid_to_date: number;
+    retention_held: number; commitment_type: string; commitment_status: string;
+    commitment_title: string;
+  } | undefined
+
+  const pctPaid = ap && result.qb_value ? ((ap.paid ?? 0) / result.qb_value * 100) : null
+
+  // Build a status explanation
+  let statusExplanation = ''
+  if (ap) {
+    if (ap.balance <= 0) {
+      statusExplanation = 'This bill has been fully paid in QuickBooks. No further action needed.'
+    } else if (pctPaid != null && pctPaid > 0) {
+      statusExplanation = `This bill has been partially paid (${pctPaid.toFixed(0)}%). ${formatCurrency(ap.balance)} remains outstanding.`
+    } else {
+      statusExplanation = `This bill is unpaid. The full amount of ${formatCurrency(ap.balance)} is outstanding.`
+    }
+    if (ap.retention_held != null && ap.retention_held > 0) {
+      statusExplanation += ` Retainage of ${formatCurrency(ap.retention_held)} is currently held on this subcontract.`
+    }
+    if (ap.due_date) {
+      const due = new Date(ap.due_date)
+      const now = new Date()
+      if (due < now && ap.balance > 0) {
+        statusExplanation += ' This bill is past due.'
+      }
+    }
+  } else if (result.notes) {
+    statusExplanation = result.notes
+  }
+
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto" onClick={onClose}>
       <div className="flex items-center justify-center min-h-screen px-4">
@@ -765,18 +821,34 @@ function InvoiceDetailModal({ result, onClose }: { result: any; onClose: () => v
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
-          <div className="sticky top-0 bg-white border-b px-6 py-4 flex items-center justify-between rounded-t-xl">
+          <div className="sticky top-0 bg-white border-b px-6 py-4 flex items-center justify-between rounded-t-xl z-10">
             <div>
               <h3 className="text-lg font-semibold text-gray-900">
-                {result.item_description || result.vendor || 'Line Item Detail'}
+                {result.vendor || result.item_description || 'Line Item Detail'}
               </h3>
-              <div className="flex items-center gap-2 mt-1">
+              <p className="text-sm text-gray-500 mt-0.5">
+                {result.qb_ref || result.item_description || ''}
+                {ap?.commitment_title ? ` — ${ap.commitment_title}` : ''}
+              </p>
+              <div className="flex items-center gap-2 mt-1.5">
                 <span className={`badge text-xs ${getSeverityColor(result.severity)}`}>
                   {getSeverityText(result.severity)}
                 </span>
-                <span className={`badge text-xs ${getStatusColor(result.status)}`}>
-                  {result.status?.replace(/_/g, ' ') || '-'}
-                </span>
+                {result.status && (
+                  <span className={`badge text-xs ${getStatusColor(result.status)}`}>
+                    {result.status?.replace(/_/g, ' ')}
+                  </span>
+                )}
+                {ap?.commitment_type && (
+                  <span className="badge text-xs bg-gray-100 text-gray-600">
+                    {ap.commitment_type === 'subcontract' ? 'Subcontract' : 'Purchase Order'}
+                  </span>
+                )}
+                {ap?.commitment_status && (
+                  <span className="badge text-xs bg-gray-100 text-gray-600">
+                    {ap.commitment_status}
+                  </span>
+                )}
               </div>
             </div>
             <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg">
@@ -784,7 +856,63 @@ function InvoiceDetailModal({ result, onClose }: { result: any; onClose: () => v
             </button>
           </div>
 
-          <div className="p-6 space-y-6">
+          <div className="p-6 space-y-5">
+            {/* Status Explanation Banner */}
+            {statusExplanation && (
+              <div className={`rounded-lg p-4 text-sm ${
+                ap && ap.balance <= 0
+                  ? 'bg-green-50 border border-green-200 text-green-800'
+                  : ap && ap.balance > 0
+                  ? 'bg-orange-50 border border-orange-200 text-orange-800'
+                  : 'bg-blue-50 border border-blue-200 text-blue-800'
+              }`}>
+                {statusExplanation}
+              </div>
+            )}
+
+            {/* Payment Progress (for AP items with balance data) */}
+            {ap && result.qb_value != null && (
+              <div className="bg-gray-50 border rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3">Payment Status</h4>
+                <div className="mb-3">
+                  <div className="flex justify-between text-xs text-gray-500 mb-1">
+                    <span>Paid: {formatCurrency(ap.paid ?? 0)}</span>
+                    <span>Total: {formatCurrency(result.qb_value)}</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-3">
+                    <div
+                      className={`h-3 rounded-full transition-all ${
+                        (pctPaid ?? 0) >= 100 ? 'bg-green-500' : (pctPaid ?? 0) > 0 ? 'bg-blue-500' : 'bg-gray-300'
+                      }`}
+                      style={{ width: `${Math.min(pctPaid ?? 0, 100)}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-xs mt-1">
+                    <span className="text-gray-500">{(pctPaid ?? 0).toFixed(0)}% paid</span>
+                    {ap.balance > 0 && (
+                      <span className="font-medium text-orange-600">
+                        {formatCurrency(ap.balance)} outstanding
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-4 text-sm border-t pt-3">
+                  <div>
+                    <dt className="text-gray-500 text-xs">Bill Amount</dt>
+                    <dd className="font-semibold text-gray-900">{formatCurrency(result.qb_value)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-gray-500 text-xs">Paid</dt>
+                    <dd className="font-semibold text-green-600">{formatCurrency(ap.paid ?? 0)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-gray-500 text-xs">Outstanding</dt>
+                    <dd className="font-semibold text-orange-600">{formatCurrency(ap.balance)}</dd>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Side-by-side comparison */}
             <div className="grid grid-cols-2 gap-4">
               {/* Procore side */}
@@ -803,8 +931,14 @@ function InvoiceDetailModal({ result, onClose }: { result: any; onClose: () => v
                   </div>
                   {result.procore_retainage != null && result.procore_retainage !== 0 && (
                     <div>
-                      <dt className="text-blue-600">Retainage</dt>
+                      <dt className="text-blue-600">Retainage Held</dt>
                       <dd className="font-medium text-orange-600">{formatCurrency(result.procore_retainage)}</dd>
+                    </div>
+                  )}
+                  {ap?.retention_held != null && ap.retention_held > 0 && (
+                    <div>
+                      <dt className="text-blue-600">Retainage Held (Subcontract)</dt>
+                      <dd className="font-medium text-orange-600">{formatCurrency(ap.retention_held)}</dd>
                     </div>
                   )}
                   {result.procore_date && (
@@ -825,7 +959,7 @@ function InvoiceDetailModal({ result, onClose }: { result: any; onClose: () => v
                     <dd className="font-medium text-gray-900">{result.qb_ref || '-'}</dd>
                   </div>
                   <div>
-                    <dt className="text-green-600">Amount</dt>
+                    <dt className="text-green-600">Bill Amount</dt>
                     <dd className="font-medium text-gray-900 text-lg">
                       {result.qb_value != null ? formatCurrency(result.qb_value) : '-'}
                     </dd>
@@ -836,42 +970,112 @@ function InvoiceDetailModal({ result, onClose }: { result: any; onClose: () => v
                       <dd className="font-medium text-orange-600">{formatCurrency(result.qb_retainage)}</dd>
                     </div>
                   )}
-                  {result.qb_date && (
+                  {ap?.date && (
+                    <div>
+                      <dt className="text-green-600">Bill Date</dt>
+                      <dd className="font-medium text-gray-900">{ap.date}</dd>
+                    </div>
+                  )}
+                  {ap?.due_date && (
+                    <div>
+                      <dt className="text-green-600">Due Date</dt>
+                      <dd className={`font-medium ${
+                        new Date(ap.due_date) < new Date() && ap.balance > 0 ? 'text-red-600' : 'text-gray-900'
+                      }`}>
+                        {ap.due_date}
+                        {new Date(ap.due_date) < new Date() && ap.balance > 0 && ' (Past Due)'}
+                      </dd>
+                    </div>
+                  )}
+                  {!ap?.date && result.qb_date && (
                     <div>
                       <dt className="text-green-600">Date</dt>
                       <dd className="font-medium text-gray-900">{result.qb_date}</dd>
+                    </div>
+                  )}
+                  {ap?.memo && (
+                    <div>
+                      <dt className="text-green-600">Memo</dt>
+                      <dd className="font-medium text-gray-700 text-xs">{ap.memo}</dd>
                     </div>
                   )}
                 </dl>
               </div>
             </div>
 
-            {/* Variance */}
-            <div className="bg-gray-50 border rounded-lg p-4">
-              <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3">Variance</h4>
-              <div className="grid grid-cols-3 gap-4 text-sm">
-                <div>
-                  <dt className="text-gray-500">Amount</dt>
-                  <dd className={`text-lg font-semibold ${
-                    (result.variance || 0) > 0 ? 'text-red-600' : (result.variance || 0) < 0 ? 'text-green-600' : 'text-gray-500'
-                  }`}>
-                    {result.variance != null ? formatCurrency(result.variance) : '-'}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-gray-500">Percentage</dt>
-                  <dd className={`text-lg font-semibold ${
-                    (result.variance_pct || 0) > 0 ? 'text-red-600' : (result.variance_pct || 0) < 0 ? 'text-green-600' : 'text-gray-500'
-                  }`}>
-                    {result.variance_pct != null ? `${result.variance_pct.toFixed(1)}%` : '-'}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-gray-500">Requires Action</dt>
-                  <dd className="font-medium">{result.requires_action ? 'Yes' : 'No'}</dd>
+            {/* Commitment / Subcontract Details */}
+            {ap && ap.contract_value != null && (
+              <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-indigo-800 uppercase tracking-wide mb-3">
+                  Subcontract Summary
+                </h4>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+                  <div>
+                    <dt className="text-indigo-600 text-xs">Contract Value</dt>
+                    <dd className="font-semibold text-gray-900">{formatCurrency(ap.contract_value)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-indigo-600 text-xs">Billed to Date</dt>
+                    <dd className="font-semibold text-gray-900">{formatCurrency(ap.billed_to_date ?? 0)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-indigo-600 text-xs">Paid to Date</dt>
+                    <dd className="font-semibold text-gray-900">{formatCurrency(ap.paid_to_date ?? 0)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-indigo-600 text-xs">Retainage Held</dt>
+                    <dd className="font-semibold text-orange-600">
+                      {formatCurrency(ap.retention_held ?? 0)}
+                    </dd>
+                  </div>
+                  {ap.contract_value > 0 && (
+                    <>
+                      <div>
+                        <dt className="text-indigo-600 text-xs">Remaining to Bill</dt>
+                        <dd className="font-semibold text-purple-600">
+                          {formatCurrency(ap.contract_value - (ap.billed_to_date ?? 0))}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-indigo-600 text-xs">% Complete (Billed)</dt>
+                        <dd className="font-semibold text-gray-900">
+                          {((ap.billed_to_date ?? 0) / ap.contract_value * 100).toFixed(1)}%
+                        </dd>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
-            </div>
+            )}
+
+            {/* Variance (show when there's a real variance from matched results) */}
+            {result.variance != null && Math.abs(result.variance) >= 1 && (
+              <div className="bg-gray-50 border rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3">Variance</h4>
+                <div className="grid grid-cols-3 gap-4 text-sm">
+                  <div>
+                    <dt className="text-gray-500">Amount</dt>
+                    <dd className={`text-lg font-semibold ${
+                      result.variance > 0 ? 'text-red-600' : result.variance < 0 ? 'text-green-600' : 'text-gray-500'
+                    }`}>
+                      {formatCurrency(result.variance)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-gray-500">Percentage</dt>
+                    <dd className={`text-lg font-semibold ${
+                      (result.variance_pct || 0) > 0 ? 'text-red-600' : (result.variance_pct || 0) < 0 ? 'text-green-600' : 'text-gray-500'
+                    }`}>
+                      {result.variance_pct != null ? `${result.variance_pct.toFixed(1)}%` : '-'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-gray-500">Requires Action</dt>
+                    <dd className="font-medium">{result.requires_action ? 'Yes' : 'No'}</dd>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* General details */}
             <div className="bg-gray-50 border rounded-lg p-4">
