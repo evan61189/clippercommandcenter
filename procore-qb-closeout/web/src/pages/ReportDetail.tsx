@@ -14,6 +14,8 @@ import {
   Lock,
   Unlock,
   X,
+  XCircle,
+  MinusCircle,
   DollarSign,
 } from 'lucide-react'
 import {
@@ -230,10 +232,11 @@ export default function ReportDetail() {
   const subInvoiceResults = subInvoiceResultsRaw.length > 0
     ? subInvoiceResultsRaw.map((r: any) => {
         // Enrich reconciliation results with bill detail data for the modal.
-        // Always require vendor match, then prefer bill ref > amount > vendor-only.
-        const vendorLower = r.vendor?.toLowerCase()
+        // Use normalized vendor name comparison (strips LLC/Inc/Corp) to handle
+        // Procore vs QB vendor name differences and prevent cross-vendor contamination.
+        const vendorNorm = normalizeVendorForMatch(r.vendor)
         const vendorBills = allBillDetails.filter((ap: any) =>
-          ap.vendor?.toLowerCase() === vendorLower
+          normalizeVendorForMatch(ap.vendor) === vendorNorm
         )
         const apMatch =
           vendorBills.find((ap: any) => {
@@ -827,8 +830,17 @@ function generateWarnings(results: any[], commitments: any[], _report: any): War
   return warnings
 }
 
+// Normalize vendor name for comparison: strip suffixes, lowercase, trim
+function normalizeVendorForMatch(name: string | null | undefined): string {
+  if (!name) return ''
+  return name
+    .replace(/,?\s*(LLC|Inc\.?|Corp\.?|Co\.?|Ltd\.?|L\.?L\.?C\.?|Incorporated|Corporation|Company)\s*$/i, '')
+    .toLowerCase()
+    .trim()
+}
+
 // Detail modal for viewing full Procore/QB data for a line item
-function InvoiceDetailModal({ result, onClose }: { result: any; onClose: () => void }) {
+function InvoiceDetailModal({ result, onClose, commitments = [] }: { result: any; onClose: () => void; commitments?: any[] }) {
   if (!result) return null
 
   const ap = result._ap_detail as {
@@ -838,7 +850,17 @@ function InvoiceDetailModal({ result, onClose }: { result: any; onClose: () => v
     commitment_title: string;
   } | undefined
 
-  const pctPaid = ap && result.qb_value ? ((ap.paid ?? 0) / result.qb_value * 100) : null
+  // Look up commitment directly by vendor name for reliable Subcontract Summary data.
+  // This avoids cross-vendor contamination from bill-level enrichment.
+  const vendorNorm = normalizeVendorForMatch(result.vendor)
+  const commitment = commitments.find((c: any) =>
+    normalizeVendorForMatch(c.vendor) === vendorNorm
+  )
+
+  // Sanity check: if ap.paid is wildly larger than the bill amount (>200%), the bill
+  // enrichment likely matched the wrong bill. Fall back to null to avoid showing bad data.
+  const rawPctPaid = ap && result.qb_value ? ((ap.paid ?? 0) / result.qb_value * 100) : null
+  const pctPaid = rawPctPaid != null && rawPctPaid > 200 ? null : rawPctPaid
 
   // Build a status explanation
   let statusExplanation = ''
@@ -850,8 +872,9 @@ function InvoiceDetailModal({ result, onClose }: { result: any; onClose: () => v
     } else {
       statusExplanation = `This bill is unpaid. The full amount of ${formatCurrency(ap.balance)} is outstanding.`
     }
-    if (ap.retention_held != null && ap.retention_held > 0) {
-      statusExplanation += ` Retainage of ${formatCurrency(ap.retention_held)} is currently held on this subcontract.`
+    const retHeld = commitment?.retention_held ?? ap.retention_held
+    if (retHeld != null && retHeld > 0) {
+      statusExplanation += ` Retainage of ${formatCurrency(retHeld)} is currently held on this subcontract.`
     }
     if (ap.due_date) {
       const due = new Date(ap.due_date)
@@ -880,7 +903,7 @@ function InvoiceDetailModal({ result, onClose }: { result: any; onClose: () => v
               </h3>
               <p className="text-sm text-gray-500 mt-0.5">
                 {result.qb_ref || result.item_description || ''}
-                {ap?.commitment_title ? ` — ${ap.commitment_title}` : ''}
+                {(commitment?.title || ap?.commitment_title) ? ` — ${commitment?.title || ap?.commitment_title}` : ''}
               </p>
               <div className="flex items-center gap-2 mt-1.5">
                 <span className={`badge text-xs ${getSeverityColor(result.severity)}`}>
@@ -891,14 +914,14 @@ function InvoiceDetailModal({ result, onClose }: { result: any; onClose: () => v
                     {result.status?.replace(/_/g, ' ')}
                   </span>
                 )}
-                {ap?.commitment_type && (
+                {(commitment?.commitment_type || ap?.commitment_type) && (
                   <span className="badge text-xs bg-gray-100 text-gray-600">
-                    {ap.commitment_type === 'subcontract' ? 'Subcontract' : 'Purchase Order'}
+                    {(commitment?.commitment_type || ap?.commitment_type) === 'subcontract' ? 'Subcontract' : 'Purchase Order'}
                   </span>
                 )}
-                {ap?.commitment_status && (
+                {(commitment?.status || ap?.commitment_status) && (
                   <span className="badge text-xs bg-gray-100 text-gray-600">
-                    {ap.commitment_status}
+                    {commitment?.status || ap?.commitment_status}
                   </span>
                 )}
               </div>
@@ -993,10 +1016,10 @@ function InvoiceDetailModal({ result, onClose }: { result: any; onClose: () => v
                       <dd className="font-medium text-green-600">{formatCurrency(result.retainage_released)}</dd>
                     </div>
                   )}
-                  {ap?.retention_held != null && ap.retention_held > 0 && (
+                  {((commitment?.retention_held ?? ap?.retention_held) != null && (commitment?.retention_held ?? ap?.retention_held) > 0) && (
                     <div>
                       <dt className="text-blue-600">Retainage Held (Subcontract)</dt>
-                      <dd className="font-medium text-orange-600">{formatCurrency(ap.retention_held)}</dd>
+                      <dd className="font-medium text-orange-600">{formatCurrency(commitment?.retention_held ?? ap?.retention_held)}</dd>
                     </div>
                   )}
                   {result.procore_date && (
@@ -1114,50 +1137,57 @@ function InvoiceDetailModal({ result, onClose }: { result: any; onClose: () => v
               </div>
             )}
 
-            {/* Commitment / Subcontract Details */}
-            {ap && ap.contract_value != null && (
-              <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
-                <h4 className="text-sm font-semibold text-indigo-800 uppercase tracking-wide mb-3">
-                  Subcontract Summary
-                </h4>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
-                  <div>
-                    <dt className="text-indigo-600 text-xs">Contract Value</dt>
-                    <dd className="font-semibold text-gray-900">{formatCurrency(ap.contract_value)}</dd>
+            {/* Commitment / Subcontract Details — sourced directly from commitments table */}
+            {(() => {
+              const cv = commitment?.current_value ?? ap?.contract_value
+              const btd = commitment?.billed_to_date ?? ap?.billed_to_date
+              const ptd = commitment?.paid_to_date ?? ap?.paid_to_date
+              const rh = commitment?.retention_held ?? ap?.retention_held
+              if (cv == null) return null
+              return (
+                <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+                  <h4 className="text-sm font-semibold text-indigo-800 uppercase tracking-wide mb-3">
+                    Subcontract Summary
+                  </h4>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+                    <div>
+                      <dt className="text-indigo-600 text-xs">Contract Value</dt>
+                      <dd className="font-semibold text-gray-900">{formatCurrency(cv)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-indigo-600 text-xs">Billed to Date</dt>
+                      <dd className="font-semibold text-gray-900">{formatCurrency(btd ?? 0)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-indigo-600 text-xs">Paid to Date</dt>
+                      <dd className="font-semibold text-gray-900">{formatCurrency(ptd ?? 0)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-indigo-600 text-xs">Retainage Held</dt>
+                      <dd className="font-semibold text-orange-600">
+                        {formatCurrency(rh ?? 0)}
+                      </dd>
+                    </div>
+                    {cv > 0 && (
+                      <>
+                        <div>
+                          <dt className="text-indigo-600 text-xs">Remaining to Bill</dt>
+                          <dd className="font-semibold text-purple-600">
+                            {formatCurrency(cv - (btd ?? 0))}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-indigo-600 text-xs">% Complete (Billed)</dt>
+                          <dd className="font-semibold text-gray-900">
+                            {((btd ?? 0) / cv * 100).toFixed(1)}%
+                          </dd>
+                        </div>
+                      </>
+                    )}
                   </div>
-                  <div>
-                    <dt className="text-indigo-600 text-xs">Billed to Date</dt>
-                    <dd className="font-semibold text-gray-900">{formatCurrency(ap.billed_to_date ?? 0)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-indigo-600 text-xs">Paid to Date</dt>
-                    <dd className="font-semibold text-gray-900">{formatCurrency(ap.paid_to_date ?? 0)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-indigo-600 text-xs">Retainage Held</dt>
-                    <dd className="font-semibold text-orange-600">
-                      {formatCurrency(ap.retention_held ?? 0)}
-                    </dd>
-                  </div>
-                  {ap.contract_value > 0 && (
-                    <>
-                      <div>
-                        <dt className="text-indigo-600 text-xs">Remaining to Bill</dt>
-                        <dd className="font-semibold text-purple-600">
-                          {formatCurrency(ap.contract_value - (ap.billed_to_date ?? 0))}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-indigo-600 text-xs">% Complete (Billed)</dt>
-                        <dd className="font-semibold text-gray-900">
-                          {((ap.billed_to_date ?? 0) / ap.contract_value * 100).toFixed(1)}%
-                        </dd>
-                      </div>
-                    </>
-                  )}
                 </div>
-              </div>
-            )}
+              )
+            })()}
 
             {/* Variance (show when there's a real variance from matched results) */}
             {result.variance != null && Math.abs(result.variance) >= 1 && (
@@ -1587,7 +1617,23 @@ function GroupedResultsTable({ results, title, commitments = [] }: { results: an
                   {group.vendor}
                 </td>
                 <td className="px-3 py-2 text-right font-medium text-gray-500">
-                  {group.committedCost != null ? formatCurrency(group.committedCost) : '-'}
+                  {group.committedCost != null ? (
+                    <span className="inline-flex items-center gap-1 justify-end">
+                      {formatCurrency(group.committedCost)}
+                      {(() => {
+                        const cc = group.committedCost!
+                        const pt = group.procoreTotal
+                        const qt = group.qbTotal
+                        if (Math.abs(pt - cc) < 1 && Math.abs(qt - cc) < 1) {
+                          return <CheckCircle className="w-3.5 h-3.5 text-green-600 flex-shrink-0" />
+                        } else if (pt > cc + 1 || qt > cc + 1) {
+                          return <XCircle className="w-3.5 h-3.5 text-red-600 flex-shrink-0" />
+                        } else {
+                          return <MinusCircle className="w-3.5 h-3.5 text-yellow-500 flex-shrink-0" />
+                        }
+                      })()}
+                    </span>
+                  ) : '-'}
                 </td>
                 <td className="px-3 py-2 text-right font-medium">
                   {formatCurrency(group.procoreTotal)}
@@ -1676,7 +1722,7 @@ function GroupedResultsTable({ results, title, commitments = [] }: { results: an
         </tfoot>
       </table>
       {selectedResult && (
-        <InvoiceDetailModal result={selectedResult} onClose={() => setSelectedResult(null)} />
+        <InvoiceDetailModal result={selectedResult} onClose={() => setSelectedResult(null)} commitments={commitments} />
       )}
     </div>
   )
