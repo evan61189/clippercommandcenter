@@ -481,6 +481,24 @@ export default function ReportDetail() {
                     {formatCurrency((report.procore_retention_held || 0) - (report.qbo_retention_held || 0))}
                   </td>
                 </tr>
+                {(() => {
+                  const procoreRetReleased = (results || [])
+                    .filter(r => r.item_type === 'invoice' && (r.retainage_released ?? 0) > 0)
+                    .reduce((sum, r) => sum + (r.retainage_released || 0), 0)
+                  const qboRetReleased = 0
+                  return (
+                    <tr>
+                      <td className="py-2 pr-4 text-gray-700">Retainage Released</td>
+                      <td className="py-2 px-4 text-right font-medium">{formatCurrency(procoreRetReleased)}</td>
+                      <td className="py-2 px-4 text-right font-medium">{formatCurrency(qboRetReleased)}</td>
+                      <td className={`py-2 pl-4 text-right font-medium ${
+                        procoreRetReleased - qboRetReleased !== 0 ? 'text-red-600' : 'text-green-600'
+                      }`}>
+                        {formatCurrency(procoreRetReleased - qboRetReleased)}
+                      </td>
+                    </tr>
+                  )
+                })()}
                 <tr>
                   <td className="py-2 pr-4 text-gray-700">Retention Paid</td>
                   <td className="py-2 px-4 text-right font-medium">{formatCurrency(report.procore_retention_paid || 0)}</td>
