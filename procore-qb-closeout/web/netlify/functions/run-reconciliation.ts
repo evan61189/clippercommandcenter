@@ -406,9 +406,11 @@ function filterBillsByProjectCustomer(
       const billVendorId = bill.VendorRef?.value;
       const billVendorName = bill.VendorRef?.name;
 
-      // Check if there's a Procore invoice with this exact amount from this vendor
+      // Check if there's a Procore invoice with this exact amount from this vendor,
+      // OR if this vendor is a known project vendor (has a commitment/invoice on the project)
       const vendorIdsAtAmount = amountToVendorIds.get(billAmount);
-      if (vendorIdsAtAmount && billVendorId && vendorIdsAtAmount.has(String(billVendorId))) {
+      const isKnownProjectVendor = billVendorId && projectVendorIds.has(String(billVendorId));
+      if ((vendorIdsAtAmount && billVendorId && vendorIdsAtAmount.has(String(billVendorId))) || isKnownProjectVendor) {
         noCustomerRefMatched.push(bill);
         included.push(bill);
       } else {
@@ -763,6 +765,11 @@ interface ProcoreInvoice {
   billingDate: string;
   paymentDue: number;
   retainage: number; // Phase 6: Retainage held on this invoice
+  retainageReleased: number; // Retainage billed back / released by sub
+  workCompletedThisPeriod: number;
+  workCompletedPrevious: number;
+  materialsStored: number;
+  totalCompletedAndStored: number;
 }
 
 interface ProcorePaymentApp {
@@ -861,6 +868,12 @@ interface MatchResult {
   // Phase 6: Retainage tracking
   procoreRetainage?: number;
   qbRetainage?: number;
+  // Retention released and billing breakdown
+  retainageReleased?: number;
+  workCompletedThisPeriod?: number;
+  workCompletedPrevious?: number;
+  materialsStored?: number;
+  totalCompletedAndStored?: number;
 }
 
 interface CloseoutItem {
@@ -1152,6 +1165,19 @@ console.log('Sample invoice AMOUNTS:', JSON.stringify({
         || inv.summary?.completed_work_retainage_amount
         || 0
       ),
+      // Retainage released: when a sub bills to release previously held retainage
+      retainageReleased: parseFloat(
+        inv.retainage_released_amount
+        || inv.payment_summary?.retainage_released
+        || inv.summary?.retainage_released
+        || inv.total_retainage_currently_released
+        || 0
+      ),
+      // Billing breakdown fields (G702 / AIA format)
+      workCompletedThisPeriod: parseFloat(inv.work_completed_this_period || inv.total_claimed_amount || 0),
+      workCompletedPrevious: parseFloat(inv.work_completed_from_previous_application || 0),
+      materialsStored: parseFloat(inv.materials_presently_stored || inv.total_materials_presently_stored || 0),
+      totalCompletedAndStored: parseFloat(inv.total_completed_and_stored_to_date || inv.g702_total_completed_and_stored_to_date || 0),
     });
   }
 
@@ -1501,6 +1527,11 @@ function matchInvoicesToBills(
         procoreDate: pInv.billingDate,
         requiresAction: true,
         procoreRetainage: pInv.retainage,
+        retainageReleased: pInv.retainageReleased || 0,
+        workCompletedThisPeriod: pInv.workCompletedThisPeriod || 0,
+        workCompletedPrevious: pInv.workCompletedPrevious || 0,
+        materialsStored: pInv.materialsStored || 0,
+        totalCompletedAndStored: pInv.totalCompletedAndStored || 0,
       });
       continue;
     }
@@ -1566,6 +1597,22 @@ function matchInvoicesToBills(
       }
     }
 
+    // Reject matches where amounts are wildly different even if doc numbers matched.
+    // A doc-number-only match (score=40) with amounts off by >50% is likely a false positive
+    // (e.g. matching a $5,900 invoice to a $400 bill just because doc numbers collide).
+    if (bestBill && bestScore >= 40) {
+      const amtDiffPct = Math.abs(pInv.amount - bestBill.amount) / Math.max(pInv.amount, bestBill.amount, 1);
+      const grossDiffPct = grossProcoreAmount > 0
+        ? Math.abs(grossProcoreAmount - bestBill.amount) / Math.max(grossProcoreAmount, bestBill.amount, 1)
+        : amtDiffPct;
+      const hasAmountMatch = matchMethod.includes('amount');
+      if (!hasAmountMatch && Math.min(amtDiffPct, grossDiffPct) > 0.50) {
+        console.log(`Rejecting doc-number-only match for ${pInv.vendor} inv #${pInv.number}: Procore $${pInv.amount} vs QB $${bestBill.amount} (${(amtDiffPct * 100).toFixed(0)}% diff)`);
+        bestBill = null;
+        bestScore = 0;
+      }
+    }
+
     if (bestBill && bestScore >= 40) {
       matchedQBBillIds.add(bestBill.id);
       matchedProcoreIds.add(pInv.id);
@@ -1612,6 +1659,11 @@ function matchInvoicesToBills(
         requiresAction: Math.abs(variance) >= 100,
         procoreRetainage: pInv.retainage,
         qbRetainage: retainageInQB,
+        retainageReleased: pInv.retainageReleased || 0,
+        workCompletedThisPeriod: pInv.workCompletedThisPeriod || 0,
+        workCompletedPrevious: pInv.workCompletedPrevious || 0,
+        materialsStored: pInv.materialsStored || 0,
+        totalCompletedAndStored: pInv.totalCompletedAndStored || 0,
       });
     } else {
       // No good match found - could be timing (not yet entered in QB)
@@ -1636,6 +1688,11 @@ function matchInvoicesToBills(
         procoreDate: pInv.billingDate,
         requiresAction: true,
         procoreRetainage: pInv.retainage,
+        retainageReleased: pInv.retainageReleased || 0,
+        workCompletedThisPeriod: pInv.workCompletedThisPeriod || 0,
+        workCompletedPrevious: pInv.workCompletedPrevious || 0,
+        materialsStored: pInv.materialsStored || 0,
+        totalCompletedAndStored: pInv.totalCompletedAndStored || 0,
       });
     }
   }
@@ -3179,6 +3236,11 @@ export const handler: Handler = async (event) => {
               ...baseResultRows[i],
               procore_retainage: r.procoreRetainage || 0,
               qb_retainage: r.qbRetainage || 0,
+              retainage_released: r.retainageReleased || 0,
+              work_completed_this_period: r.workCompletedThisPeriod || 0,
+              work_completed_previous: r.workCompletedPrevious || 0,
+              materials_stored: r.materialsStored || 0,
+              total_completed_and_stored: r.totalCompletedAndStored || 0,
             }));
             const { error: firstErr } = await supabase.from('reconciliation_results').insert(retainageRows);
             if (firstErr && firstErr.code === 'PGRST204') {
