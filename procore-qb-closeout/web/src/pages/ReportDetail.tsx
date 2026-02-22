@@ -230,21 +230,24 @@ export default function ReportDetail() {
   const subInvoiceResults = subInvoiceResultsRaw.length > 0
     ? subInvoiceResultsRaw.map((r: any) => {
         // Enrich reconciliation results with bill detail data for the modal.
-        // Prefer exact bill ref match, then vendor+amount, then vendor-only.
+        // Always require vendor match, then prefer bill ref > amount > vendor-only.
         const vendorLower = r.vendor?.toLowerCase()
+        const vendorBills = allBillDetails.filter((ap: any) =>
+          ap.vendor?.toLowerCase() === vendorLower
+        )
         const apMatch =
-          allBillDetails.find((ap: any) =>
-            ap.bill_ref && r.qb_ref &&
-            (r.qb_ref.includes(String(ap.bill_ref)) || String(ap.bill_ref) === String(r.qb_ref))
-          ) ||
-          allBillDetails.find((ap: any) =>
-            ap.vendor?.toLowerCase() === vendorLower &&
+          vendorBills.find((ap: any) => {
+            if (!ap.bill_ref || !r.qb_ref) return false
+            const ref = String(ap.bill_ref)
+            // Match "Bill 123" to bill_ref "123" — extract trailing number from qb_ref
+            const qbRefNum = r.qb_ref.replace(/^.*?#?\s*/, '')
+            return ref === qbRefNum || ref === r.qb_ref
+          }) ||
+          vendorBills.find((ap: any) =>
             r.qb_value != null && ap.amount != null &&
             Math.abs(ap.amount - r.qb_value) < 0.01
           ) ||
-          allBillDetails.find((ap: any) =>
-            ap.vendor?.toLowerCase() === vendorLower
-          )
+          vendorBills[0] || null
         if (!apMatch) return r
         const paid = apMatch.paid ?? (apMatch.amount != null && apMatch.balance != null ? apMatch.amount - apMatch.balance : null)
         return {
