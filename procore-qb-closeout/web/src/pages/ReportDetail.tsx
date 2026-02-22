@@ -14,6 +14,8 @@ import {
   Lock,
   Unlock,
   X,
+  XCircle,
+  MinusCircle,
   DollarSign,
 } from 'lucide-react'
 import {
@@ -1615,7 +1617,23 @@ function GroupedResultsTable({ results, title, commitments = [] }: { results: an
                   {group.vendor}
                 </td>
                 <td className="px-3 py-2 text-right font-medium text-gray-500">
-                  {group.committedCost != null ? formatCurrency(group.committedCost) : '-'}
+                  {group.committedCost != null ? (
+                    <span className="inline-flex items-center gap-1 justify-end">
+                      {formatCurrency(group.committedCost)}
+                      {(() => {
+                        const cc = group.committedCost!
+                        const pt = group.procoreTotal
+                        const qt = group.qbTotal
+                        if (Math.abs(pt - cc) < 1 && Math.abs(qt - cc) < 1) {
+                          return <CheckCircle className="w-3.5 h-3.5 text-green-600 flex-shrink-0" />
+                        } else if (pt > cc + 1 || qt > cc + 1) {
+                          return <XCircle className="w-3.5 h-3.5 text-red-600 flex-shrink-0" />
+                        } else {
+                          return <MinusCircle className="w-3.5 h-3.5 text-yellow-500 flex-shrink-0" />
+                        }
+                      })()}
+                    </span>
+                  ) : '-'}
                 </td>
                 <td className="px-3 py-2 text-right font-medium">
                   {formatCurrency(group.procoreTotal)}
