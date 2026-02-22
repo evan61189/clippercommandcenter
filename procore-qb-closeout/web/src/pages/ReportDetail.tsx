@@ -1470,7 +1470,8 @@ interface VendorGroup {
   variance: number;
   procoreRetainageTotal: number;
   qbRetainageTotal: number;
-  retainageReleasedTotal: number;
+  procoreRetReleasedTotal: number;
+  qbRetReleasedTotal: number;
   committedCost: number | null; // Revised Contract Amount from commitments
   status: 'Reconciled' | 'Conditionally Reconciled' | 'Unreconciled';
   invoices: any[];
@@ -1507,7 +1508,8 @@ function GroupedResultsTable({ results, title, commitments = [] }: { results: an
     const variance = procoreTotal - qbTotal
     const procoreRetainageTotal = invoices.reduce((sum, r) => sum + (r.procore_retainage || 0), 0)
     const qbRetainageTotal = invoices.reduce((sum, r) => sum + (r.qb_retainage || 0), 0)
-    const retainageReleasedTotal = invoices.reduce((sum, r) => sum + (r.retainage_released || 0), 0)
+    const procoreRetReleasedTotal = invoices.reduce((sum, r) => sum + (r.retainage_released || 0), 0)
+    const qbRetReleasedTotal = 0 // QB doesn't track retainage releases separately
 
     // Look up committed cost (Revised Contract Amount) from commitments
     const matchingCommitment = commitments.find((c: any) =>
@@ -1538,7 +1540,8 @@ function GroupedResultsTable({ results, title, commitments = [] }: { results: an
       variance,
       procoreRetainageTotal,
       qbRetainageTotal,
-      retainageReleasedTotal,
+      procoreRetReleasedTotal,
+      qbRetReleasedTotal,
       committedCost,
       status,
       invoices,
@@ -1586,7 +1589,8 @@ function GroupedResultsTable({ results, title, commitments = [] }: { results: an
   const grandVariance = grandProcoreTotal - grandQbTotal
   const grandProcoreRetainage = vendorGroups.reduce((sum, g) => sum + g.procoreRetainageTotal, 0)
   const grandQbRetainage = vendorGroups.reduce((sum, g) => sum + g.qbRetainageTotal, 0)
-  const grandRetainageReleased = vendorGroups.reduce((sum, g) => sum + g.retainageReleasedTotal, 0)
+  const grandProcoreRetReleased = vendorGroups.reduce((sum, g) => sum + g.procoreRetReleasedTotal, 0)
+  const grandQbRetReleased = vendorGroups.reduce((sum, g) => sum + g.qbRetReleasedTotal, 0)
   const grandCommittedCost = vendorGroups.reduce((sum, g) => sum + (g.committedCost || 0), 0)
 
   return (
@@ -1614,7 +1618,8 @@ function GroupedResultsTable({ results, title, commitments = [] }: { results: an
             <th className="table-header px-3 py-2 text-right text-orange-600">Procore Retainage</th>
             <th className="table-header px-3 py-2 text-right">QB Total</th>
             <th className="table-header px-3 py-2 text-right text-orange-600">QB Retainage</th>
-            <th className="table-header px-3 py-2 text-right text-green-600">Ret. Released</th>
+            <th className="table-header px-3 py-2 text-right text-green-600">Procore Ret. Released</th>
+            <th className="table-header px-3 py-2 text-right text-green-600">QB Ret. Released</th>
             <th className="table-header px-3 py-2 text-right">Variance</th>
             <th className="table-header px-3 py-2 text-center">Status</th>
             <th className="table-header px-3 py-2 text-center">Invoices</th>
@@ -1671,7 +1676,10 @@ function GroupedResultsTable({ results, title, commitments = [] }: { results: an
                   {group.qbRetainageTotal > 0 ? formatCurrency(group.qbRetainageTotal) : '-'}
                 </td>
                 <td className="px-3 py-2 text-right font-medium text-green-600">
-                  {group.retainageReleasedTotal > 0 ? formatCurrency(group.retainageReleasedTotal) : '-'}
+                  {group.procoreRetReleasedTotal > 0 ? formatCurrency(group.procoreRetReleasedTotal) : '-'}
+                </td>
+                <td className="px-3 py-2 text-right font-medium text-green-600">
+                  {group.qbRetReleasedTotal > 0 ? formatCurrency(group.qbRetReleasedTotal) : '-'}
                 </td>
                 <td className={`px-3 py-2 text-right font-medium ${
                   group.variance > 0.01 ? 'text-red-600' : group.variance < -0.01 ? 'text-green-600' : 'text-gray-500'
@@ -1714,6 +1722,7 @@ function GroupedResultsTable({ results, title, commitments = [] }: { results: an
                   <td className="px-3 py-2 text-right text-green-600">
                     {inv.retainage_released ? formatCurrency(inv.retainage_released) : '-'}
                   </td>
+                  <td className="px-3 py-2 text-right text-green-600">-</td>
                   <td className={`px-3 py-2 text-right ${
                     (inv.variance || 0) > 0 ? 'text-red-600' : (inv.variance || 0) < 0 ? 'text-green-600' : 'text-gray-500'
                   }`}>
@@ -1741,7 +1750,8 @@ function GroupedResultsTable({ results, title, commitments = [] }: { results: an
             <td className="px-3 py-2 text-right text-orange-600">{grandProcoreRetainage > 0 ? formatCurrency(grandProcoreRetainage) : '-'}</td>
             <td className="px-3 py-2 text-right">{formatCurrency(grandQbTotal)}</td>
             <td className="px-3 py-2 text-right text-orange-600">{grandQbRetainage > 0 ? formatCurrency(grandQbRetainage) : '-'}</td>
-            <td className="px-3 py-2 text-right text-green-600">{grandRetainageReleased > 0 ? formatCurrency(grandRetainageReleased) : '-'}</td>
+            <td className="px-3 py-2 text-right text-green-600">{grandProcoreRetReleased > 0 ? formatCurrency(grandProcoreRetReleased) : '-'}</td>
+            <td className="px-3 py-2 text-right text-green-600">{grandQbRetReleased > 0 ? formatCurrency(grandQbRetReleased) : '-'}</td>
             <td className={`px-3 py-2 text-right ${
               grandVariance > 0.01 ? 'text-red-600' : grandVariance < -0.01 ? 'text-green-600' : ''
             }`}>

@@ -764,8 +764,9 @@ interface ProcoreInvoice {
   amount: number;
   billingDate: string;
   paymentDue: number;
-  retainage: number; // Phase 6: Retainage held on this invoice
-  retainageReleased: number; // Retainage billed back / released by sub
+  retainage: number; // Cumulative retainage held to date (total_retainage from Procore)
+  retainageThisPeriod: number; // Per-invoice retainage held (computed from deltas)
+  retainageReleased: number; // Per-invoice retainage released/billed back by sub
   workCompletedThisPeriod: number;
   workCompletedPrevious: number;
   materialsStored: number;
@@ -1161,7 +1162,7 @@ console.log('Sample invoice AMOUNTS:', JSON.stringify({
       amount: parseFloat(inv.payment_summary?.invoiced_amount_due || inv.summary?.current_payment_due || inv.total_claimed_amount || 0),
       billingDate: inv.billing_date || inv.invoice_date || '',
       paymentDue: parseFloat(inv.payment_due || inv.balance || 0),
-      // Phase 6: Extract retainage — try top-level fields first (v1.1 API), then nested summary
+      // Cumulative retainage held to date (from Procore's running total fields)
       retainage: parseFloat(
         inv.total_retainage
         || inv.total_completed_work_retainage_to_date
@@ -1169,12 +1170,12 @@ console.log('Sample invoice AMOUNTS:', JSON.stringify({
         || inv.summary?.completed_work_retainage_amount
         || 0
       ),
-      // Retainage released: when a sub bills to release previously held retainage
+      retainageThisPeriod: 0, // Computed after normalization via computePerInvoiceRetainage()
+      // Per-period retainage released (exclude total_retainage_currently_released which is cumulative)
       retainageReleased: parseFloat(
         inv.retainage_released_amount
         || inv.payment_summary?.retainage_released
         || inv.summary?.retainage_released
-        || inv.total_retainage_currently_released
         || 0
       ),
       // Billing breakdown fields (G702 / AIA format)
@@ -1186,6 +1187,34 @@ console.log('Sample invoice AMOUNTS:', JSON.stringify({
   }
 
   return invoices;
+}
+
+// Compute per-invoice retainage from cumulative totals.
+// Procore's total_retainage is a running total across all invoices for a
+// commitment. To get per-invoice retainage, group by commitmentId, sort
+// chronologically, and compute deltas.
+function computePerInvoiceRetainage(invoices: ProcoreInvoice[]): void {
+  const byCommitment = new Map<string, ProcoreInvoice[]>();
+  for (const inv of invoices) {
+    const key = inv.commitmentId || inv.vendor; // Fall back to vendor if no commitmentId
+    if (!byCommitment.has(key)) byCommitment.set(key, []);
+    byCommitment.get(key)!.push(inv);
+  }
+
+  for (const [, group] of byCommitment) {
+    // Sort by billing date ascending
+    group.sort((a, b) => (a.billingDate || '').localeCompare(b.billingDate || ''));
+
+    let prevCumulativeRetainage = 0;
+    for (const inv of group) {
+      // Per-period retainage = change in cumulative + any released this period
+      // Because: cumulative[i] = cumulative[i-1] + newHeld[i] - released[i]
+      // So: newHeld[i] = cumulative[i] - cumulative[i-1] + released[i]
+      const newRetainage = inv.retainage - prevCumulativeRetainage + inv.retainageReleased;
+      inv.retainageThisPeriod = Math.max(newRetainage, 0); // Guard against negative from data quirks
+      prevCumulativeRetainage = inv.retainage;
+    }
+  }
 }
 
 function normalizePaymentApps(procoreData: any): ProcorePaymentApp[] {
@@ -1530,7 +1559,7 @@ function matchInvoicesToBills(
         notes: `Vendor "${pInv.vendor}" not found in QuickBooks`,
         procoreDate: pInv.billingDate,
         requiresAction: true,
-        procoreRetainage: pInv.retainage,
+        procoreRetainage: pInv.retainageThisPeriod || 0,
         retainageReleased: pInv.retainageReleased || 0,
         workCompletedThisPeriod: pInv.workCompletedThisPeriod || 0,
         workCompletedPrevious: pInv.workCompletedPrevious || 0,
@@ -1551,10 +1580,10 @@ function matchInvoicesToBills(
     let bestScore = 0;
     let matchMethod = '';
 
-    // Gross Procore amount (net + retainage) for retainage-aware matching.
+    // Gross Procore amount (net + per-invoice retainage) for retainage-aware matching.
     // QB bills typically include retainage in TotalAmt, while Procore's
     // invoice amount is net-of-retainage (current_payment_due).
-    const grossProcoreAmount = pInv.amount + (pInv.retainage || 0);
+    const grossProcoreAmount = pInv.amount + (pInv.retainageThisPeriod || 0);
     let bestMatchIsGross = false;
 
     for (const bill of vendorBills) {
@@ -1565,7 +1594,7 @@ function matchInvoicesToBills(
       if (amountMatches(pInv.amount, bill.amount, 0.001)) {
         score += 50;
         matchMethod = 'amount_match';
-      } else if (pInv.retainage > 0 && amountMatches(grossProcoreAmount, bill.amount, 0.001)) {
+      } else if (pInv.retainageThisPeriod > 0 && amountMatches(grossProcoreAmount, bill.amount, 0.001)) {
         // Gross match: QB bill includes retainage in its total
         score += 50;
         matchMethod = 'amount_match_gross';
@@ -1573,7 +1602,7 @@ function matchInvoicesToBills(
       } else if (amountMatches(pInv.amount, bill.amount, 0.05)) {
         score += 30;
         matchMethod = 'amount_close';
-      } else if (pInv.retainage > 0 && amountMatches(grossProcoreAmount, bill.amount, 0.05)) {
+      } else if (pInv.retainageThisPeriod > 0 && amountMatches(grossProcoreAmount, bill.amount, 0.05)) {
         score += 30;
         matchMethod = 'amount_close_gross';
         isGrossMatch = true;
@@ -1626,17 +1655,19 @@ function matchInvoicesToBills(
       const comparableProcore = bestMatchIsGross ? grossProcoreAmount : pInv.amount;
       const variance = comparableProcore - bestBill.amount;
 
-      // QB retainage: When invoices match, the retainage tracked in Procore
-      // applies to the QB side too. QB doesn't expose retainage as a separate
-      // API field — it's either baked into the bill total (gross match) or
-      // tracked outside the bill (net match). Either way the retainage is the
-      // same for both systems on a matched invoice.
-      const retainageInQB = (pInv.retainage || 0);
+      // QB retainage: derive from match type.
+      // Gross match: QB bill includes retainage in its total, so the retainage
+      // portion = bill amount minus Procore net amount.
+      // Net match: QB bill is net-of-retainage, so QB retainage = 0 for this bill.
+      const retainageInQB = bestMatchIsGross
+        ? Math.max(bestBill.amount - pInv.amount, 0)
+        : 0;
+      const procoreRetainagePeriod = pInv.retainageThisPeriod || 0;
 
-      const retainageNote = retainageInQB > 0
+      const retainageNote = procoreRetainagePeriod > 0
         ? bestMatchIsGross
           ? ` (QB bill includes $${retainageInQB.toFixed(2)} retainage)`
-          : ` (retainage: $${retainageInQB.toFixed(2)})`
+          : ` (retainage: $${procoreRetainagePeriod.toFixed(2)})`
         : '';
       results.push({
         id: generateId(),
@@ -1661,7 +1692,7 @@ function matchInvoicesToBills(
         procoreDate: pInv.billingDate,
         qbDate: bestBill.date,
         requiresAction: Math.abs(variance) >= 100,
-        procoreRetainage: pInv.retainage,
+        procoreRetainage: procoreRetainagePeriod,
         qbRetainage: retainageInQB,
         retainageReleased: pInv.retainageReleased || 0,
         workCompletedThisPeriod: pInv.workCompletedThisPeriod || 0,
@@ -1691,7 +1722,7 @@ function matchInvoicesToBills(
         notes: `No matching bill found in QuickBooks for vendor "${pInv.vendor}" - may not be entered yet`,
         procoreDate: pInv.billingDate,
         requiresAction: true,
-        procoreRetainage: pInv.retainage,
+        procoreRetainage: pInv.retainageThisPeriod || 0,
         retainageReleased: pInv.retainageReleased || 0,
         workCompletedThisPeriod: pInv.workCompletedThisPeriod || 0,
         workCompletedPrevious: pInv.workCompletedPrevious || 0,
@@ -2564,6 +2595,7 @@ export const handler: Handler = async (event) => {
     // STEP 1: Normalize Procore data first (before fetching QB data)
     const commitments = normalizeCommitments(procoreData);
     const procoreInvoices = normalizeProcoreInvoices(procoreData);
+    computePerInvoiceRetainage(procoreInvoices);
     const paymentApps = normalizePaymentApps(procoreData);
     const directCosts = normalizeDirectCosts(procoreData);
 
@@ -2576,10 +2608,10 @@ export const handler: Handler = async (event) => {
         inv => inv.commitmentId === commitment.id
       );
       if (matchingInvoices.length > 0) {
-        // Use amount + retainage to get the gross billed total (total work completed).
+        // Use amount + per-period retainage to get the gross billed total.
         // inv.amount is net-of-retainage (current_payment_due), but for the "fully billed"
         // check we need the gross amount since retainage is a payment timing issue, not a billing gap.
-        const invoicedTotal = matchingInvoices.reduce((sum, inv) => sum + inv.amount + (inv.retainage || 0), 0);
+        const invoicedTotal = matchingInvoices.reduce((sum, inv) => sum + inv.amount + (inv.retainageThisPeriod || 0), 0);
         // Only overwrite if the commitment had no billed amount from the API
         if (commitment.billedToDate === 0 && invoicedTotal > 0) {
           commitment.billedToDate = invoicedTotal;
