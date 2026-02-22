@@ -2900,9 +2900,11 @@ export const handler: Handler = async (event) => {
       .filter(r => r.matchType === 'invoice' && r.qbRetainage && r.qbRetainage > 0)
       .reduce((sum, r) => sum + (r.qbRetainage || 0), 0);
 
-    // Retention paid - would need to track retention releases
-    const procoreRetentionPaid = 0; // TODO: Track from Procore retention releases
-    const qboRetentionPaid = 0; // TODO: Track from QB retention payments
+    // Retention paid / released — sum retainageReleased from Procore invoices
+    const procoreRetentionPaid = procoreInvoices.reduce(
+      (sum, inv) => sum + (inv.retainageReleased || 0), 0
+    );
+    const qboRetentionPaid = 0; // QB doesn't track retainage releases separately
 
     // Labor totals - from Procore payroll direct costs and QB labor accounts (5010-5012)
     const procoreLabor = directCosts
