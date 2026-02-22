@@ -1229,19 +1229,16 @@ function computePerInvoiceRetainage(invoices: ProcoreInvoice[]): void {
 }
 
 // Compute per-invoice retainage released from cumulative totals.
-// Similar to computePerInvoiceRetainage(), but for retainage released.
-// If per-period retainageReleased values are all zero but cumulative
-// retainageReleasedCumulative values exist, derive per-period from deltas.
+// Three strategies, tried in order:
+// 1. Per-period retainageReleased already populated from API → do nothing
+// 2. Cumulative retainageReleasedCumulative exists → derive per-period from deltas
+// 3. No explicit released data → infer releases from DROPS in cumulative retainage
+//    (total_retainage). When cumulative retainage decreases between sequential
+//    invoices for a commitment, the drop = retainage that was released.
 function computePerInvoiceRetainageReleased(invoices: ProcoreInvoice[]): void {
-  // Check if any per-period values are already populated
+  // Strategy 1: per-period values already populated
   const hasPerPeriodValues = invoices.some(inv => inv.retainageReleased > 0);
-  if (hasPerPeriodValues) return; // Already have per-period data, nothing to do
-
-  // Check if we have cumulative values to derive from
-  const hasCumulativeValues = invoices.some(inv => inv.retainageReleasedCumulative > 0);
-  if (!hasCumulativeValues) return; // No data at all
-
-  console.log('Per-period retainage released not available; computing from cumulative totals');
+  if (hasPerPeriodValues) return;
 
   const byCommitment = new Map<string, ProcoreInvoice[]>();
   for (const inv of invoices) {
@@ -1250,16 +1247,53 @@ function computePerInvoiceRetainageReleased(invoices: ProcoreInvoice[]): void {
     byCommitment.get(key)!.push(inv);
   }
 
+  // Strategy 2: derive from cumulative released field
+  const hasCumulativeValues = invoices.some(inv => inv.retainageReleasedCumulative > 0);
+  if (hasCumulativeValues) {
+    console.log('Per-period retainage released not available; computing from cumulative released totals');
+    for (const [, group] of byCommitment) {
+      group.sort((a, b) => (a.billingDate || '').localeCompare(b.billingDate || ''));
+      let prevCumulativeReleased = 0;
+      for (const inv of group) {
+        const released = inv.retainageReleasedCumulative - prevCumulativeReleased;
+        inv.retainageReleased = Math.max(released, 0);
+        prevCumulativeReleased = inv.retainageReleasedCumulative;
+      }
+    }
+    return;
+  }
+
+  // Strategy 3: infer from drops in cumulative retainage held.
+  // When cumulative retainage (total_retainage) decreases between invoices,
+  // the decrease represents retainage that was released/paid back.
+  // Formula: released[i] = max(cumRetainage[i-1] - cumRetainage[i], 0)
+  // This correctly feeds into computePerInvoiceRetainage() which uses:
+  //   newHeld = cumulative[i] - cumulative[i-1] + released[i]
+  // When released = |drop|: newHeld = drop + |drop| = 0 (correct for release invoices)
+  // When released = 0: newHeld = rise (correct for normal invoices)
+  const hasRetainageData = invoices.some(inv => inv.retainage > 0);
+  if (!hasRetainageData) return; // No retainage data at all
+
+  console.log('No explicit retainage released data; inferring releases from drops in cumulative retainage held');
+
+  let totalInferred = 0;
   for (const [, group] of byCommitment) {
-    // Sort by billing date ascending
     group.sort((a, b) => (a.billingDate || '').localeCompare(b.billingDate || ''));
 
-    let prevCumulativeReleased = 0;
+    let prevCumulativeRetainage = 0;
     for (const inv of group) {
-      const released = inv.retainageReleasedCumulative - prevCumulativeReleased;
-      inv.retainageReleased = Math.max(released, 0);
-      prevCumulativeReleased = inv.retainageReleasedCumulative;
+      const drop = prevCumulativeRetainage - inv.retainage;
+      if (drop > 0) {
+        inv.retainageReleased = drop;
+        totalInferred += drop;
+        console.log(`  Inferred retainage released for ${inv.vendor} inv #${inv.number}: $${drop.toFixed(2)} (cumulative dropped from $${prevCumulativeRetainage.toFixed(2)} to $${inv.retainage.toFixed(2)})`);
+      }
+      prevCumulativeRetainage = inv.retainage;
     }
+  }
+
+  if (totalInferred > 0) {
+    console.log(`Total inferred retainage released: $${totalInferred.toFixed(2)}`);
   }
 }
 
