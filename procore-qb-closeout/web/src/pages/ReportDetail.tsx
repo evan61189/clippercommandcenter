@@ -1616,9 +1616,9 @@ function GroupedResultsTable({ results, title, commitments = [] }: { results: an
             <th className="table-header px-3 py-2 text-right">Committed Costs</th>
             <th className="table-header px-3 py-2 text-right">Procore Total</th>
             <th className="table-header px-3 py-2 text-right text-orange-600">Procore Retainage</th>
+            <th className="table-header px-3 py-2 text-right text-green-600">Procore Ret. Released</th>
             <th className="table-header px-3 py-2 text-right">QB Total</th>
             <th className="table-header px-3 py-2 text-right text-orange-600">QB Retainage</th>
-            <th className="table-header px-3 py-2 text-right text-green-600">Procore Ret. Released</th>
             <th className="table-header px-3 py-2 text-right text-green-600">QB Ret. Released</th>
             <th className="table-header px-3 py-2 text-right">Variance</th>
             <th className="table-header px-3 py-2 text-center">Status</th>
@@ -1669,14 +1669,14 @@ function GroupedResultsTable({ results, title, commitments = [] }: { results: an
                 <td className="px-3 py-2 text-right font-medium text-orange-600">
                   {group.procoreRetainageTotal > 0 ? formatCurrency(group.procoreRetainageTotal) : '-'}
                 </td>
+                <td className="px-3 py-2 text-right font-medium text-green-600">
+                  {group.procoreRetReleasedTotal > 0 ? formatCurrency(group.procoreRetReleasedTotal) : '-'}
+                </td>
                 <td className="px-3 py-2 text-right font-medium">
                   {formatCurrency(group.qbTotal)}
                 </td>
                 <td className="px-3 py-2 text-right font-medium text-orange-600">
                   {group.qbRetainageTotal > 0 ? formatCurrency(group.qbRetainageTotal) : '-'}
-                </td>
-                <td className="px-3 py-2 text-right font-medium text-green-600">
-                  {group.procoreRetReleasedTotal > 0 ? formatCurrency(group.procoreRetReleasedTotal) : '-'}
                 </td>
                 <td className="px-3 py-2 text-right font-medium text-green-600">
                   {group.qbRetReleasedTotal > 0 ? formatCurrency(group.qbRetReleasedTotal) : '-'}
@@ -1713,14 +1713,14 @@ function GroupedResultsTable({ results, title, commitments = [] }: { results: an
                   <td className="px-3 py-2 text-right text-orange-600">
                     {inv.procore_retainage ? formatCurrency(inv.procore_retainage) : '-'}
                   </td>
+                  <td className="px-3 py-2 text-right text-green-600">
+                    {inv.retainage_released ? formatCurrency(inv.retainage_released) : '-'}
+                  </td>
                   <td className="px-3 py-2 text-right">
                     {inv.qb_value ? formatCurrency(inv.qb_value) : '-'}
                   </td>
                   <td className="px-3 py-2 text-right text-orange-600">
                     {inv.qb_retainage ? formatCurrency(inv.qb_retainage) : '-'}
-                  </td>
-                  <td className="px-3 py-2 text-right text-green-600">
-                    {inv.retainage_released ? formatCurrency(inv.retainage_released) : '-'}
                   </td>
                   <td className="px-3 py-2 text-right text-green-600">-</td>
                   <td className={`px-3 py-2 text-right ${
@@ -1748,9 +1748,9 @@ function GroupedResultsTable({ results, title, commitments = [] }: { results: an
             <td className="px-3 py-2 text-right">{grandCommittedCost > 0 ? formatCurrency(grandCommittedCost) : '-'}</td>
             <td className="px-3 py-2 text-right">{formatCurrency(grandProcoreTotal)}</td>
             <td className="px-3 py-2 text-right text-orange-600">{grandProcoreRetainage > 0 ? formatCurrency(grandProcoreRetainage) : '-'}</td>
+            <td className="px-3 py-2 text-right text-green-600">{grandProcoreRetReleased > 0 ? formatCurrency(grandProcoreRetReleased) : '-'}</td>
             <td className="px-3 py-2 text-right">{formatCurrency(grandQbTotal)}</td>
             <td className="px-3 py-2 text-right text-orange-600">{grandQbRetainage > 0 ? formatCurrency(grandQbRetainage) : '-'}</td>
-            <td className="px-3 py-2 text-right text-green-600">{grandProcoreRetReleased > 0 ? formatCurrency(grandProcoreRetReleased) : '-'}</td>
             <td className="px-3 py-2 text-right text-green-600">{grandQbRetReleased > 0 ? formatCurrency(grandQbRetReleased) : '-'}</td>
             <td className={`px-3 py-2 text-right ${
               grandVariance > 0.01 ? 'text-red-600' : grandVariance < -0.01 ? 'text-green-600' : ''

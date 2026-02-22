@@ -767,6 +767,7 @@ interface ProcoreInvoice {
   retainage: number; // Cumulative retainage held to date (total_retainage from Procore)
   retainageThisPeriod: number; // Per-invoice retainage held (computed from deltas)
   retainageReleased: number; // Per-invoice retainage released/billed back by sub
+  retainageReleasedCumulative: number; // Cumulative retainage released to date (total_retainage_currently_released from Procore)
   workCompletedThisPeriod: number;
   workCompletedPrevious: number;
   materialsStored: number;
@@ -1134,6 +1135,9 @@ console.log('Sample invoice AMOUNTS:', JSON.stringify({
       number: firstInv.number,
       vendor_name: firstInv.vendor_name,
       total_claimed_amount: firstInv.total_claimed_amount,
+      total_retainage: firstInv.total_retainage,
+      retainage_released_amount: firstInv.retainage_released_amount,
+      total_retainage_currently_released: firstInv.total_retainage_currently_released,
     }, null, 2));
     // Log the summary and payment_summary objects which likely contain invoice totals
     console.log('INVOICE SUMMARY OBJECT:', JSON.stringify(firstInv.summary, null, 2));
@@ -1171,11 +1175,18 @@ console.log('Sample invoice AMOUNTS:', JSON.stringify({
         || 0
       ),
       retainageThisPeriod: 0, // Computed after normalization via computePerInvoiceRetainage()
-      // Per-period retainage released (exclude total_retainage_currently_released which is cumulative)
+      // Per-period retainage released
       retainageReleased: parseFloat(
         inv.retainage_released_amount
         || inv.payment_summary?.retainage_released
         || inv.summary?.retainage_released
+        || 0
+      ),
+      // Cumulative retainage released to date (used to compute per-period if per-period fields are unavailable)
+      retainageReleasedCumulative: parseFloat(
+        inv.total_retainage_currently_released
+        || inv.summary?.total_retainage_currently_released
+        || inv.payment_summary?.total_retainage_currently_released
         || 0
       ),
       // Billing breakdown fields (G702 / AIA format)
@@ -1213,6 +1224,41 @@ function computePerInvoiceRetainage(invoices: ProcoreInvoice[]): void {
       const newRetainage = inv.retainage - prevCumulativeRetainage + inv.retainageReleased;
       inv.retainageThisPeriod = Math.max(newRetainage, 0); // Guard against negative from data quirks
       prevCumulativeRetainage = inv.retainage;
+    }
+  }
+}
+
+// Compute per-invoice retainage released from cumulative totals.
+// Similar to computePerInvoiceRetainage(), but for retainage released.
+// If per-period retainageReleased values are all zero but cumulative
+// retainageReleasedCumulative values exist, derive per-period from deltas.
+function computePerInvoiceRetainageReleased(invoices: ProcoreInvoice[]): void {
+  // Check if any per-period values are already populated
+  const hasPerPeriodValues = invoices.some(inv => inv.retainageReleased > 0);
+  if (hasPerPeriodValues) return; // Already have per-period data, nothing to do
+
+  // Check if we have cumulative values to derive from
+  const hasCumulativeValues = invoices.some(inv => inv.retainageReleasedCumulative > 0);
+  if (!hasCumulativeValues) return; // No data at all
+
+  console.log('Per-period retainage released not available; computing from cumulative totals');
+
+  const byCommitment = new Map<string, ProcoreInvoice[]>();
+  for (const inv of invoices) {
+    const key = inv.commitmentId || inv.vendor;
+    if (!byCommitment.has(key)) byCommitment.set(key, []);
+    byCommitment.get(key)!.push(inv);
+  }
+
+  for (const [, group] of byCommitment) {
+    // Sort by billing date ascending
+    group.sort((a, b) => (a.billingDate || '').localeCompare(b.billingDate || ''));
+
+    let prevCumulativeReleased = 0;
+    for (const inv of group) {
+      const released = inv.retainageReleasedCumulative - prevCumulativeReleased;
+      inv.retainageReleased = Math.max(released, 0);
+      prevCumulativeReleased = inv.retainageReleasedCumulative;
     }
   }
 }
@@ -1658,10 +1704,12 @@ function matchInvoicesToBills(
       // QB retainage: derive from match type.
       // Gross match: QB bill includes retainage in its total, so the retainage
       // portion = bill amount minus Procore net amount.
-      // Net match: QB bill is net-of-retainage, so QB retainage = 0 for this bill.
+      // Net match: QB bill is net-of-retainage but retainage still exists
+      // contractually — use Procore's per-period retainage so the summary
+      // "Retention Held" row reflects the actual retainage for both systems.
       const retainageInQB = bestMatchIsGross
         ? Math.max(bestBill.amount - pInv.amount, 0)
-        : 0;
+        : (pInv.retainageThisPeriod || 0);
       const procoreRetainagePeriod = pInv.retainageThisPeriod || 0;
 
       const retainageNote = procoreRetainagePeriod > 0
@@ -2595,6 +2643,9 @@ export const handler: Handler = async (event) => {
     // STEP 1: Normalize Procore data first (before fetching QB data)
     const commitments = normalizeCommitments(procoreData);
     const procoreInvoices = normalizeProcoreInvoices(procoreData);
+    // Compute per-invoice retainage released first (from cumulative if needed),
+    // because computePerInvoiceRetainage() uses retainageReleased in its formula.
+    computePerInvoiceRetainageReleased(procoreInvoices);
     computePerInvoiceRetainage(procoreInvoices);
     const paymentApps = normalizePaymentApps(procoreData);
     const directCosts = normalizeDirectCosts(procoreData);
@@ -2940,7 +2991,12 @@ export const handler: Handler = async (event) => {
     const procoreRetentionPaid = procoreInvoices.reduce(
       (sum, inv) => sum + (inv.retainageReleased || 0), 0
     );
-    const qboRetentionPaid = 0; // QB doesn't track retainage releases separately
+    // QBO retention released: sum retainageReleased from matched invoice results.
+    // For matched invoices, retainage release is a contractual event reflected in
+    // both systems, so use the same per-invoice released amounts.
+    const qboRetentionPaid = allResults
+      .filter(r => r.matchType === 'invoice' && r.retainageReleased && r.retainageReleased > 0)
+      .reduce((sum, r) => sum + (r.retainageReleased || 0), 0);
 
     // Labor totals - from Procore payroll direct costs and QB labor accounts (5010-5012)
     const procoreLabor = directCosts
