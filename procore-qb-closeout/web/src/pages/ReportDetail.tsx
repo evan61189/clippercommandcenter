@@ -225,8 +225,46 @@ export default function ReportDetail() {
   // Sub Invoices tab isn't empty while Open APs shows items.
   const aiAnalysis = report.ai_analysis as any
   const openApItems = aiAnalysis?.open_ap_items || []
+  // all_bill_details includes fully-paid bills too; fall back to open_ap_items for older reports
+  const allBillDetails: any[] = aiAnalysis?.all_bill_details || openApItems
   const subInvoiceResults = subInvoiceResultsRaw.length > 0
-    ? subInvoiceResultsRaw
+    ? subInvoiceResultsRaw.map((r: any) => {
+        // Enrich reconciliation results with bill detail data for the modal.
+        // Prefer exact bill ref match, then vendor+amount, then vendor-only.
+        const vendorLower = r.vendor?.toLowerCase()
+        const apMatch =
+          allBillDetails.find((ap: any) =>
+            ap.bill_ref && r.qb_ref &&
+            (r.qb_ref.includes(String(ap.bill_ref)) || String(ap.bill_ref) === String(r.qb_ref))
+          ) ||
+          allBillDetails.find((ap: any) =>
+            ap.vendor?.toLowerCase() === vendorLower &&
+            r.qb_value != null && ap.amount != null &&
+            Math.abs(ap.amount - r.qb_value) < 0.01
+          ) ||
+          allBillDetails.find((ap: any) =>
+            ap.vendor?.toLowerCase() === vendorLower
+          )
+        if (!apMatch) return r
+        const paid = apMatch.paid ?? (apMatch.amount != null && apMatch.balance != null ? apMatch.amount - apMatch.balance : null)
+        return {
+          ...r,
+          _ap_detail: {
+            balance: apMatch.balance,
+            paid: paid,
+            date: apMatch.date,
+            due_date: apMatch.due_date,
+            memo: apMatch.memo,
+            contract_value: apMatch.contract_value,
+            billed_to_date: apMatch.billed_to_date,
+            paid_to_date: apMatch.paid_to_date,
+            retention_held: apMatch.retention_held,
+            commitment_type: apMatch.commitment_type,
+            commitment_status: apMatch.commitment_status,
+            commitment_title: apMatch.commitment_title,
+          },
+        }
+      })
     : openApItems.map((item: any, idx: number) => {
         const paid = item.paid ?? (item.amount != null && item.balance != null ? item.amount - item.balance : null)
         const pctPaid = item.amount ? ((paid ?? 0) / item.amount * 100) : 0
@@ -531,6 +569,7 @@ export default function ReportDetail() {
           <GroupedResultsTable
             results={(results || []).filter(r => r.severity === severityFilter)}
             title={severityFilter === 'critical' ? 'Critical Issues' : 'Warnings'}
+            commitments={commitments || []}
           />
         </div>
       ) : (
@@ -588,7 +627,7 @@ export default function ReportDetail() {
             )}
 
             {activeTab === 'sub_invoices' && (
-              <GroupedResultsTable results={subInvoiceResults} title="Subcontractor Invoices" />
+              <GroupedResultsTable results={subInvoiceResults} title="Subcontractor Invoices" commitments={commitments || []} />
             )}
 
             {activeTab === 'owner_invoices' && (
@@ -945,6 +984,12 @@ function InvoiceDetailModal({ result, onClose }: { result: any; onClose: () => v
                       <dd className="font-medium text-orange-600">{formatCurrency(result.procore_retainage)}</dd>
                     </div>
                   )}
+                  {result.retainage_released != null && result.retainage_released > 0 && (
+                    <div>
+                      <dt className="text-blue-600">Retention Released</dt>
+                      <dd className="font-medium text-green-600">{formatCurrency(result.retainage_released)}</dd>
+                    </div>
+                  )}
                   {ap?.retention_held != null && ap.retention_held > 0 && (
                     <div>
                       <dt className="text-blue-600">Retainage Held (Subcontract)</dt>
@@ -953,7 +998,7 @@ function InvoiceDetailModal({ result, onClose }: { result: any; onClose: () => v
                   )}
                   {result.procore_date && (
                     <div>
-                      <dt className="text-blue-600">Date</dt>
+                      <dt className="text-blue-600">Invoice Date</dt>
                       <dd className="font-medium text-gray-900">{result.procore_date}</dd>
                     </div>
                   )}
@@ -978,6 +1023,12 @@ function InvoiceDetailModal({ result, onClose }: { result: any; onClose: () => v
                     <div>
                       <dt className="text-green-600">Retainage</dt>
                       <dd className="font-medium text-orange-600">{formatCurrency(result.qb_retainage)}</dd>
+                    </div>
+                  )}
+                  {result.retainage_released != null && result.retainage_released > 0 && (
+                    <div>
+                      <dt className="text-green-600">Retention Released</dt>
+                      <dd className="font-medium text-green-600">{formatCurrency(result.retainage_released)}</dd>
                     </div>
                   )}
                   {ap?.date && (
@@ -1012,6 +1063,53 @@ function InvoiceDetailModal({ result, onClose }: { result: any; onClose: () => v
                 </dl>
               </div>
             </div>
+
+            {/* Billing Breakdown (AIA/G702 format) */}
+            {(result.work_completed_this_period > 0 || result.work_completed_previous > 0 || result.materials_stored > 0 || result.total_completed_and_stored > 0) && (
+              <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-purple-800 uppercase tracking-wide mb-3">
+                  Billing Breakdown
+                </h4>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+                  {result.work_completed_this_period > 0 && (
+                    <div>
+                      <dt className="text-purple-600 text-xs">Work Completed This Period</dt>
+                      <dd className="font-semibold text-gray-900">{formatCurrency(result.work_completed_this_period)}</dd>
+                    </div>
+                  )}
+                  {result.work_completed_previous > 0 && (
+                    <div>
+                      <dt className="text-purple-600 text-xs">Work Completed (Previous)</dt>
+                      <dd className="font-semibold text-gray-900">{formatCurrency(result.work_completed_previous)}</dd>
+                    </div>
+                  )}
+                  {result.materials_stored > 0 && (
+                    <div>
+                      <dt className="text-purple-600 text-xs">Materials Stored</dt>
+                      <dd className="font-semibold text-gray-900">{formatCurrency(result.materials_stored)}</dd>
+                    </div>
+                  )}
+                  {result.total_completed_and_stored > 0 && (
+                    <div>
+                      <dt className="text-purple-600 text-xs">Total Completed & Stored to Date</dt>
+                      <dd className="font-semibold text-gray-900">{formatCurrency(result.total_completed_and_stored)}</dd>
+                    </div>
+                  )}
+                  {result.procore_retainage > 0 && (
+                    <div>
+                      <dt className="text-purple-600 text-xs">Less Retainage</dt>
+                      <dd className="font-semibold text-orange-600">({formatCurrency(result.procore_retainage)})</dd>
+                    </div>
+                  )}
+                  {result.retainage_released > 0 && (
+                    <div>
+                      <dt className="text-purple-600 text-xs">Plus Retention Released</dt>
+                      <dd className="font-semibold text-green-600">{formatCurrency(result.retainage_released)}</dd>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Commitment / Subcontract Details */}
             {ap && ap.contract_value != null && (
@@ -1319,12 +1417,14 @@ interface VendorGroup {
   procoreTotal: number;
   qbTotal: number;
   variance: number;
-  retainageTotal: number; // Phase 6: Total retainage for vendor
+  procoreRetainageTotal: number;
+  qbRetainageTotal: number;
+  committedCost: number | null; // Revised Contract Amount from commitments
   status: 'Reconciled' | 'Conditionally Reconciled' | 'Unreconciled';
   invoices: any[];
 }
 
-function GroupedResultsTable({ results, title }: { results: any[]; title?: string }) {
+function GroupedResultsTable({ results, title, commitments = [] }: { results: any[]; title?: string; commitments?: any[] }) {
   const [expandedVendors, setExpandedVendors] = useState<Set<string>>(new Set())
   const [expandAll, setExpandAll] = useState(false)
   const [selectedResult, setSelectedResult] = useState<any>(null)
@@ -1353,7 +1453,14 @@ function GroupedResultsTable({ results, title }: { results: any[]; title?: strin
     const procoreTotal = invoices.reduce((sum, r) => sum + (r.procore_value || 0), 0)
     const qbTotal = invoices.reduce((sum, r) => sum + (r.qb_value || 0), 0)
     const variance = procoreTotal - qbTotal
-    const retainageTotal = invoices.reduce((sum, r) => sum + (r.procore_retainage || 0), 0)
+    const procoreRetainageTotal = invoices.reduce((sum, r) => sum + (r.procore_retainage || 0), 0)
+    const qbRetainageTotal = invoices.reduce((sum, r) => sum + (r.qb_retainage || 0), 0)
+
+    // Look up committed cost (Revised Contract Amount) from commitments
+    const matchingCommitment = commitments.find((c: any) =>
+      c.vendor && vendor && c.vendor.toLowerCase() === vendor.toLowerCase()
+    )
+    const committedCost = matchingCommitment?.current_value ?? null
 
     // Determine status:
     // - Reconciled: All individual invoices match exactly (all have severity "info")
@@ -1376,7 +1483,9 @@ function GroupedResultsTable({ results, title }: { results: any[]; title?: strin
       procoreTotal,
       qbTotal,
       variance,
-      retainageTotal,
+      procoreRetainageTotal,
+      qbRetainageTotal,
+      committedCost,
       status,
       invoices,
     })
@@ -1421,7 +1530,9 @@ function GroupedResultsTable({ results, title }: { results: any[]; title?: strin
   const grandProcoreTotal = vendorGroups.reduce((sum, g) => sum + g.procoreTotal, 0)
   const grandQbTotal = vendorGroups.reduce((sum, g) => sum + g.qbTotal, 0)
   const grandVariance = grandProcoreTotal - grandQbTotal
-  const grandRetainageTotal = vendorGroups.reduce((sum, g) => sum + g.retainageTotal, 0)
+  const grandProcoreRetainage = vendorGroups.reduce((sum, g) => sum + g.procoreRetainageTotal, 0)
+  const grandQbRetainage = vendorGroups.reduce((sum, g) => sum + g.qbRetainageTotal, 0)
+  const grandCommittedCost = vendorGroups.reduce((sum, g) => sum + (g.committedCost || 0), 0)
 
   return (
     <div className="overflow-x-auto">
@@ -1443,9 +1554,11 @@ function GroupedResultsTable({ results, title }: { results: any[]; title?: strin
           <tr>
             <th className="table-header px-3 py-2 text-left w-8"></th>
             <th className="table-header px-3 py-2 text-left">Vendor</th>
+            <th className="table-header px-3 py-2 text-right">Committed Costs</th>
             <th className="table-header px-3 py-2 text-right">Procore Total</th>
-            <th className="table-header px-3 py-2 text-right">Retainage</th>
+            <th className="table-header px-3 py-2 text-right text-orange-600">Procore Retainage</th>
             <th className="table-header px-3 py-2 text-right">QB Total</th>
+            <th className="table-header px-3 py-2 text-right text-orange-600">QB Retainage</th>
             <th className="table-header px-3 py-2 text-right">Variance</th>
             <th className="table-header px-3 py-2 text-center">Status</th>
             <th className="table-header px-3 py-2 text-center">Invoices</th>
@@ -1470,14 +1583,20 @@ function GroupedResultsTable({ results, title }: { results: any[]; title?: strin
                 <td className="px-3 py-2 font-semibold text-gray-900">
                   {group.vendor}
                 </td>
+                <td className="px-3 py-2 text-right font-medium text-gray-500">
+                  {group.committedCost != null ? formatCurrency(group.committedCost) : '-'}
+                </td>
                 <td className="px-3 py-2 text-right font-medium">
                   {formatCurrency(group.procoreTotal)}
                 </td>
                 <td className="px-3 py-2 text-right font-medium text-orange-600">
-                  {group.retainageTotal > 0 ? formatCurrency(group.retainageTotal) : '-'}
+                  {group.procoreRetainageTotal > 0 ? formatCurrency(group.procoreRetainageTotal) : '-'}
                 </td>
                 <td className="px-3 py-2 text-right font-medium">
                   {formatCurrency(group.qbTotal)}
+                </td>
+                <td className="px-3 py-2 text-right font-medium text-orange-600">
+                  {group.qbRetainageTotal > 0 ? formatCurrency(group.qbRetainageTotal) : '-'}
                 </td>
                 <td className={`px-3 py-2 text-right font-medium ${
                   group.variance > 0.01 ? 'text-red-600' : group.variance < -0.01 ? 'text-green-600' : 'text-gray-500'
@@ -1504,6 +1623,7 @@ function GroupedResultsTable({ results, title }: { results: any[]; title?: strin
                   <td className="px-3 py-2 pl-8 text-procore-blue underline">
                     {inv.item_description || inv.procore_ref || '-'}
                   </td>
+                  <td className="px-3 py-2 text-right text-gray-400">-</td>
                   <td className="px-3 py-2 text-right">
                     {inv.procore_value ? formatCurrency(inv.procore_value) : '-'}
                   </td>
@@ -1512,6 +1632,9 @@ function GroupedResultsTable({ results, title }: { results: any[]; title?: strin
                   </td>
                   <td className="px-3 py-2 text-right">
                     {inv.qb_value ? formatCurrency(inv.qb_value) : '-'}
+                  </td>
+                  <td className="px-3 py-2 text-right text-orange-600">
+                    {inv.qb_retainage ? formatCurrency(inv.qb_retainage) : '-'}
                   </td>
                   <td className={`px-3 py-2 text-right ${
                     (inv.variance || 0) > 0 ? 'text-red-600' : (inv.variance || 0) < 0 ? 'text-green-600' : 'text-gray-500'
@@ -1535,9 +1658,11 @@ function GroupedResultsTable({ results, title }: { results: any[]; title?: strin
           <tr>
             <td className="px-3 py-2"></td>
             <td className="px-3 py-2">GRAND TOTAL</td>
+            <td className="px-3 py-2 text-right">{grandCommittedCost > 0 ? formatCurrency(grandCommittedCost) : '-'}</td>
             <td className="px-3 py-2 text-right">{formatCurrency(grandProcoreTotal)}</td>
-            <td className="px-3 py-2 text-right text-orange-600">{grandRetainageTotal > 0 ? formatCurrency(grandRetainageTotal) : '-'}</td>
+            <td className="px-3 py-2 text-right text-orange-600">{grandProcoreRetainage > 0 ? formatCurrency(grandProcoreRetainage) : '-'}</td>
             <td className="px-3 py-2 text-right">{formatCurrency(grandQbTotal)}</td>
+            <td className="px-3 py-2 text-right text-orange-600">{grandQbRetainage > 0 ? formatCurrency(grandQbRetainage) : '-'}</td>
             <td className={`px-3 py-2 text-right ${
               grandVariance > 0.01 ? 'text-red-600' : grandVariance < -0.01 ? 'text-green-600' : ''
             }`}>
