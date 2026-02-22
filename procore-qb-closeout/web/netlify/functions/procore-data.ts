@@ -434,6 +434,8 @@ export const handler: Handler = async (event) => {
                 g702_total_completed_and_stored_to_date: firstReq.g702_total_completed_and_stored_to_date,
                 g702_total_earned_less_retainage: firstReq.g702_total_earned_less_retainage,
                 total_retainage: firstReq.total_retainage,
+                retainage_released_amount: firstReq.retainage_released_amount,
+                total_retainage_currently_released: firstReq.total_retainage_currently_released,
                 g702_current_payment_due: firstReq.g702_current_payment_due,
                 work_completed_from_previous_application: firstReq.work_completed_from_previous_application,
                 work_completed_this_period: firstReq.work_completed_this_period,

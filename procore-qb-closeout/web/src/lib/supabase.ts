@@ -81,6 +81,8 @@ export interface ReconciliationResult {
   ai_risk_level: string | null
   ai_recommended_action: string | null
   ai_is_timing_issue: boolean | null
+  procore_retainage: number | null
+  qb_retainage: number | null
   retainage_released: number | null
   created_at: string
 }
