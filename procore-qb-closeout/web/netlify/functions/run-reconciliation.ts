@@ -3503,6 +3503,8 @@ export const handler: Handler = async (event) => {
               total_completed_and_stored: r.totalCompletedAndStored || 0,
               billing_date: r.billingDate || null,
               payment_app_retainage: r.paymentAppRetainage || 0,
+              procore_date: r.procoreDate || null,
+              qb_date: r.qbDate || null,
             }));
             const { error: firstErr } = await supabase.from('reconciliation_results').insert(retainageRows);
             if (firstErr && firstErr.code === 'PGRST204') {
