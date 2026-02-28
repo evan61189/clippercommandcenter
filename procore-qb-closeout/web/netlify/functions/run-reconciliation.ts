@@ -3321,9 +3321,19 @@ export const handler: Handler = async (event) => {
         // Owner payment summary for the Owner Payments tab
         owner_payment_summary: {
           procore_work_billed: paymentApps.reduce((sum, a) => sum + a.approvedAmount, 0),
+          procore_work_paid: paymentApps.reduce((sum, a) => sum + (a.netAmount || a.approvedAmount), 0),
           procore_retainage_held: paymentApps.length > 0 ? paymentApps[paymentApps.length - 1].retainage : 0,
           qbo_work_billed: qbInvoices.reduce((sum, inv) => sum + inv.amount, 0),
           qbo_work_paid: qbPayments.reduce((sum, p) => sum + p.amount, 0),
+          procore_payment_apps: paymentApps.map(a => ({
+            number: a.number,
+            status: a.status,
+            billing_date: a.billingDate,
+            total_amount: a.totalAmount,
+            approved_amount: a.approvedAmount,
+            retainage: a.retainage,
+            net_amount: a.netAmount,
+          })),
           owner_invoices: qbInvoices.map(inv => ({
             id: inv.id,
             doc_number: inv.docNumber,
