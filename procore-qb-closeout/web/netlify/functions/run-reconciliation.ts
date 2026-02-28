@@ -781,6 +781,8 @@ interface ProcorePaymentApp {
   billingDate: string;
   totalAmount: number;
   approvedAmount: number;
+  retainage: number; // Retainage held on this pay app
+  netAmount: number; // Amount minus retainage
 }
 
 interface ProcoreDirectCost {
@@ -876,6 +878,12 @@ interface MatchResult {
   workCompletedPrevious?: number;
   materialsStored?: number;
   totalCompletedAndStored?: number;
+  // Payment app retainage fields (owner invoices)
+  paymentAppRetainage?: number;
+  // Billing date for period filtering
+  billingDate?: string;
+  // Submitted date (for Procore invoices)
+  submittedDate?: string;
 }
 
 interface CloseoutItem {
@@ -1311,6 +1319,21 @@ function normalizePaymentApps(procoreData: any): ProcorePaymentApp[] {
       0
     );
 
+    // Retainage from payment application summary
+    const retainage = parseFloat(
+      app.summary?.total_retainage ||
+      app.total_retainage ||
+      app.retainage_amount ||
+      0
+    );
+
+    // Net amount = total minus retainage (current_payment_due)
+    const netAmount = parseFloat(
+      app.summary?.current_payment_due ||
+      app.current_payment_due ||
+      0
+    ) || (totalAmt - retainage);
+
     apps.push({
       id: String(app.id),
       number: app.number || String(app.id),
@@ -1318,6 +1341,8 @@ function normalizePaymentApps(procoreData: any): ProcorePaymentApp[] {
       billingDate: app.billing_date || '',
       totalAmount: totalAmt,
       approvedAmount: parseFloat(app.approved_amount || totalAmt || 0),
+      retainage,
+      netAmount,
     });
   }
 
@@ -1645,6 +1670,7 @@ function matchInvoicesToBills(
         workCompletedPrevious: pInv.workCompletedPrevious || 0,
         materialsStored: pInv.materialsStored || 0,
         totalCompletedAndStored: pInv.totalCompletedAndStored || 0,
+        billingDate: pInv.billingDate || undefined,
       });
       continue;
     }
@@ -1781,6 +1807,7 @@ function matchInvoicesToBills(
         workCompletedPrevious: pInv.workCompletedPrevious || 0,
         materialsStored: pInv.materialsStored || 0,
         totalCompletedAndStored: pInv.totalCompletedAndStored || 0,
+        billingDate: pInv.billingDate || undefined,
       });
     } else {
       // No good match found - could be timing (not yet entered in QB)
@@ -1874,7 +1901,9 @@ function matchPaymentAppsToInvoices(
 
     if (bestMatch && bestScore >= 50) {
       matchedQBIds.add(bestMatch.id);
-      const variance = app.approvedAmount - bestMatch.amount;
+      // Compare net amount (minus retainage) to QB invoice amount
+      const procoreNetAmount = app.netAmount || app.approvedAmount;
+      const variance = procoreNetAmount - bestMatch.amount;
 
       results.push({
         id: generateId(),
@@ -1885,13 +1914,13 @@ function matchPaymentAppsToInvoices(
         customer: bestMatch.customer,
         procoreRef: `Pay App #${app.number}`,
         qbRef: `Invoice #${bestMatch.docNumber || bestMatch.id}`,
-        procoreValue: app.approvedAmount,
+        procoreValue: procoreNetAmount,
         qbValue: bestMatch.amount,
         variance,
-        variancePct: app.approvedAmount ? (variance / app.approvedAmount) * 100 : 0,
+        variancePct: procoreNetAmount ? (variance / procoreNetAmount) * 100 : 0,
         matchConfidence: bestScore,
         matchMethod: 'amount_date',
-        severity: calculateSeverity(variance, app.approvedAmount),
+        severity: calculateSeverity(variance, procoreNetAmount),
         status: Math.abs(variance) < 1 ? 'matched' : 'partial',
         notes: Math.abs(variance) < 1
           ? `Matched to QB Invoice #${bestMatch.docNumber}`
@@ -1899,8 +1928,11 @@ function matchPaymentAppsToInvoices(
         procoreDate: app.billingDate,
         qbDate: bestMatch.date,
         requiresAction: Math.abs(variance) >= 500,
+        paymentAppRetainage: app.retainage || 0,
+        billingDate: app.billingDate,
       });
     } else {
+      const procoreNetAmount = app.netAmount || app.approvedAmount;
       results.push({
         id: generateId(),
         matchType: 'payment_app',
@@ -1910,17 +1942,19 @@ function matchPaymentAppsToInvoices(
         customer: null,
         procoreRef: `Pay App #${app.number}`,
         qbRef: null,
-        procoreValue: app.approvedAmount,
+        procoreValue: procoreNetAmount,
         qbValue: null,
-        variance: app.approvedAmount,
+        variance: procoreNetAmount,
         variancePct: 100,
         matchConfidence: 0,
         matchMethod: 'none',
-        severity: calculateSeverity(app.approvedAmount, app.approvedAmount),
+        severity: calculateSeverity(procoreNetAmount, procoreNetAmount),
         status: 'timing',
         notes: 'No matching customer invoice found in QuickBooks - may not be entered yet',
         procoreDate: app.billingDate,
         requiresAction: true,
+        paymentAppRetainage: app.retainage || 0,
+        billingDate: app.billingDate,
       });
     }
   }
@@ -2870,7 +2904,7 @@ export const handler: Handler = async (event) => {
 
     // Normalize QB data
     const qbBills = normalizeQBBills({ bills: qbBillsRaw });
-    const qbBillPayments: QBBillPayment[] = []; // Not needed for targeted matching
+    const qbBillPayments: QBBillPayment[] = []; // Bill payment details populated from bill balance data
     const qbInvoices = normalizeQBInvoices({ invoices: qbInvoicesRaw });
     const qbPayments = normalizeQBPayments({ paymentsReceived: qbPaymentsRaw });
 
@@ -3021,16 +3055,38 @@ export const handler: Handler = async (event) => {
       .filter(r => r.matchType === 'invoice' && r.qbRetainage && r.qbRetainage > 0)
       .reduce((sum, r) => sum + (r.qbRetainage || 0), 0);
 
-    // Retention paid / released — sum retainageReleased from Procore invoices
-    const procoreRetentionPaid = procoreInvoices.reduce(
+    // Retainage Released = amount of retainage that has been billed/invoiced back
+    const procoreRetainageReleased = procoreInvoices.reduce(
       (sum, inv) => sum + (inv.retainageReleased || 0), 0
     );
-    // QBO retention released: sum retainageReleased from matched invoice results.
-    // For matched invoices, retainage release is a contractual event reflected in
-    // both systems, so use the same per-invoice released amounts.
-    const qboRetentionPaid = allResults
+    // QBO retainage released: use same per-invoice released amounts from matched results
+    // since retainage release is a contractual event reflected in both systems.
+    const qboRetainageReleased = allResults
       .filter(r => r.matchType === 'invoice' && r.retainageReleased && r.retainageReleased > 0)
       .reduce((sum, r) => sum + (r.retainageReleased || 0), 0);
+
+    // Retainage Paid = amount of billed retainage that has been paid out.
+    // For invoices with retainageReleased > 0, check if the matching QB bill was paid.
+    let procoreRetainagePaid = 0;
+    let qboRetainagePaid = 0;
+    for (const result of allResults) {
+      if (result.matchType === 'invoice' && result.retainageReleased && result.retainageReleased > 0 && result.qbRef) {
+        // Find the matching QB bill by doc number
+        const billRef = (result.qbRef || '').replace(/^Bill\s*#?\s*/, '');
+        const matchingBill = qbBills.find(b => (b.docNumber || b.id) === billRef);
+        if (matchingBill && matchingBill.amount > 0) {
+          const paidPct = Math.max(0, Math.min(1, (matchingBill.amount - matchingBill.balance) / matchingBill.amount));
+          const retPaid = result.retainageReleased * paidPct;
+          procoreRetainagePaid += retPaid;
+          qboRetainagePaid += retPaid;
+        }
+      }
+    }
+
+    // Legacy field names: procore_retention_paid / qbo_retention_paid map to released
+    // (kept for backward compatibility with DB schema)
+    const procoreRetentionPaid = procoreRetainageReleased;
+    const qboRetentionPaid = qboRetainageReleased;
 
     // Labor totals - from Procore payroll direct costs and QB labor accounts (5010-5012)
     const procoreLabor = directCosts
@@ -3118,6 +3174,11 @@ export const handler: Handler = async (event) => {
       qbo_retention_held: qboRetentionHeld,
       procore_retention_paid: procoreRetentionPaid,
       qbo_retention_paid: qboRetentionPaid,
+      // Retainage released vs paid (separated)
+      procore_retainage_released: procoreRetainageReleased,
+      qbo_retainage_released: qboRetainageReleased,
+      procore_retainage_paid: procoreRetainagePaid,
+      qbo_retainage_paid: qboRetainagePaid,
       procore_labor: procoreLabor,
       qbo_labor: qboLabor,
       // Labor stats for UI warnings
@@ -3208,6 +3269,77 @@ export const handler: Handler = async (event) => {
           billed_to_date: c.billedToDate,
           retention_held: c.retentionHeld,
         })),
+        // Sub payment summaries per vendor for the Sub Payments tab
+        sub_payment_summaries: commitments.map(c => {
+          // Get all matched invoice results for this commitment
+          const vendorResults = allResults.filter(r =>
+            r.matchType === 'invoice' && r.vendor &&
+            r.vendor.toLowerCase() === c.vendor.toLowerCase()
+          );
+          const procoreWorkBilled = vendorResults.reduce((sum, r) => sum + (r.procoreValue || 0), 0);
+          const qboWorkBilled = vendorResults.reduce((sum, r) => sum + (r.qbValue || 0), 0);
+          const procoreRetHeld = vendorResults.reduce((sum, r) => sum + (r.procoreRetainage || 0), 0);
+          const qboRetHeld = vendorResults.reduce((sum, r) => sum + (r.qbRetainage || 0), 0);
+          const procoreRetReleased = vendorResults.reduce((sum, r) => sum + (r.retainageReleased || 0), 0);
+          // Find matching QB bills for payment status
+          const vendorMatch = findVendorMatch(c.vendor, qbVendors, aiVendorMap);
+          const vendorBills = vendorMatch
+            ? qbBills.filter(b => b.vendorId === vendorMatch.id)
+            : [];
+          const qboTotalPaid = vendorBills.reduce((sum, b) => sum + (b.amount - b.balance), 0);
+          // Retainage paid: for results with retainageReleased > 0, check bill payment
+          let retainagePaid = 0;
+          for (const r of vendorResults) {
+            if (r.retainageReleased && r.retainageReleased > 0 && r.qbRef) {
+              const billRef = (r.qbRef || '').replace(/^Bill\s*#?\s*/, '');
+              const bill = qbBills.find(b => (b.docNumber || b.id) === billRef);
+              if (bill && bill.amount > 0) {
+                const paidPct = Math.max(0, Math.min(1, (bill.amount - bill.balance) / bill.amount));
+                retainagePaid += r.retainageReleased * paidPct;
+              }
+            }
+          }
+          return {
+            vendor: c.vendor,
+            commitment_type: c.type,
+            committed_cost: c.currentValue,
+            procore_work_billed: procoreWorkBilled,
+            procore_work_paid: c.paidToDate,
+            procore_retainage_held: procoreRetHeld,
+            procore_retainage_released: procoreRetReleased,
+            procore_retainage_paid: retainagePaid,
+            qbo_work_billed: qboWorkBilled,
+            qbo_work_paid: qboTotalPaid,
+            qbo_retainage_held: qboRetHeld,
+            qbo_retainage_released: procoreRetReleased, // Same contractual event
+            qbo_retainage_paid: retainagePaid,
+            payment_variance: c.paidToDate - qboTotalPaid,
+            invoice_count: vendorResults.length,
+            billed_pct: c.currentValue > 0 ? (procoreWorkBilled / c.currentValue * 100) : 0,
+          };
+        }),
+        // Owner payment summary for the Owner Payments tab
+        owner_payment_summary: {
+          procore_work_billed: paymentApps.reduce((sum, a) => sum + a.approvedAmount, 0),
+          procore_retainage_held: paymentApps.length > 0 ? paymentApps[paymentApps.length - 1].retainage : 0,
+          qbo_work_billed: qbInvoices.reduce((sum, inv) => sum + inv.amount, 0),
+          qbo_work_paid: qbPayments.reduce((sum, p) => sum + p.amount, 0),
+          owner_invoices: qbInvoices.map(inv => ({
+            id: inv.id,
+            doc_number: inv.docNumber,
+            amount: inv.amount,
+            balance: inv.balance,
+            date: inv.date,
+            customer: inv.customer,
+          })),
+          owner_payments: qbPayments.map(p => ({
+            id: p.id,
+            amount: p.amount,
+            date: p.date,
+            customer: p.customer,
+            invoice_ids: p.invoiceIds,
+          })),
+        },
       },
       results: allResults,
       closeout_items: closeoutItems,
@@ -3369,6 +3501,8 @@ export const handler: Handler = async (event) => {
               work_completed_previous: r.workCompletedPrevious || 0,
               materials_stored: r.materialsStored || 0,
               total_completed_and_stored: r.totalCompletedAndStored || 0,
+              billing_date: r.billingDate || null,
+              payment_app_retainage: r.paymentAppRetainage || 0,
             }));
             const { error: firstErr } = await supabase.from('reconciliation_results').insert(retainageRows);
             if (firstErr && firstErr.code === 'PGRST204') {
