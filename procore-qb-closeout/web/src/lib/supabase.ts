@@ -91,6 +91,8 @@ export interface ReconciliationResult {
   retainage_released: number | null
   billing_date: string | null
   payment_app_retainage: number | null
+  procore_date: string | null
+  qb_date: string | null
   created_at: string
 }
 
