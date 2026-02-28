@@ -37,7 +37,7 @@ import {
   getPriorityColor,
 } from '../lib/utils'
 
-type TabType = 'summary' | 'sub_invoices' | 'owner_invoices' | 'direct_costs' | 'labor' | 'unbilled_commitments' | 'warnings' | 'closeout'
+type TabType = 'summary' | 'sub_invoices' | 'sub_payments' | 'owner_invoices' | 'owner_payments' | 'direct_costs' | 'labor' | 'unbilled_commitments' | 'warnings' | 'closeout'
 
 function getUserId(): string {
   let userId = localStorage.getItem('closeout_user_id')
@@ -57,6 +57,7 @@ export default function ReportDetail() {
   const [isSoftClosing, setIsSoftClosing] = useState(false)
   const [isSoftClosed, setIsSoftClosed] = useState(false)
   const [expandedTail, setExpandedTail] = useState<'open_aps' | 'open_ars' | 'pending_invoices' | null>(null)
+  const [billingPeriod, setBillingPeriod] = useState<string>('all') // 'all' or 'YYYY-MM'
 
   // Handle ?filter= query param from dashboard links
   useEffect(() => {
@@ -321,10 +322,43 @@ export default function ReportDetail() {
     c.current_value > 0 && (!c.billed_to_date || c.billed_to_date <= 0)
   )
 
+  // Compute available billing periods from results
+  const billingPeriods = (() => {
+    const periods = new Set<string>()
+    for (const r of (results || [])) {
+      const date = r.billing_date || r.procore_date || r.qb_date
+      if (date) {
+        const d = new Date(date)
+        if (!isNaN(d.getTime())) {
+          periods.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
+        }
+      }
+    }
+    return Array.from(periods).sort().reverse()
+  })()
+
+  // Filter results by billing period
+  const filterByPeriod = (items: any[]) => {
+    if (billingPeriod === 'all') return items
+    return items.filter(r => {
+      const date = r.billing_date || r.procore_date || r.qb_date
+      if (!date) return true // Include items without dates
+      const d = new Date(date)
+      if (isNaN(d.getTime())) return true
+      const period = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      return period <= billingPeriod
+    })
+  }
+
+  const filteredSubInvoices = filterByPeriod(subInvoiceResults)
+  const filteredOwnerInvoices = filterByPeriod(ownerInvoiceResults)
+
   const tabs = [
     { id: 'summary' as TabType, label: 'Summary', count: null },
-    { id: 'sub_invoices' as TabType, label: 'Sub Invoices', count: subInvoiceResults.length },
-    { id: 'owner_invoices' as TabType, label: 'Owner Invoices', count: ownerInvoiceResults.length },
+    { id: 'sub_invoices' as TabType, label: 'Sub Invoices', count: filteredSubInvoices.length },
+    { id: 'sub_payments' as TabType, label: 'Sub Payments', count: null },
+    { id: 'owner_invoices' as TabType, label: 'Owner Invoices', count: filteredOwnerInvoices.length },
+    { id: 'owner_payments' as TabType, label: 'Owner Payments', count: null },
     { id: 'direct_costs' as TabType, label: 'Direct Costs', count: directCostResults.length },
     { id: 'labor' as TabType, label: 'Labor', count: laborResults.length },
     ...(unbilledCommitments.length > 0 ? [{ id: 'unbilled_commitments' as TabType, label: 'Unbilled Commitments', count: unbilledCommitments.length }] : []),
@@ -482,10 +516,8 @@ export default function ReportDetail() {
                   </td>
                 </tr>
                 {(() => {
-                  const procoreRetReleased = (results || [])
-                    .filter(r => r.item_type === 'invoice' && (r.retainage_released ?? 0) > 0)
-                    .reduce((sum, r) => sum + (r.retainage_released || 0), 0)
-                  const qboRetReleased = 0
+                  const procoreRetReleased = report.procore_retainage_released ?? report.procore_retention_paid ?? 0
+                  const qboRetReleased = report.qbo_retainage_released ?? report.qbo_retention_paid ?? 0
                   return (
                     <tr>
                       <td className="py-2 pr-4 text-gray-700">Retainage Released</td>
@@ -499,16 +531,22 @@ export default function ReportDetail() {
                     </tr>
                   )
                 })()}
-                <tr>
-                  <td className="py-2 pr-4 text-gray-700">Retention Paid</td>
-                  <td className="py-2 px-4 text-right font-medium">{formatCurrency(report.procore_retention_paid || 0)}</td>
-                  <td className="py-2 px-4 text-right font-medium">{formatCurrency(report.qbo_retention_paid || 0)}</td>
-                  <td className={`py-2 pl-4 text-right font-medium ${
-                    (report.procore_retention_paid || 0) - (report.qbo_retention_paid || 0) !== 0 ? 'text-red-600' : 'text-green-600'
-                  }`}>
-                    {formatCurrency((report.procore_retention_paid || 0) - (report.qbo_retention_paid || 0))}
-                  </td>
-                </tr>
+                {(() => {
+                  const procoreRetPaid = report.procore_retainage_paid ?? 0
+                  const qboRetPaid = report.qbo_retainage_paid ?? 0
+                  return (
+                    <tr>
+                      <td className="py-2 pr-4 text-gray-700">Retainage Paid</td>
+                      <td className="py-2 px-4 text-right font-medium">{formatCurrency(procoreRetPaid)}</td>
+                      <td className="py-2 px-4 text-right font-medium">{formatCurrency(qboRetPaid)}</td>
+                      <td className={`py-2 pl-4 text-right font-medium ${
+                        procoreRetPaid - qboRetPaid !== 0 ? 'text-red-600' : 'text-green-600'
+                      }`}>
+                        {formatCurrency(procoreRetPaid - qboRetPaid)}
+                      </td>
+                    </tr>
+                  )
+                })()}
                 <tr>
                   <td className="py-2 pr-4 text-gray-700">Labor</td>
                   <td className="py-2 px-4 text-right font-medium">{formatCurrency(report.procore_labor || 0)}</td>
@@ -552,6 +590,38 @@ export default function ReportDetail() {
           </div>
         </div>
       </div>
+
+      {/* Billing Period Filter */}
+      {billingPeriods.length > 1 && (
+        <div className="card p-3 flex items-center gap-3">
+          <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Billing Period:</label>
+          <select
+            value={billingPeriod}
+            onChange={(e) => setBillingPeriod(e.target.value)}
+            className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-procore-blue focus:border-procore-blue"
+          >
+            <option value="all">All Periods</option>
+            {billingPeriods.map(p => {
+              const [y, m] = p.split('-')
+              const label = new Date(parseInt(y), parseInt(m) - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+              return <option key={p} value={p}>{label}</option>
+            })}
+          </select>
+          {billingPeriod !== 'all' && (
+            <button
+              onClick={() => setBillingPeriod('all')}
+              className="text-xs text-procore-blue hover:underline"
+            >
+              Clear
+            </button>
+          )}
+          {billingPeriod !== 'all' && (
+            <span className="text-xs text-gray-500">
+              Showing data through {new Date(parseInt(billingPeriod.split('-')[0]), parseInt(billingPeriod.split('-')[1]) - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Severity Filter Banner */}
       {severityFilter && (
@@ -651,11 +721,19 @@ export default function ReportDetail() {
             )}
 
             {activeTab === 'sub_invoices' && (
-              <GroupedResultsTable results={subInvoiceResults} title="Subcontractor Invoices" commitments={commitments || []} />
+              <GroupedResultsTable results={filteredSubInvoices} title="Subcontractor Invoices" commitments={commitments || []} />
+            )}
+
+            {activeTab === 'sub_payments' && (
+              <SubPaymentsTable report={report} commitments={commitments || []} />
             )}
 
             {activeTab === 'owner_invoices' && (
-              <ResultsTable results={ownerInvoiceResults} title="Owner Invoices" />
+              <OwnerInvoicesTable results={filteredOwnerInvoices} title="Owner Invoices" />
+            )}
+
+            {activeTab === 'owner_payments' && (
+              <OwnerPaymentsTable report={report} />
             )}
 
             {activeTab === 'direct_costs' && (
@@ -1040,9 +1118,15 @@ function InvoiceDetailModal({ result, onClose, commitments = [] }: { result: any
                       <dd className="font-medium text-orange-600">{formatCurrency(commitment?.retention_held ?? ap?.retention_held)}</dd>
                     </div>
                   )}
-                  {result.procore_date && (
+                  {result.billing_date && (
                     <div>
-                      <dt className="text-blue-600">Invoice Date</dt>
+                      <dt className="text-blue-600">Billing Date</dt>
+                      <dd className="font-medium text-gray-900">{result.billing_date}</dd>
+                    </div>
+                  )}
+                  {result.procore_date && result.procore_date !== result.billing_date && (
+                    <div>
+                      <dt className="text-blue-600">Submitted Date</dt>
                       <dd className="font-medium text-gray-900">{result.procore_date}</dd>
                     </div>
                   )}
@@ -1206,6 +1290,53 @@ function InvoiceDetailModal({ result, onClose, commitments = [] }: { result: any
                 </div>
               )
             })()}
+
+            {/* Payment History — Procore and QuickBooks payments */}
+            {ap && (
+              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-emerald-800 uppercase tracking-wide mb-3">
+                  Payment Information
+                </h4>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  {/* Procore Payments */}
+                  <div>
+                    <h5 className="text-xs font-semibold text-emerald-700 mb-2">Procore</h5>
+                    <dl className="space-y-1">
+                      {(commitment?.paid_to_date || ap?.paid_to_date) != null && (
+                        <div className="flex justify-between">
+                          <dt className="text-emerald-600 text-xs">Total Paid to Date</dt>
+                          <dd className="font-medium text-gray-900 text-xs">{formatCurrency(commitment?.paid_to_date ?? ap?.paid_to_date ?? 0)}</dd>
+                        </div>
+                      )}
+                    </dl>
+                  </div>
+                  {/* QuickBooks Payments */}
+                  <div>
+                    <h5 className="text-xs font-semibold text-emerald-700 mb-2">QuickBooks</h5>
+                    <dl className="space-y-1">
+                      <div className="flex justify-between">
+                        <dt className="text-emerald-600 text-xs">Bill Amount</dt>
+                        <dd className="font-medium text-gray-900 text-xs">{formatCurrency(result.qb_value ?? 0)}</dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt className="text-emerald-600 text-xs">Paid</dt>
+                        <dd className="font-medium text-green-600 text-xs">{formatCurrency(ap.paid ?? 0)}</dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt className="text-emerald-600 text-xs">Outstanding</dt>
+                        <dd className="font-medium text-orange-600 text-xs">{formatCurrency(ap.balance ?? 0)}</dd>
+                      </div>
+                      {ap.date && (
+                        <div className="flex justify-between">
+                          <dt className="text-emerald-600 text-xs">Bill Date</dt>
+                          <dd className="font-medium text-gray-900 text-xs">{ap.date}</dd>
+                        </div>
+                      )}
+                    </dl>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Variance (show when there's a real variance from matched results) */}
             {result.variance != null && Math.abs(result.variance) >= 1 && (
@@ -1763,6 +1894,595 @@ function GroupedResultsTable({ results, title, commitments = [] }: { results: an
       </table>
       {selectedResult && (
         <InvoiceDetailModal result={selectedResult} onClose={() => setSelectedResult(null)} commitments={commitments} />
+      )}
+    </div>
+  )
+}
+
+// Owner Invoices table with net amounts, split retainage columns, no Vendor/Description/Status
+function OwnerInvoicesTable({ results, title }: { results: any[]; title?: string }) {
+  const [selectedResult, setSelectedResult] = useState<any>(null)
+
+  if (results.length === 0) {
+    return (
+      <div className="text-center py-8">
+        <p className="text-gray-500">No {title?.toLowerCase() || 'results'} in this category</p>
+      </div>
+    )
+  }
+
+  const sortedResults = [...results].sort((a, b) => {
+    const aDate = a.procore_date || a.qb_date || ''
+    const bDate = b.procore_date || b.qb_date || ''
+    return aDate.localeCompare(bDate)
+  })
+
+  return (
+    <div className="overflow-x-auto">
+      {title && <h3 className="text-lg font-medium mb-4">{title}</h3>}
+      <table className="min-w-full divide-y divide-gray-200 text-xs">
+        <thead className="bg-gray-50">
+          <tr>
+            <th className="table-header px-3 py-2 text-left">Pay App #</th>
+            <th className="table-header px-3 py-2 text-left">Procore Ref</th>
+            <th className="table-header px-3 py-2 text-right">Procore $</th>
+            <th className="table-header px-3 py-2 text-right text-orange-600">Procore Retainage</th>
+            <th className="table-header px-3 py-2 text-left">QB Ref</th>
+            <th className="table-header px-3 py-2 text-right">QB $</th>
+            <th className="table-header px-3 py-2 text-right text-orange-600">QB Retainage</th>
+            <th className="table-header px-3 py-2 text-right">Variance</th>
+            <th className="table-header px-3 py-2 text-center">Match</th>
+            <th className="table-header px-3 py-2 text-left">Notes</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-200 bg-white">
+          {sortedResults.map((result, idx) => (
+            <tr
+              key={result.id || idx}
+              className="hover:bg-yellow-50 cursor-pointer"
+              onClick={() => setSelectedResult(result)}
+            >
+              <td className="px-3 py-2 font-medium text-gray-900 whitespace-nowrap">
+                {result.item_description || '-'}
+              </td>
+              <td className="px-3 py-2 text-gray-500 whitespace-nowrap">
+                {result.procore_ref || '-'}
+              </td>
+              <td className="px-3 py-2 text-right whitespace-nowrap">
+                {result.procore_value != null ? formatCurrency(result.procore_value) : '-'}
+              </td>
+              <td className="px-3 py-2 text-right whitespace-nowrap text-orange-600">
+                {(result.payment_app_retainage || 0) > 0 ? formatCurrency(result.payment_app_retainage) : '-'}
+              </td>
+              <td className="px-3 py-2 text-gray-500 whitespace-nowrap">
+                {result.qb_ref || '-'}
+              </td>
+              <td className="px-3 py-2 text-right whitespace-nowrap">
+                {result.qb_value != null ? formatCurrency(result.qb_value) : '-'}
+              </td>
+              <td className="px-3 py-2 text-right whitespace-nowrap text-orange-600">
+                {/* QB retainage derived from difference between Procore gross and QB amount */}
+                {(result.payment_app_retainage || 0) > 0 && result.qb_value != null
+                  ? formatCurrency(result.payment_app_retainage)
+                  : '-'}
+              </td>
+              <td className={`px-3 py-2 text-right font-medium whitespace-nowrap ${
+                (result.variance || 0) > 0 ? 'text-red-600' : (result.variance || 0) < 0 ? 'text-green-600' : 'text-gray-500'
+              }`}>
+                {result.variance != null ? formatCurrency(result.variance) : '-'}
+              </td>
+              <td className="px-3 py-2 text-center">
+                <span className={`badge text-xs ${getSeverityColor(result.severity)}`}>
+                  {getSeverityText(result.severity)}
+                </span>
+              </td>
+              <td className="px-3 py-2 text-gray-500 max-w-xs truncate" title={result.notes}>
+                {result.notes || '-'}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot className="bg-gray-100 font-semibold">
+          <tr>
+            <td className="px-3 py-2" colSpan={2}>TOTALS</td>
+            <td className="px-3 py-2 text-right whitespace-nowrap">
+              {formatCurrency(sortedResults.reduce((sum, r) => sum + (r.procore_value || 0), 0))}
+            </td>
+            <td className="px-3 py-2 text-right whitespace-nowrap text-orange-600">
+              {formatCurrency(sortedResults.reduce((sum, r) => sum + (r.payment_app_retainage || 0), 0))}
+            </td>
+            <td className="px-3 py-2"></td>
+            <td className="px-3 py-2 text-right whitespace-nowrap">
+              {formatCurrency(sortedResults.reduce((sum, r) => sum + (r.qb_value || 0), 0))}
+            </td>
+            <td className="px-3 py-2 text-right whitespace-nowrap text-orange-600">
+              {formatCurrency(sortedResults.reduce((sum, r) => sum + (r.payment_app_retainage || 0), 0))}
+            </td>
+            <td className={`px-3 py-2 text-right whitespace-nowrap ${
+              sortedResults.reduce((sum, r) => sum + (r.variance || 0), 0) !== 0 ? 'text-red-600' : ''
+            }`}>
+              {formatCurrency(sortedResults.reduce((sum, r) => sum + (r.variance || 0), 0))}
+            </td>
+            <td className="px-3 py-2" colSpan={2}></td>
+          </tr>
+        </tfoot>
+      </table>
+      <p className="text-xs text-gray-400 mt-2">Showing {sortedResults.length} results</p>
+      {selectedResult && (
+        <OwnerInvoiceDetailModal result={selectedResult} onClose={() => setSelectedResult(null)} />
+      )}
+    </div>
+  )
+}
+
+// Owner Invoice Detail Modal with significantly more information
+function OwnerInvoiceDetailModal({ result, onClose }: { result: any; onClose: () => void }) {
+  if (!result) return null
+
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto" onClick={onClose}>
+      <div className="flex items-center justify-center min-h-screen px-4">
+        <div className="fixed inset-0 bg-black/50" />
+        <div
+          className="relative bg-white rounded-xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="sticky top-0 bg-white border-b px-6 py-4 flex items-center justify-between rounded-t-xl z-10">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">
+                {result.item_description || 'Payment Application Detail'}
+              </h3>
+              <div className="flex items-center gap-2 mt-1.5">
+                <span className={`badge text-xs ${getSeverityColor(result.severity)}`}>
+                  {getSeverityText(result.severity)}
+                </span>
+                {result.status && (
+                  <span className={`badge text-xs ${getStatusColor(result.status)}`}>
+                    {result.status?.replace(/_/g, ' ')}
+                  </span>
+                )}
+              </div>
+            </div>
+            <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg">
+              <X className="w-5 h-5 text-gray-500" />
+            </button>
+          </div>
+
+          <div className="p-6 space-y-5">
+            {/* Side-by-side comparison */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-blue-800 uppercase tracking-wide mb-3">Procore</h4>
+                <dl className="space-y-2 text-sm">
+                  <div>
+                    <dt className="text-blue-600">Reference</dt>
+                    <dd className="font-medium text-gray-900">{result.procore_ref || '-'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-blue-600">Net Amount (w/o Retainage)</dt>
+                    <dd className="font-medium text-gray-900 text-lg">
+                      {result.procore_value != null ? formatCurrency(result.procore_value) : '-'}
+                    </dd>
+                  </div>
+                  {(result.payment_app_retainage || 0) > 0 && (
+                    <div>
+                      <dt className="text-blue-600">Retainage Held</dt>
+                      <dd className="font-medium text-orange-600">{formatCurrency(result.payment_app_retainage)}</dd>
+                    </div>
+                  )}
+                  {(result.payment_app_retainage || 0) > 0 && result.procore_value != null && (
+                    <div>
+                      <dt className="text-blue-600">Gross Amount (incl. Retainage)</dt>
+                      <dd className="font-medium text-gray-700">{formatCurrency(result.procore_value + (result.payment_app_retainage || 0))}</dd>
+                    </div>
+                  )}
+                  {result.procore_date && (
+                    <div>
+                      <dt className="text-blue-600">Billing Date</dt>
+                      <dd className="font-medium text-gray-900">{result.procore_date}</dd>
+                    </div>
+                  )}
+                </dl>
+              </div>
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-green-800 uppercase tracking-wide mb-3">QuickBooks</h4>
+                <dl className="space-y-2 text-sm">
+                  <div>
+                    <dt className="text-green-600">Reference</dt>
+                    <dd className="font-medium text-gray-900">{result.qb_ref || '-'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-green-600">Invoice Amount</dt>
+                    <dd className="font-medium text-gray-900 text-lg">
+                      {result.qb_value != null ? formatCurrency(result.qb_value) : '-'}
+                    </dd>
+                  </div>
+                  {(result.payment_app_retainage || 0) > 0 && (
+                    <div>
+                      <dt className="text-green-600">Retainage</dt>
+                      <dd className="font-medium text-orange-600">{formatCurrency(result.payment_app_retainage)}</dd>
+                    </div>
+                  )}
+                  {result.qb_date && (
+                    <div>
+                      <dt className="text-green-600">Invoice Date</dt>
+                      <dd className="font-medium text-gray-900">{result.qb_date}</dd>
+                    </div>
+                  )}
+                </dl>
+              </div>
+            </div>
+
+            {/* Variance */}
+            {result.variance != null && Math.abs(result.variance) >= 1 && (
+              <div className="bg-gray-50 border rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3">Variance</h4>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <dt className="text-gray-500">Amount</dt>
+                    <dd className={`text-lg font-semibold ${
+                      result.variance > 0 ? 'text-red-600' : 'text-green-600'
+                    }`}>
+                      {formatCurrency(result.variance)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-gray-500">Percentage</dt>
+                    <dd className={`text-lg font-semibold ${
+                      (result.variance_pct || 0) !== 0 ? 'text-red-600' : 'text-gray-500'
+                    }`}>
+                      {result.variance_pct != null ? `${result.variance_pct.toFixed(1)}%` : '-'}
+                    </dd>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Notes */}
+            {result.notes && (
+              <div className="bg-gray-50 border rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-2">Notes</h4>
+                <p className="text-sm text-gray-700">{result.notes}</p>
+              </div>
+            )}
+
+            {/* AI Analysis */}
+            {(result.ai_likely_cause || result.ai_recommended_action) && (
+              <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-purple-800 uppercase tracking-wide mb-3">AI Analysis</h4>
+                <dl className="space-y-2 text-sm">
+                  {result.ai_likely_cause && (
+                    <div>
+                      <dt className="text-purple-600">Likely Cause</dt>
+                      <dd className="font-medium text-gray-900">{result.ai_likely_cause}</dd>
+                    </div>
+                  )}
+                  {result.ai_recommended_action && (
+                    <div>
+                      <dt className="text-purple-600">Recommended Action</dt>
+                      <dd className="font-medium text-gray-900">{result.ai_recommended_action}</dd>
+                    </div>
+                  )}
+                </dl>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Sub Payments tab - vendor-grouped payment comparison
+function SubPaymentsTable({ report, commitments }: { report: any; commitments: any[] }) {
+  const [expandedVendors, setExpandedVendors] = useState<Set<string>>(new Set())
+  const aiAnalysis = report.ai_analysis as any
+  const summaries: any[] = aiAnalysis?.sub_payment_summaries || []
+
+  if (summaries.length === 0 && commitments.length === 0) {
+    return (
+      <div className="text-center py-8">
+        <p className="text-gray-500">No sub payment data available</p>
+      </div>
+    )
+  }
+
+  // Use summaries from backend if available, otherwise derive from commitments
+  const rows = summaries.length > 0 ? summaries : commitments.map((c: any) => ({
+    vendor: c.vendor,
+    commitment_type: c.commitment_type,
+    committed_cost: c.current_value || 0,
+    procore_work_billed: c.billed_to_date || 0,
+    procore_work_paid: c.paid_to_date || 0,
+    procore_retainage_held: c.retention_held || 0,
+    procore_retainage_released: 0,
+    procore_retainage_paid: 0,
+    qbo_work_billed: 0,
+    qbo_work_paid: 0,
+    qbo_retainage_held: 0,
+    qbo_retainage_released: 0,
+    qbo_retainage_paid: 0,
+    payment_variance: 0,
+    invoice_count: 0,
+    billed_pct: 0,
+  }))
+
+  const sorted = [...rows].sort((a, b) => a.vendor.localeCompare(b.vendor))
+
+  const toggleVendor = (vendor: string) => {
+    const newSet = new Set(expandedVendors)
+    if (newSet.has(vendor)) newSet.delete(vendor)
+    else newSet.add(vendor)
+    setExpandedVendors(newSet)
+  }
+
+  // Grand totals
+  const totals = sorted.reduce((acc, r) => ({
+    committed: acc.committed + (r.committed_cost || 0),
+    pWorkBilled: acc.pWorkBilled + (r.procore_work_billed || 0),
+    pWorkPaid: acc.pWorkPaid + (r.procore_work_paid || 0),
+    pRetHeld: acc.pRetHeld + (r.procore_retainage_held || 0),
+    pRetReleased: acc.pRetReleased + (r.procore_retainage_released || 0),
+    pRetPaid: acc.pRetPaid + (r.procore_retainage_paid || 0),
+    qWorkBilled: acc.qWorkBilled + (r.qbo_work_billed || 0),
+    qWorkPaid: acc.qWorkPaid + (r.qbo_work_paid || 0),
+    qRetHeld: acc.qRetHeld + (r.qbo_retainage_held || 0),
+    qRetReleased: acc.qRetReleased + (r.qbo_retainage_released || 0),
+    qRetPaid: acc.qRetPaid + (r.qbo_retainage_paid || 0),
+    variance: acc.variance + (r.payment_variance || 0),
+  }), { committed: 0, pWorkBilled: 0, pWorkPaid: 0, pRetHeld: 0, pRetReleased: 0, pRetPaid: 0, qWorkBilled: 0, qWorkPaid: 0, qRetHeld: 0, qRetReleased: 0, qRetPaid: 0, variance: 0 })
+
+  const getPaymentStatus = (r: any) => {
+    const paidDiff = Math.abs((r.procore_work_paid || 0) - (r.qbo_work_paid || 0))
+    if (paidDiff < 1 && (r.procore_work_billed || 0) > 0) return 'Reconciled'
+    if ((r.procore_work_billed || 0) === 0) return 'No Billing'
+    return 'Unreconciled'
+  }
+
+  const getPaymentStatusStyle = (status: string) => {
+    switch (status) {
+      case 'Reconciled': return 'text-green-700 bg-green-100'
+      case 'No Billing': return 'text-gray-600 bg-gray-100'
+      default: return 'text-red-700 bg-red-100'
+    }
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <h3 className="text-lg font-medium mb-4">Sub Payments</h3>
+      <p className="text-sm text-gray-600 mb-3">{sorted.length} vendors</p>
+      <table className="min-w-full divide-y divide-gray-200 text-xs">
+        <thead className="bg-gray-50">
+          <tr>
+            <th className="table-header px-2 py-2 text-left w-6"></th>
+            <th className="table-header px-2 py-2 text-left">Vendor</th>
+            <th className="table-header px-2 py-2 text-right">Committed</th>
+            <th className="table-header px-2 py-2 text-right">P. Work Billed</th>
+            <th className="table-header px-2 py-2 text-right">P. Work Paid</th>
+            <th className="table-header px-2 py-2 text-right text-orange-600">P. Ret. Held</th>
+            <th className="table-header px-2 py-2 text-right text-green-600">P. Ret. Released</th>
+            <th className="table-header px-2 py-2 text-right text-blue-600">P. Ret. Paid</th>
+            <th className="table-header px-2 py-2 text-right">Q. Work Billed</th>
+            <th className="table-header px-2 py-2 text-right">Q. Work Paid</th>
+            <th className="table-header px-2 py-2 text-right text-orange-600">Q. Ret. Held</th>
+            <th className="table-header px-2 py-2 text-right text-green-600">Q. Ret. Released</th>
+            <th className="table-header px-2 py-2 text-right text-blue-600">Q. Ret. Paid</th>
+            <th className="table-header px-2 py-2 text-right">Pmt Variance</th>
+            <th className="table-header px-2 py-2 text-center">Status</th>
+            <th className="table-header px-2 py-2 text-right">Billed %</th>
+            <th className="table-header px-2 py-2 text-center"># Inv</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-200 bg-white">
+          {sorted.map((row) => {
+            const status = getPaymentStatus(row)
+            return (
+              <tr
+                key={row.vendor}
+                className="bg-gray-50 hover:bg-gray-100 cursor-pointer"
+                onClick={() => toggleVendor(row.vendor)}
+              >
+                <td className="px-2 py-2">
+                  {expandedVendors.has(row.vendor) ? (
+                    <ChevronDown className="w-3.5 h-3.5 text-gray-500" />
+                  ) : (
+                    <ChevronRight className="w-3.5 h-3.5 text-gray-500" />
+                  )}
+                </td>
+                <td className="px-2 py-2 font-semibold text-gray-900 whitespace-nowrap">{row.vendor}</td>
+                <td className="px-2 py-2 text-right">{formatCurrency(row.committed_cost || 0)}</td>
+                <td className="px-2 py-2 text-right">{formatCurrency(row.procore_work_billed || 0)}</td>
+                <td className="px-2 py-2 text-right">{formatCurrency(row.procore_work_paid || 0)}</td>
+                <td className="px-2 py-2 text-right text-orange-600">{(row.procore_retainage_held || 0) > 0 ? formatCurrency(row.procore_retainage_held) : '-'}</td>
+                <td className="px-2 py-2 text-right text-green-600">{(row.procore_retainage_released || 0) > 0 ? formatCurrency(row.procore_retainage_released) : '-'}</td>
+                <td className="px-2 py-2 text-right text-blue-600">{(row.procore_retainage_paid || 0) > 0 ? formatCurrency(row.procore_retainage_paid) : '-'}</td>
+                <td className="px-2 py-2 text-right">{formatCurrency(row.qbo_work_billed || 0)}</td>
+                <td className="px-2 py-2 text-right">{formatCurrency(row.qbo_work_paid || 0)}</td>
+                <td className="px-2 py-2 text-right text-orange-600">{(row.qbo_retainage_held || 0) > 0 ? formatCurrency(row.qbo_retainage_held) : '-'}</td>
+                <td className="px-2 py-2 text-right text-green-600">{(row.qbo_retainage_released || 0) > 0 ? formatCurrency(row.qbo_retainage_released) : '-'}</td>
+                <td className="px-2 py-2 text-right text-blue-600">{(row.qbo_retainage_paid || 0) > 0 ? formatCurrency(row.qbo_retainage_paid) : '-'}</td>
+                <td className={`px-2 py-2 text-right font-medium ${
+                  Math.abs(row.payment_variance || 0) > 1 ? 'text-red-600' : 'text-gray-500'
+                }`}>
+                  {formatCurrency(row.payment_variance || 0)}
+                </td>
+                <td className="px-2 py-2 text-center">
+                  <span className={`badge text-xs ${getPaymentStatusStyle(status)}`}>{status}</span>
+                </td>
+                <td className="px-2 py-2 text-right">{(row.billed_pct || 0).toFixed(0)}%</td>
+                <td className="px-2 py-2 text-center text-gray-500">{row.invoice_count || 0}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+        <tfoot className="bg-gray-100 font-semibold text-xs">
+          <tr>
+            <td className="px-2 py-2"></td>
+            <td className="px-2 py-2">GRAND TOTAL</td>
+            <td className="px-2 py-2 text-right">{formatCurrency(totals.committed)}</td>
+            <td className="px-2 py-2 text-right">{formatCurrency(totals.pWorkBilled)}</td>
+            <td className="px-2 py-2 text-right">{formatCurrency(totals.pWorkPaid)}</td>
+            <td className="px-2 py-2 text-right text-orange-600">{totals.pRetHeld > 0 ? formatCurrency(totals.pRetHeld) : '-'}</td>
+            <td className="px-2 py-2 text-right text-green-600">{totals.pRetReleased > 0 ? formatCurrency(totals.pRetReleased) : '-'}</td>
+            <td className="px-2 py-2 text-right text-blue-600">{totals.pRetPaid > 0 ? formatCurrency(totals.pRetPaid) : '-'}</td>
+            <td className="px-2 py-2 text-right">{formatCurrency(totals.qWorkBilled)}</td>
+            <td className="px-2 py-2 text-right">{formatCurrency(totals.qWorkPaid)}</td>
+            <td className="px-2 py-2 text-right text-orange-600">{totals.qRetHeld > 0 ? formatCurrency(totals.qRetHeld) : '-'}</td>
+            <td className="px-2 py-2 text-right text-green-600">{totals.qRetReleased > 0 ? formatCurrency(totals.qRetReleased) : '-'}</td>
+            <td className="px-2 py-2 text-right text-blue-600">{totals.qRetPaid > 0 ? formatCurrency(totals.qRetPaid) : '-'}</td>
+            <td className={`px-2 py-2 text-right ${Math.abs(totals.variance) > 1 ? 'text-red-600' : ''}`}>
+              {formatCurrency(totals.variance)}
+            </td>
+            <td className="px-2 py-2" colSpan={3}></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  )
+}
+
+// Owner Payments tab
+function OwnerPaymentsTable({ report }: { report: any }) {
+  const aiAnalysis = report.ai_analysis as any
+  const summary = aiAnalysis?.owner_payment_summary
+  const ownerInvoices: any[] = summary?.owner_invoices || []
+  const ownerPayments: any[] = summary?.owner_payments || []
+
+  if (!summary && ownerInvoices.length === 0) {
+    return (
+      <div className="text-center py-8">
+        <p className="text-gray-500">No owner payment data available</p>
+      </div>
+    )
+  }
+
+  // Summary metrics
+  const procoreWorkBilled = summary?.procore_work_billed || 0
+  const procoreRetHeld = summary?.procore_retainage_held || 0
+  const qboWorkBilled = summary?.qbo_work_billed || 0
+  const qboWorkPaid = summary?.qbo_work_paid || 0
+  const qboTotalInvoiced = ownerInvoices.reduce((sum: number, inv: any) => sum + (inv.amount || 0), 0)
+  const qboTotalPaid = ownerPayments.reduce((sum: number, p: any) => sum + (p.amount || 0), 0)
+
+  return (
+    <div className="space-y-6">
+      <h3 className="text-lg font-medium">Owner Payments</h3>
+
+      {/* Summary comparison */}
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead>
+            <tr className="border-b">
+              <th className="text-left py-2 pr-4 font-medium text-gray-500">Category</th>
+              <th className="text-right py-2 px-4 font-medium text-gray-500">Procore</th>
+              <th className="text-right py-2 px-4 font-medium text-gray-500">QuickBooks</th>
+              <th className="text-right py-2 pl-4 font-medium text-gray-500">Variance</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            <tr>
+              <td className="py-2 pr-4 text-gray-700">Work Billed</td>
+              <td className="py-2 px-4 text-right font-medium">{formatCurrency(procoreWorkBilled)}</td>
+              <td className="py-2 px-4 text-right font-medium">{formatCurrency(qboWorkBilled || qboTotalInvoiced)}</td>
+              <td className={`py-2 pl-4 text-right font-medium ${
+                Math.abs(procoreWorkBilled - (qboWorkBilled || qboTotalInvoiced)) > 1 ? 'text-red-600' : 'text-green-600'
+              }`}>
+                {formatCurrency(procoreWorkBilled - (qboWorkBilled || qboTotalInvoiced))}
+              </td>
+            </tr>
+            <tr>
+              <td className="py-2 pr-4 text-gray-700">Work Paid</td>
+              <td className="py-2 px-4 text-right font-medium text-gray-400">-</td>
+              <td className="py-2 px-4 text-right font-medium">{formatCurrency(qboWorkPaid || qboTotalPaid)}</td>
+              <td className="py-2 pl-4 text-right font-medium text-gray-400">-</td>
+            </tr>
+            <tr>
+              <td className="py-2 pr-4 text-gray-700">Retainage Held</td>
+              <td className="py-2 px-4 text-right font-medium">{formatCurrency(procoreRetHeld)}</td>
+              <td className="py-2 px-4 text-right font-medium text-gray-400">-</td>
+              <td className="py-2 pl-4 text-right font-medium text-gray-400">-</td>
+            </tr>
+            <tr>
+              <td className="py-2 pr-4 text-gray-700">Outstanding Balance</td>
+              <td className="py-2 px-4 text-right font-medium text-gray-400">-</td>
+              <td className="py-2 px-4 text-right font-medium">
+                {formatCurrency(ownerInvoices.reduce((sum: number, inv: any) => sum + (inv.balance || 0), 0))}
+              </td>
+              <td className="py-2 pl-4 text-right font-medium text-gray-400">-</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Owner invoices detail */}
+      {ownerInvoices.length > 0 && (
+        <div>
+          <h4 className="text-sm font-semibold text-gray-700 mb-2">QB Invoices to Owner</h4>
+          <table className="min-w-full divide-y divide-gray-200 text-xs">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="table-header px-3 py-2 text-left">Invoice #</th>
+                <th className="table-header px-3 py-2 text-left">Customer</th>
+                <th className="table-header px-3 py-2 text-left">Date</th>
+                <th className="table-header px-3 py-2 text-right">Amount</th>
+                <th className="table-header px-3 py-2 text-right">Balance</th>
+                <th className="table-header px-3 py-2 text-right">Paid</th>
+                <th className="table-header px-3 py-2 text-center">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200 bg-white">
+              {ownerInvoices.map((inv: any, idx: number) => {
+                const paid = (inv.amount || 0) - (inv.balance || 0)
+                return (
+                  <tr key={inv.id || idx} className="hover:bg-gray-50">
+                    <td className="px-3 py-2 font-medium">{inv.doc_number || '-'}</td>
+                    <td className="px-3 py-2 text-gray-600">{inv.customer || '-'}</td>
+                    <td className="px-3 py-2 text-gray-600">{inv.date || '-'}</td>
+                    <td className="px-3 py-2 text-right">{formatCurrency(inv.amount || 0)}</td>
+                    <td className="px-3 py-2 text-right text-orange-600">{formatCurrency(inv.balance || 0)}</td>
+                    <td className="px-3 py-2 text-right text-green-600">{formatCurrency(paid)}</td>
+                    <td className="px-3 py-2 text-center">
+                      <span className={`badge text-xs ${(inv.balance || 0) <= 0 ? 'text-green-700 bg-green-100' : 'text-orange-700 bg-orange-100'}`}>
+                        {(inv.balance || 0) <= 0 ? 'Paid' : 'Outstanding'}
+                      </span>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Owner payments detail */}
+      {ownerPayments.length > 0 && (
+        <div>
+          <h4 className="text-sm font-semibold text-gray-700 mb-2">QB Payments Received</h4>
+          <table className="min-w-full divide-y divide-gray-200 text-xs">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="table-header px-3 py-2 text-left">Payment ID</th>
+                <th className="table-header px-3 py-2 text-left">Customer</th>
+                <th className="table-header px-3 py-2 text-left">Date</th>
+                <th className="table-header px-3 py-2 text-right">Amount</th>
+                <th className="table-header px-3 py-2 text-left">Applied To</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200 bg-white">
+              {ownerPayments.map((pmt: any, idx: number) => (
+                <tr key={pmt.id || idx} className="hover:bg-gray-50">
+                  <td className="px-3 py-2 font-medium">{pmt.id || '-'}</td>
+                  <td className="px-3 py-2 text-gray-600">{pmt.customer || '-'}</td>
+                  <td className="px-3 py-2 text-gray-600">{pmt.date || '-'}</td>
+                  <td className="px-3 py-2 text-right font-medium text-green-600">{formatCurrency(pmt.amount || 0)}</td>
+                  <td className="px-3 py-2 text-gray-500">
+                    {pmt.invoice_ids?.length > 0 ? `${pmt.invoice_ids.length} invoice(s)` : '-'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   )

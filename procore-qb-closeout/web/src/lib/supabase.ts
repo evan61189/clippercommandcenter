@@ -43,6 +43,11 @@ export interface ReconciliationReport {
   qbo_retention_held: number | null
   procore_retention_paid: number | null
   qbo_retention_paid: number | null
+  // Separated retainage released vs paid
+  procore_retainage_released: number | null
+  qbo_retainage_released: number | null
+  procore_retainage_paid: number | null
+  qbo_retainage_paid: number | null
   procore_labor: number | null
   qbo_labor: number | null
   // Counts and status
@@ -84,6 +89,8 @@ export interface ReconciliationResult {
   procore_retainage: number | null
   qb_retainage: number | null
   retainage_released: number | null
+  billing_date: string | null
+  payment_app_retainage: number | null
   created_at: string
 }
 
