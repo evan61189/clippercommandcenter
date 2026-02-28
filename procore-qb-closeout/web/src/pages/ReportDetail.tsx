@@ -1,6 +1,6 @@
 import { useParams, Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Fragment } from 'react'
 import {
   ArrowLeft,
   AlertCircle,
@@ -725,7 +725,7 @@ export default function ReportDetail() {
             )}
 
             {activeTab === 'sub_payments' && (
-              <SubPaymentsTable report={report} commitments={commitments || []} />
+              <SubPaymentsTable report={report} commitments={commitments || []} results={results || []} />
             )}
 
             {activeTab === 'owner_invoices' && (
@@ -2174,7 +2174,7 @@ function OwnerInvoiceDetailModal({ result, onClose }: { result: any; onClose: ()
 }
 
 // Sub Payments tab - vendor-grouped payment comparison
-function SubPaymentsTable({ report, commitments }: { report: any; commitments: any[] }) {
+function SubPaymentsTable({ report, commitments, results }: { report: any; commitments: any[]; results: any[] }) {
   const [expandedVendors, setExpandedVendors] = useState<Set<string>>(new Set())
   const aiAnalysis = report.ai_analysis as any
   const summaries: any[] = aiAnalysis?.sub_payment_summaries || []
@@ -2276,14 +2276,24 @@ function SubPaymentsTable({ report, commitments }: { report: any; commitments: a
         <tbody className="divide-y divide-gray-200 bg-white">
           {sorted.map((row) => {
             const status = getPaymentStatus(row)
+            const isExpanded = expandedVendors.has(row.vendor)
+            // Get invoice-level results for this vendor
+            const vendorInvoices = results.filter(r =>
+              r.item_type === 'invoice' && r.vendor &&
+              r.vendor.toLowerCase() === row.vendor.toLowerCase()
+            ).sort((a, b) => {
+              const aDate = a.procore_date || a.billing_date || ''
+              const bDate = b.procore_date || b.billing_date || ''
+              return aDate.localeCompare(bDate)
+            })
             return (
+              <Fragment key={row.vendor}>
               <tr
-                key={row.vendor}
                 className="bg-gray-50 hover:bg-gray-100 cursor-pointer"
                 onClick={() => toggleVendor(row.vendor)}
               >
                 <td className="px-2 py-2">
-                  {expandedVendors.has(row.vendor) ? (
+                  {isExpanded ? (
                     <ChevronDown className="w-3.5 h-3.5 text-gray-500" />
                   ) : (
                     <ChevronRight className="w-3.5 h-3.5 text-gray-500" />
@@ -2312,6 +2322,49 @@ function SubPaymentsTable({ report, commitments }: { report: any; commitments: a
                 <td className="px-2 py-2 text-right">{(row.billed_pct || 0).toFixed(0)}%</td>
                 <td className="px-2 py-2 text-center text-gray-500">{row.invoice_count || 0}</td>
               </tr>
+              {/* Invoice detail rows when vendor is expanded */}
+              {isExpanded && vendorInvoices.length > 0 && vendorInvoices.map((inv, idx) => (
+                <tr
+                  key={`${row.vendor}-inv-${idx}`}
+                  className="bg-white hover:bg-yellow-50"
+                >
+                  <td className="px-2 py-1"></td>
+                  <td className="px-2 py-1 pl-6 text-gray-700">
+                    {inv.item_description || inv.procore_ref || `Invoice #${idx + 1}`}
+                    {inv.billing_date && <span className="ml-2 text-gray-400">{inv.billing_date}</span>}
+                  </td>
+                  <td className="px-2 py-1 text-right text-gray-400">-</td>
+                  <td className="px-2 py-1 text-right">{inv.procore_value ? formatCurrency(inv.procore_value) : '-'}</td>
+                  <td className="px-2 py-1 text-right text-gray-400">-</td>
+                  <td className="px-2 py-1 text-right text-orange-600">{inv.procore_retainage ? formatCurrency(inv.procore_retainage) : '-'}</td>
+                  <td className="px-2 py-1 text-right text-green-600">{inv.retainage_released ? formatCurrency(inv.retainage_released) : '-'}</td>
+                  <td className="px-2 py-1 text-right text-blue-600">-</td>
+                  <td className="px-2 py-1 text-right">{inv.qb_value ? formatCurrency(inv.qb_value) : '-'}</td>
+                  <td className="px-2 py-1 text-right text-gray-400">-</td>
+                  <td className="px-2 py-1 text-right text-orange-600">{inv.qb_retainage ? formatCurrency(inv.qb_retainage) : '-'}</td>
+                  <td className="px-2 py-1 text-right text-green-600">-</td>
+                  <td className="px-2 py-1 text-right text-blue-600">-</td>
+                  <td className={`px-2 py-1 text-right ${
+                    (inv.variance || 0) > 0 ? 'text-red-600' : (inv.variance || 0) < 0 ? 'text-green-600' : 'text-gray-500'
+                  }`}>
+                    {inv.variance != null ? formatCurrency(inv.variance) : '-'}
+                  </td>
+                  <td className="px-2 py-1 text-center">
+                    <span className={`text-xs ${inv.severity === 'critical' ? 'text-red-600' : inv.severity === 'warning' ? 'text-yellow-600' : 'text-gray-500'}`}>
+                      {inv.severity === 'critical' ? 'Critical' : inv.severity === 'warning' ? 'Warning' : 'OK'}
+                    </span>
+                  </td>
+                  <td className="px-2 py-1 text-right text-gray-400 text-xs">{inv.procore_ref || '-'}</td>
+                  <td className="px-2 py-1 text-center text-gray-400 text-xs">{inv.qb_ref || '-'}</td>
+                </tr>
+              ))}
+              {isExpanded && vendorInvoices.length === 0 && (
+                <tr key={`${row.vendor}-empty`}>
+                  <td className="px-2 py-1"></td>
+                  <td className="px-2 py-1 pl-6 text-gray-400 italic" colSpan={16}>No invoice details available</td>
+                </tr>
+              )}
+              </Fragment>
             )
           })}
         </tbody>
