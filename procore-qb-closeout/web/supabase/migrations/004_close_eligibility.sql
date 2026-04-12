@@ -6,7 +6,7 @@ ALTER TABLE reconciliation_reports ADD COLUMN IF NOT EXISTS hard_close_eligible 
 
 -- Soft closed projects table (tracks which projects have been soft closed)
 CREATE TABLE IF NOT EXISTS soft_closed_projects (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
     soft_closed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     soft_closed_by TEXT,

@@ -2,7 +2,7 @@
 -- This allows each user to connect their own Procore/QuickBooks accounts
 
 CREATE TABLE IF NOT EXISTS api_credentials (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id VARCHAR(255) NOT NULL,
     provider VARCHAR(50) NOT NULL, -- 'procore' or 'quickbooks'
     credentials JSONB NOT NULL, -- Stores access_token, refresh_token, etc.

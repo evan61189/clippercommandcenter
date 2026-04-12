@@ -3066,19 +3066,28 @@ export const handler: Handler = async (event) => {
       .reduce((sum, r) => sum + (r.retainageReleased || 0), 0);
 
     // Retainage Paid = amount of billed retainage that has been paid out.
-    // For invoices with retainageReleased > 0, check if the matching QB bill was paid.
+    // Uses "retainage paid last" heuristic: in construction, work amounts are
+    // paid first and retainage is held until last. So retainage is only considered
+    // paid once the bill payment exceeds the non-retainage portion.
     let procoreRetainagePaid = 0;
     let qboRetainagePaid = 0;
     for (const result of allResults) {
       if (result.matchType === 'invoice' && result.retainageReleased && result.retainageReleased > 0 && result.qbRef) {
-        // Find the matching QB bill by doc number
         const billRef = (result.qbRef || '').replace(/^Bill\s*#?\s*/, '');
         const matchingBill = qbBills.find(b => (b.docNumber || b.id) === billRef);
         if (matchingBill && matchingBill.amount > 0) {
-          const paidPct = Math.max(0, Math.min(1, (matchingBill.amount - matchingBill.balance) / matchingBill.amount));
-          const retPaid = result.retainageReleased * paidPct;
-          procoreRetainagePaid += retPaid;
-          qboRetainagePaid += retPaid;
+          if (matchingBill.balance === 0) {
+            // Bill fully paid — retainage released amount was paid in full
+            procoreRetainagePaid += result.retainageReleased;
+            qboRetainagePaid += result.retainageReleased;
+          } else {
+            // Bill partially paid — assume retainage is paid last
+            const totalPaid = matchingBill.amount - matchingBill.balance;
+            const nonRetainagePortion = matchingBill.amount - result.retainageReleased;
+            const retPaid = Math.max(0, totalPaid - nonRetainagePortion);
+            procoreRetainagePaid += retPaid;
+            qboRetainagePaid += retPaid;
+          }
         }
       }
     }
@@ -3287,15 +3296,21 @@ export const handler: Handler = async (event) => {
             ? qbBills.filter(b => b.vendorId === vendorMatch.id)
             : [];
           const qboTotalPaid = vendorBills.reduce((sum, b) => sum + (b.amount - b.balance), 0);
-          // Retainage paid: for results with retainageReleased > 0, check bill payment
+          // Retainage paid: "retainage paid last" heuristic — retainage is only
+          // considered paid once bill payment exceeds the non-retainage portion
           let retainagePaid = 0;
           for (const r of vendorResults) {
             if (r.retainageReleased && r.retainageReleased > 0 && r.qbRef) {
               const billRef = (r.qbRef || '').replace(/^Bill\s*#?\s*/, '');
               const bill = qbBills.find(b => (b.docNumber || b.id) === billRef);
               if (bill && bill.amount > 0) {
-                const paidPct = Math.max(0, Math.min(1, (bill.amount - bill.balance) / bill.amount));
-                retainagePaid += r.retainageReleased * paidPct;
+                if (bill.balance === 0) {
+                  retainagePaid += r.retainageReleased;
+                } else {
+                  const totalPaid = bill.amount - bill.balance;
+                  const nonRetainagePortion = bill.amount - r.retainageReleased;
+                  retainagePaid += Math.max(0, totalPaid - nonRetainagePortion);
+                }
               }
             }
           }
@@ -3453,6 +3468,11 @@ export const handler: Handler = async (event) => {
             qbo_retention_held: report.qbo_retention_held,
             procore_retention_paid: report.procore_retention_paid,
             qbo_retention_paid: report.qbo_retention_paid,
+            // Retainage released vs paid (separated)
+            procore_retainage_released: report.procore_retainage_released,
+            qbo_retainage_released: report.qbo_retainage_released,
+            procore_retainage_paid: report.procore_retainage_paid,
+            qbo_retainage_paid: report.qbo_retainage_paid,
             procore_labor: report.procore_labor,
             qbo_labor: report.qbo_labor,
             // Counts

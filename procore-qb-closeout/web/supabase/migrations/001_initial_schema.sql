@@ -6,7 +6,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Projects table
 CREATE TABLE projects (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     procore_id INTEGER UNIQUE,
     name VARCHAR(255) NOT NULL,
     project_number VARCHAR(50),
@@ -18,7 +18,7 @@ CREATE TABLE projects (
 
 -- Reconciliation reports table (one per closeout run)
 CREATE TABLE reconciliation_reports (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
     generated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 
@@ -48,7 +48,7 @@ CREATE TABLE reconciliation_reports (
 
 -- Reconciliation results (individual comparisons)
 CREATE TABLE reconciliation_results (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     report_id UUID REFERENCES reconciliation_reports(id) ON DELETE CASCADE,
 
     result_id VARCHAR(50), -- Original ID from reconciler
@@ -79,7 +79,7 @@ CREATE TABLE reconciliation_results (
 
 -- Closeout items (action items)
 CREATE TABLE closeout_items (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     report_id UUID REFERENCES reconciliation_reports(id) ON DELETE CASCADE,
 
     item_id VARCHAR(50),
@@ -104,7 +104,7 @@ CREATE TABLE closeout_items (
 
 -- Commitments (for detailed view)
 CREATE TABLE commitments (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     report_id UUID REFERENCES reconciliation_reports(id) ON DELETE CASCADE,
 
     vendor VARCHAR(255) NOT NULL,
@@ -130,7 +130,7 @@ CREATE TABLE commitments (
 
 -- Cost code mappings
 CREATE TABLE cost_code_mappings (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
 
     procore_cost_code VARCHAR(50) NOT NULL,
