@@ -1,0 +1,31 @@
+# Netlify configuration for Procore-QB Closeout Web Dashboard
+# This file should be at the repo root
+
+[build]
+  base = "procore-qb-closeout/web"
+  command = "npm install && npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+[functions]
+  node_bundler = "esbuild"
+
+# Reconciliation makes many sequential API calls (QB vendors, customers, bills, AI matching)
+# Default 10s is too short - request max allowed timeout (26s on Pro plans)
+[functions."run-reconciliation"]
+  timeout = 26
+
+# API routes for serverless functions
+[[redirects]]
+  from = "/.netlify/functions/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+# SPA fallback - must be last
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

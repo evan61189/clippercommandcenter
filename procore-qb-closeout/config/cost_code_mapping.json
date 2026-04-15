@@ -1,0 +1,14 @@
+{
+  "project_id": null,
+  "project_name": null,
+  "last_updated": null,
+  "mappings": [],
+  "unmapped_procore": [],
+  "unmapped_qb": [],
+  "metadata": {
+    "procore_cost_code_count": 0,
+    "qb_account_count": 0,
+    "mapped_count": 0,
+    "confidence_threshold": 0.7
+  }
+}
