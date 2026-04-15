@@ -93,9 +93,21 @@ export default function Settings() {
 
       if (!res.ok) throw new Error(result.error || 'Sync failed')
 
-      setMessage(`Sync complete! ${result.synced?.projects || 0} projects and ${result.synced?.contracts || 0} contracts synced from Procore.`)
+      const s = result.synced || {}
+      const details = []
+      if (s.projects) details.push(`${s.projects} projects`)
+      if (s.contracts) details.push(`${s.contracts} contracts`)
+      if (s.subcontracts) details.push(`${s.subcontracts} subs`)
+      if (s.change_orders) details.push(`${s.change_orders} COs`)
+      if (s.pay_apps) details.push(`${s.pay_apps} pay apps`)
+      if (s.rfis) details.push(`${s.rfis} RFIs`)
+      if (s.submittals) details.push(`${s.submittals} submittals`)
+      if (s.punch_items) details.push(`${s.punch_items} punch items`)
+      if (s.budget_lines) details.push(`${s.budget_lines} budget lines`)
+      const projNote = result.projects_detailed ? ` (${result.projects_detailed}/${result.total_active} projects detailed)` : ''
+      setMessage(`Procore sync complete! ${details.join(', ')}${projNote}`)
       setMessageType('success')
-      setTimeout(() => setMessage(null), 8000)
+      setTimeout(() => setMessage(null), 12000)
     } catch (err: any) {
       setMessage(`Sync error: ${err.message}`)
       setMessageType('error')
