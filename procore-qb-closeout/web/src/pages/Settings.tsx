@@ -1,18 +1,8 @@
 import { useState, useEffect } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, CheckCircle, XCircle, ExternalLink, RefreshCw } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
+import { CheckCircle, XCircle, ExternalLink, RefreshCw, Loader2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-
-// Generate a simple user ID for demo purposes
-// In production, use proper authentication
-function getUserId(): string {
-  let userId = localStorage.getItem('closeout_user_id')
-  if (!userId) {
-    userId = 'user_' + Math.random().toString(36).substring(2, 15)
-    localStorage.setItem('closeout_user_id', userId)
-  }
-  return userId
-}
+import { useAuth } from '../contexts/AuthContext'
 
 interface ConnectionStatus {
   procore: { connected: boolean; companyId?: string; connectedAt?: string }
@@ -26,18 +16,27 @@ export default function Settings() {
     quickbooks: { connected: false },
   })
   const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
+  const [syncingQB, setSyncingQB] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  const [messageType, setMessageType] = useState<'success' | 'error'>('success')
 
-  const userId = getUserId()
+  const { user } = useAuth()
+  const userId = user?.id || 'anonymous'
 
   useEffect(() => {
     checkConnections()
 
-    // Show success message if just connected
+    // Show success message and auto-sync if just connected
     const connected = searchParams.get('connected')
-    if (connected) {
-      setMessage(`Successfully connected to ${connected === 'procore' ? 'Procore' : 'QuickBooks'}!`)
-      setTimeout(() => setMessage(null), 5000)
+    if (connected === 'procore') {
+      setMessage('Successfully connected to Procore! Syncing data...')
+      setMessageType('success')
+      setTimeout(() => runSync(), 1000)
+    } else if (connected === 'quickbooks') {
+      setMessage('Successfully connected to QuickBooks! Syncing data...')
+      setMessageType('success')
+      setTimeout(() => runQBSync(), 1000)
     }
   }, [searchParams])
 
@@ -80,6 +79,58 @@ export default function Settings() {
     }
   }
 
+  async function runSync() {
+    setSyncing(true)
+    setMessage('Syncing data from Procore...')
+    setMessageType('success')
+    try {
+      const res = await fetch('/.netlify/functions/procore-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      })
+      const result = await res.json()
+
+      if (!res.ok) throw new Error(result.error || 'Sync failed')
+
+      setMessage(`Sync complete! ${result.synced?.projects || 0} projects and ${result.synced?.contracts || 0} contracts synced from Procore.`)
+      setMessageType('success')
+      setTimeout(() => setMessage(null), 8000)
+    } catch (err: any) {
+      setMessage(`Sync error: ${err.message}`)
+      setMessageType('error')
+      setTimeout(() => setMessage(null), 8000)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  async function runQBSync() {
+    setSyncingQB(true)
+    setMessage('Syncing data from QuickBooks...')
+    setMessageType('success')
+    try {
+      const res = await fetch('/.netlify/functions/quickbooks-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      })
+      const result = await res.json()
+
+      if (!res.ok) throw new Error(result.error || 'QB Sync failed')
+
+      setMessage(`QuickBooks sync complete! ${result.synced?.ar_invoices || 0} invoices, ${result.synced?.ap_bills || 0} bills, ${result.synced?.bank_accounts || 0} bank accounts synced.`)
+      setMessageType('success')
+      setTimeout(() => setMessage(null), 8000)
+    } catch (err: any) {
+      setMessage(`QuickBooks sync error: ${err.message}`)
+      setMessageType('error')
+      setTimeout(() => setMessage(null), 8000)
+    } finally {
+      setSyncingQB(false)
+    }
+  }
+
   async function disconnect(provider: 'procore' | 'quickbooks') {
     try {
       await supabase
@@ -90,6 +141,7 @@ export default function Settings() {
 
       checkConnections()
       setMessage(`Disconnected from ${provider === 'procore' ? 'Procore' : 'QuickBooks'}`)
+      setMessageType('success')
       setTimeout(() => setMessage(null), 3000)
     } catch (error) {
       console.error('Error disconnecting:', error)
@@ -97,7 +149,6 @@ export default function Settings() {
   }
 
   function connectProcore() {
-    // Hardcoded Procore client ID as fallback
     const clientId = import.meta.env.VITE_PROCORE_CLIENT_ID || '5m6ntNDYctNihGwfspa4OiG6EXHXx1HCXSHRVetAb7k'
     const redirectUri = `${window.location.origin}/.netlify/functions/oauth-callback?provider=procore`
 
@@ -111,8 +162,7 @@ export default function Settings() {
   }
 
   function connectQuickBooks() {
-    // Hardcoded QuickBooks client ID as fallback
-    const clientId = import.meta.env.VITE_QBO_CLIENT_ID || 'ABgPHajheBYc4ajSSov1P8b8emmalTPmmw5uAn99gUcfg2bOo9'
+    const clientId = import.meta.env.VITE_QBO_CLIENT_ID || 'ABE01lFAdrTOVwsFkI5YwJoUPD1OpG8pwMbW9FEGjVf4bgT6Y7'
     const redirectUri = `${window.location.origin}/.netlify/functions/oauth-callback?provider=quickbooks`
     const scope = 'com.intuit.quickbooks.accounting'
 
@@ -128,26 +178,22 @@ export default function Settings() {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
-      {/* Back link */}
-      <Link
-        to="/"
-        className="flex items-center text-gray-600 hover:text-gray-900"
-      >
-        <ArrowLeft className="w-4 h-4 mr-1" />
-        Back to Dashboard
-      </Link>
-
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
+        <h1 className="text-2xl font-bold text-clipper-black">Settings</h1>
         <p className="mt-1 text-sm text-gray-500">
-          Connect your Procore and QuickBooks accounts to run reconciliation
+          Connect your Procore and QuickBooks accounts to pull live data
         </p>
       </div>
 
-      {/* Success/Error Message */}
+      {/* Message */}
       {message && (
-        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg">
+        <div className={`px-4 py-3 rounded-lg border ${
+          messageType === 'error'
+            ? 'bg-red-50 border-red-200 text-red-700'
+            : 'bg-green-50 border-green-200 text-green-700'
+        }`}>
+          {(syncing || syncingQB) && <Loader2 className="w-4 h-4 animate-spin inline mr-2" />}
           {message}
         </div>
       )}
@@ -167,9 +213,7 @@ export default function Settings() {
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900">Procore</h3>
-                  <p className="text-sm text-gray-500">
-                    Construction project management
-                  </p>
+                  <p className="text-sm text-gray-500">Construction project management</p>
                   {status.procore.connected && (
                     <div className="mt-2 text-sm">
                       <p className="text-green-600 flex items-center">
@@ -177,22 +221,30 @@ export default function Settings() {
                         Connected
                       </p>
                       {status.procore.companyId && (
-                        <p className="text-gray-500">
-                          Company ID: {status.procore.companyId}
-                        </p>
+                        <p className="text-gray-500">Company ID: {status.procore.companyId}</p>
                       )}
                     </div>
                   )}
                 </div>
               </div>
-              <div>
+              <div className="flex gap-2">
                 {status.procore.connected ? (
-                  <button
-                    onClick={() => disconnect('procore')}
-                    className="px-4 py-2 text-sm font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100"
-                  >
-                    Disconnect
-                  </button>
+                  <>
+                    <button
+                      onClick={runSync}
+                      disabled={syncing}
+                      className="px-4 py-2 text-sm font-medium text-clipper-black bg-clipper-gold rounded-lg hover:bg-clipper-gold-dark disabled:opacity-50 flex items-center"
+                    >
+                      {syncing ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <RefreshCw className="w-4 h-4 mr-1" />}
+                      Sync Now
+                    </button>
+                    <button
+                      onClick={() => disconnect('procore')}
+                      className="px-4 py-2 text-sm font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100"
+                    >
+                      Disconnect
+                    </button>
+                  </>
                 ) : (
                   <button
                     onClick={connectProcore}
@@ -214,12 +266,8 @@ export default function Settings() {
                   <span className="text-green-600 font-bold text-lg">QB</span>
                 </div>
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900">
-                    QuickBooks Online
-                  </h3>
-                  <p className="text-sm text-gray-500">
-                    Accounting and financial management
-                  </p>
+                  <h3 className="text-lg font-semibold text-gray-900">QuickBooks Online</h3>
+                  <p className="text-sm text-gray-500">Accounting and financial management</p>
                   {status.quickbooks.connected && (
                     <div className="mt-2 text-sm">
                       <p className="text-green-600 flex items-center">
@@ -227,22 +275,30 @@ export default function Settings() {
                         Connected
                       </p>
                       {status.quickbooks.realmId && (
-                        <p className="text-gray-500">
-                          Company ID: {status.quickbooks.realmId}
-                        </p>
+                        <p className="text-gray-500">Company ID: {status.quickbooks.realmId}</p>
                       )}
                     </div>
                   )}
                 </div>
               </div>
-              <div>
+              <div className="flex gap-2">
                 {status.quickbooks.connected ? (
-                  <button
-                    onClick={() => disconnect('quickbooks')}
-                    className="px-4 py-2 text-sm font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100"
-                  >
-                    Disconnect
-                  </button>
+                  <>
+                    <button
+                      onClick={runQBSync}
+                      disabled={syncingQB}
+                      className="px-4 py-2 text-sm font-medium text-clipper-black bg-clipper-gold rounded-lg hover:bg-clipper-gold-dark disabled:opacity-50 flex items-center"
+                    >
+                      {syncingQB ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <RefreshCw className="w-4 h-4 mr-1" />}
+                      Sync Now
+                    </button>
+                    <button
+                      onClick={() => disconnect('quickbooks')}
+                      className="px-4 py-2 text-sm font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100"
+                    >
+                      Disconnect
+                    </button>
+                  </>
                 ) : (
                   <button
                     onClick={connectQuickBooks}
@@ -281,31 +337,15 @@ export default function Settings() {
                 </span>
               </div>
             </div>
-            {status.procore.connected && status.quickbooks.connected ? (
+            {status.procore.connected ? (
               <p className="mt-3 text-sm text-green-600">
-                ✓ Both accounts connected. You can now run reconciliation from the Dashboard.
+                Data will sync from connected services. Use "Sync Now" to pull the latest data.
               </p>
             ) : (
               <p className="mt-3 text-sm text-gray-500">
-                Connect both accounts to run financial closeout reconciliation.
+                Connect your accounts to pull project and financial data into the dashboard.
               </p>
             )}
-          </div>
-
-          {/* Help Section */}
-          <div className="card bg-blue-50 border-blue-200">
-            <h4 className="font-medium text-blue-900 mb-2">Need Help?</h4>
-            <ul className="text-sm text-blue-800 space-y-1">
-              <li>
-                • <strong>Procore:</strong> You'll be redirected to Procore to authorize access
-              </li>
-              <li>
-                • <strong>QuickBooks:</strong> Sign in with your Intuit account and select your company
-              </li>
-              <li>
-                • Your credentials are securely stored and used only for reconciliation
-              </li>
-            </ul>
           </div>
         </div>
       )}

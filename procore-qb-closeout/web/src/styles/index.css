@@ -1,47 +1,89 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   body {
-    @apply bg-gray-50 text-gray-900;
+    @apply bg-gray-50 text-gray-900 font-sans;
   }
 }
 
 @layer components {
   .card {
-    @apply bg-white rounded-lg shadow-md p-6;
+    @apply bg-white rounded-lg shadow-sm border border-gray-200 p-6;
   }
 
   .btn {
-    @apply px-4 py-2 rounded-md font-medium transition-colors duration-200;
+    @apply px-4 py-2 rounded-md font-medium transition-colors duration-200 text-sm;
   }
 
   .btn-primary {
-    @apply bg-procore-blue text-white hover:bg-blue-700;
+    @apply bg-clipper-black text-white hover:bg-gray-800;
+  }
+
+  .btn-gold {
+    @apply bg-clipper-gold text-clipper-black hover:bg-clipper-gold-dark font-semibold;
   }
 
   .btn-secondary {
-    @apply bg-gray-200 text-gray-800 hover:bg-gray-300;
+    @apply bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300;
+  }
+
+  .btn-outline {
+    @apply border border-gray-300 text-gray-700 hover:bg-gray-50;
   }
 
   .badge {
     @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
   }
 
-  .badge-info {
-    @apply bg-green-100 text-green-800;
+  .badge-green {
+    @apply bg-emerald-100 text-emerald-800;
   }
 
-  .badge-warning {
-    @apply bg-yellow-100 text-yellow-800;
+  .badge-yellow {
+    @apply bg-amber-100 text-amber-800;
   }
 
-  .badge-critical {
+  .badge-red {
     @apply bg-red-100 text-red-800;
   }
 
-  .table-header {
-    @apply bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider;
+  .badge-blue {
+    @apply bg-blue-100 text-blue-800;
   }
+
+  .badge-gray {
+    @apply bg-gray-100 text-gray-700;
+  }
+
+  .stat-card {
+    @apply bg-white rounded-lg border border-gray-200 p-5 hover:shadow-md transition-shadow;
+  }
+
+  .table-header {
+    @apply bg-gray-50 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider;
+  }
+
+  /* Sidebar nav item */
+  .nav-item {
+    @apply flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-clipper-black transition-colors;
+  }
+
+  .nav-item-active {
+    @apply bg-clipper-gold-light text-clipper-black font-semibold;
+  }
+
+  /* Metric colors for margins */
+  .margin-green { @apply text-emerald-600; }
+  .margin-yellow { @apply text-amber-600; }
+  .margin-red { @apply text-red-600; }
+
+  /* Utilization bar colors */
+  .util-green { @apply bg-emerald-500; }
+  .util-gold { @apply bg-clipper-gold; }
+  .util-orange { @apply bg-orange-500; }
+  .util-red { @apply bg-red-500; }
 }

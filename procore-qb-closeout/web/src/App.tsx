@@ -1,22 +1,88 @@
-import { Routes, Route, Link, useNavigate } from 'react-router-dom'
-import { Building2, Settings as SettingsIcon, Play, LogOut, Calendar, FolderCheck, PauseCircle, FileBarChart } from 'lucide-react'
+import { Routes, Route, Link, useLocation, useNavigate } from 'react-router-dom'
+import {
+  LayoutDashboard, Briefcase, DollarSign, Users, Shield, GitCompare,
+  Settings as SettingsIcon, LogOut, ChevronLeft, ChevronRight, Ship
+} from 'lucide-react'
+import { useState } from 'react'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
-import Dashboard from './pages/Dashboard'
-import ProjectDetail from './pages/ProjectDetail'
-import ReportDetail from './pages/ReportDetail'
+import CompanyOverview from './pages/CompanyOverview'
+import ProjectPortfolio from './pages/ProjectPortfolio'
+import ProjectDeepDive from './pages/ProjectDeepDive'
+import FinancialHealth from './pages/FinancialHealth'
+import ResourceManagement from './pages/ResourceManagement'
+import Reconciliation from './pages/Reconciliation'
+import ComplianceRisk from './pages/ComplianceRisk'
 import Settings from './pages/Settings'
-import RunReconciliation from './pages/RunReconciliation'
-import MonthEndCloseouts from './pages/MonthEndCloseouts'
-import ProjectCloseouts from './pages/ProjectCloseouts'
-import SoftClosedProjects from './pages/SoftClosedProjects'
-import WIPReports from './pages/WIPReports'
-import Privacy from './pages/Privacy'
-import Terms from './pages/Terms'
 import Login from './pages/Login'
 import ResetPassword from './pages/ResetPassword'
+import Privacy from './pages/Privacy'
+import Terms from './pages/Terms'
 
-function AppLayout() {
+const navItems = [
+  { path: '/', label: 'Overview', icon: LayoutDashboard },
+  { path: '/projects', label: 'Projects', icon: Briefcase },
+  { path: '/financials', label: 'Financials', icon: DollarSign },
+  { path: '/resources', label: 'Resources', icon: Users },
+  { path: '/reconciliation', label: 'Reconciliation', icon: GitCompare },
+  { path: '/compliance', label: 'Compliance', icon: Shield },
+  { path: '/settings', label: 'Settings', icon: SettingsIcon },
+]
+
+function Sidebar({ collapsed, setCollapsed }: { collapsed: boolean; setCollapsed: (v: boolean) => void }) {
+  const location = useLocation()
+
+  const isActive = (path: string) => {
+    if (path === '/') return location.pathname === '/'
+    return location.pathname.startsWith(path)
+  }
+
+  return (
+    <aside className={`${collapsed ? 'w-16' : 'w-56'} bg-clipper-black min-h-screen flex flex-col transition-all duration-200 relative`}>
+      {/* Logo */}
+      <div className="flex items-center gap-3 px-4 py-5 border-b border-gray-800">
+        <div className="w-8 h-8 bg-clipper-gold rounded-lg flex items-center justify-center flex-shrink-0">
+          <Ship className="w-5 h-5 text-clipper-black" />
+        </div>
+        {!collapsed && (
+          <div className="overflow-hidden">
+            <div className="text-white font-bold text-sm leading-tight">CLIPPER</div>
+            <div className="text-clipper-gold text-[10px] font-medium tracking-wider">COMMAND TERMINAL</div>
+          </div>
+        )}
+      </div>
+
+      {/* Nav items */}
+      <nav className="flex-1 px-2 py-4 space-y-1">
+        {navItems.map(({ path, label, icon: Icon }) => (
+          <Link
+            key={path}
+            to={path}
+            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+              isActive(path)
+                ? 'bg-clipper-gold text-clipper-black'
+                : 'text-gray-400 hover:text-white hover:bg-gray-800'
+            }`}
+            title={collapsed ? label : undefined}
+          >
+            <Icon className="w-5 h-5 flex-shrink-0" />
+            {!collapsed && <span>{label}</span>}
+          </Link>
+        ))}
+      </nav>
+
+      {/* Collapse toggle */}
+      <button
+        onClick={() => setCollapsed(!collapsed)}
+        className="absolute -right-3 top-20 w-6 h-6 bg-clipper-black border border-gray-700 rounded-full flex items-center justify-center text-gray-400 hover:text-white hover:border-clipper-gold transition-colors z-10"
+      >
+        {collapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronLeft className="w-3 h-3" />}
+      </button>
+    </aside>
+  )
+}
+
+function TopBar() {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
 
@@ -26,125 +92,64 @@ function AppLayout() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Navigation - only show when logged in */}
-      {user && (
-        <nav className="bg-white shadow-sm border-b border-gray-200">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between h-16">
-              <div className="flex items-center">
-                <Link to="/" className="flex items-center space-x-2">
-                  <div className="w-8 h-8 bg-procore-blue rounded-lg flex items-center justify-center">
-                    <span className="text-white font-bold text-lg">$</span>
-                  </div>
-                  <span className="font-semibold text-xl text-gray-900">
-                    Financial Closeout
-                  </span>
-                </Link>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Link
-                  to="/"
-                  className="flex items-center space-x-1 text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
-                >
-                  <Building2 className="w-4 h-4" />
-                  <span>Dashboard</span>
-                </Link>
-                <Link
-                  to="/month-end-closeouts"
-                  className="flex items-center space-x-1 text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
-                >
-                  <Calendar className="w-4 h-4" />
-                  <span>Month-End Closeouts</span>
-                </Link>
-                <Link
-                  to="/project-closeouts"
-                  className="flex items-center space-x-1 text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
-                >
-                  <FolderCheck className="w-4 h-4" />
-                  <span>Project Closeouts</span>
-                </Link>
-                <Link
-                  to="/soft-closed"
-                  className="flex items-center space-x-1 text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
-                >
-                  <PauseCircle className="w-4 h-4" />
-                  <span>Soft Closed</span>
-                </Link>
-                <Link
-                  to="/wip-reports"
-                  className="flex items-center space-x-1 text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
-                >
-                  <FileBarChart className="w-4 h-4" />
-                  <span>WIP Reports</span>
-                </Link>
-                <Link
-                  to="/run"
-                  className="flex items-center space-x-1 text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
-                >
-                  <Play className="w-4 h-4" />
-                  <span>Run</span>
-                </Link>
-                <Link
-                  to="/settings"
-                  className="flex items-center space-x-1 text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
-                >
-                  <SettingsIcon className="w-4 h-4" />
-                  <span>Settings</span>
-                </Link>
-                <div className="border-l border-gray-200 h-6 mx-2" />
-                <div className="flex items-center space-x-3">
-                  <span className="text-sm text-gray-500">{user.email}</span>
-                  <button
-                    onClick={handleSignOut}
-                    className="flex items-center space-x-1 text-gray-600 hover:text-red-600 px-3 py-2 rounded-md text-sm font-medium"
-                    title="Sign Out"
-                  >
-                    <LogOut className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </nav>
-      )}
+    <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6">
+      <div>
+        <h1 className="text-sm font-semibold text-gray-900">
+          Clipper Construction
+        </h1>
+        <p className="text-xs text-gray-500">Executive Dashboard</p>
+      </div>
+      <div className="flex items-center gap-4">
+        <span className="text-sm text-gray-500">{user?.email}</span>
+        <button
+          onClick={handleSignOut}
+          className="flex items-center gap-1 text-gray-500 hover:text-red-600 text-sm transition-colors"
+          title="Sign Out"
+        >
+          <LogOut className="w-4 h-4" />
+        </button>
+      </div>
+    </header>
+  )
+}
 
-      {/* Main Content */}
-      <main className={user ? "flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8" : "flex-1"}>
-        <Routes>
-          {/* Public routes */}
-          <Route path="/login" element={<Login />} />
-          <Route path="/reset-password" element={<ResetPassword />} />
-          <Route path="/privacy" element={<Privacy />} />
-          <Route path="/terms" element={<Terms />} />
+function AppLayout() {
+  const { user } = useAuth()
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
-          {/* Protected routes */}
-          <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-          <Route path="/run" element={<ProtectedRoute><RunReconciliation /></ProtectedRoute>} />
-          <Route path="/month-end-closeouts" element={<ProtectedRoute><MonthEndCloseouts /></ProtectedRoute>} />
-          <Route path="/project-closeouts" element={<ProtectedRoute><ProjectCloseouts /></ProtectedRoute>} />
-          <Route path="/soft-closed" element={<ProtectedRoute><SoftClosedProjects /></ProtectedRoute>} />
-          <Route path="/wip-reports" element={<ProtectedRoute><WIPReports /></ProtectedRoute>} />
-          <Route path="/project/:projectId" element={<ProtectedRoute><ProjectDetail /></ProtectedRoute>} />
-          <Route path="/report/:reportId" element={<ProtectedRoute><ReportDetail /></ProtectedRoute>} />
-          <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
-        </Routes>
-      </main>
+  // Public routes (no sidebar)
+  if (!user) {
+    return (
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/privacy" element={<Privacy />} />
+        <Route path="/terms" element={<Terms />} />
+        <Route path="*" element={<Login />} />
+      </Routes>
+    )
+  }
 
-      {/* Footer - only show when logged in */}
-      {user && (
-        <footer className="bg-white border-t border-gray-200">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-            <div className="flex justify-center items-center space-x-4 text-sm text-gray-500">
-              <span>Procore-QuickBooks Financial Closeout Reconciliation</span>
-              <span>|</span>
-              <Link to="/privacy" className="hover:text-gray-700">Privacy Policy</Link>
-              <span>|</span>
-              <Link to="/terms" className="hover:text-gray-700">Terms of Service</Link>
-            </div>
-          </div>
-        </footer>
-      )}
+  return (
+    <div className="flex min-h-screen">
+      <Sidebar collapsed={sidebarCollapsed} setCollapsed={setSidebarCollapsed} />
+      <div className="flex-1 flex flex-col min-h-screen">
+        <TopBar />
+        <main className="flex-1 p-6 overflow-auto bg-gray-50">
+          <Routes>
+            <Route path="/" element={<ProtectedRoute><CompanyOverview /></ProtectedRoute>} />
+            <Route path="/projects" element={<ProtectedRoute><ProjectPortfolio /></ProtectedRoute>} />
+            <Route path="/projects/:projectId" element={<ProtectedRoute><ProjectDeepDive /></ProtectedRoute>} />
+            <Route path="/financials" element={<ProtectedRoute><FinancialHealth /></ProtectedRoute>} />
+            <Route path="/resources" element={<ProtectedRoute><ResourceManagement /></ProtectedRoute>} />
+            <Route path="/reconciliation" element={<ProtectedRoute><Reconciliation /></ProtectedRoute>} />
+            <Route path="/compliance" element={<ProtectedRoute><ComplianceRisk /></ProtectedRoute>} />
+            <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+            <Route path="/privacy" element={<Privacy />} />
+            <Route path="/terms" element={<Terms />} />
+          </Routes>
+        </main>
+      </div>
     </div>
   )
 }

@@ -8,11 +8,8 @@ interface AuthContextType {
   user: User | null
   session: Session | null
   loading: boolean
-  signIn: (email: string, password: string) => Promise<{ error: string | null }>
-  signUp: (email: string, password: string) => Promise<{ error: string | null }>
+  sendMagicLink: (email: string) => Promise<{ error: string | null }>
   signOut: () => Promise<void>
-  resetPassword: (email: string) => Promise<{ error: string | null }>
-  updatePassword: (newPassword: string) => Promise<{ error: string | null }>
   isAllowedEmail: (email: string) => boolean
 }
 
@@ -24,14 +21,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
       setUser(session?.user ?? null)
       setLoading(false)
     })
 
-    // Listen for auth changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -48,31 +43,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return domain === ALLOWED_DOMAIN
   }
 
-  const signIn = async (email: string, password: string): Promise<{ error: string | null }> => {
+  const sendMagicLink = async (email: string): Promise<{ error: string | null }> => {
     if (!isAllowedEmail(email)) {
       return { error: `Only @${ALLOWED_DOMAIN} email addresses are allowed.` }
     }
 
-    const { error } = await supabase.auth.signInWithPassword({
+    const { error } = await supabase.auth.signInWithOtp({
       email,
-      password,
-    })
-
-    if (error) {
-      return { error: error.message }
-    }
-
-    return { error: null }
-  }
-
-  const signUp = async (email: string, password: string): Promise<{ error: string | null }> => {
-    if (!isAllowedEmail(email)) {
-      return { error: `Only @${ALLOWED_DOMAIN} email addresses are allowed to create accounts.` }
-    }
-
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
+      options: {
+        emailRedirectTo: window.location.origin,
+      },
     })
 
     if (error) {
@@ -86,43 +66,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut()
   }
 
-  const resetPassword = async (email: string): Promise<{ error: string | null }> => {
-    if (!isAllowedEmail(email)) {
-      return { error: `Only @${ALLOWED_DOMAIN} email addresses are allowed.` }
-    }
-
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
-    })
-
-    if (error) {
-      return { error: error.message }
-    }
-
-    return { error: null }
-  }
-
-  const updatePassword = async (newPassword: string): Promise<{ error: string | null }> => {
-    const { error } = await supabase.auth.updateUser({
-      password: newPassword,
-    })
-
-    if (error) {
-      return { error: error.message }
-    }
-
-    return { error: null }
-  }
-
   const value = {
     user,
     session,
     loading,
-    signIn,
-    signUp,
+    sendMagicLink,
     signOut,
-    resetPassword,
-    updatePassword,
     isAllowedEmail,
   }
 
