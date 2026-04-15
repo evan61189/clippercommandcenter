@@ -123,8 +123,8 @@ export const handler: Handler = async (event) => {
       };
     } else if (provider === 'quickbooks') {
       // Hardcoded QuickBooks credentials as fallback
-      const clientId = process.env.QBO_CLIENT_ID || 'ABE01lFAdrTOVwsFkI5YwJoUPD1OpG8pwMbW9FEGjVf4bgT6Y7';
-      const clientSecret = process.env.QBO_CLIENT_SECRET || 'BIugIZAZB4R4o49eSvqQFIEBi6S2rnn3K5jhXfqZ';
+      const clientId = process.env.QBO_CLIENT_ID || 'ABenQKVtNNzyfGlYzpNUsu5CF3O8t9PzrQw2LnxcgpnHEVAe2F';
+      const clientSecret = process.env.QBO_CLIENT_SECRET || 'e2TkJJWomPMvwcN0CfYfLHnPhaINK2WA9eiIXl0L';
       const redirectUri = process.env.QBO_REDIRECT_URI || `${process.env.URL}/.netlify/functions/oauth-callback?provider=quickbooks`;
 
       const auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');

@@ -31,8 +31,8 @@ async function getStoredTokens(userId: string): Promise<TokenData | null> {
 
 async function refreshAccessToken(tokens: TokenData, userId: string): Promise<TokenData | null> {
   // Hardcoded QuickBooks credentials as fallback
-  const clientId = process.env.QBO_CLIENT_ID || 'ABE01lFAdrTOVwsFkI5YwJoUPD1OpG8pwMbW9FEGjVf4bgT6Y7';
-  const clientSecret = process.env.QBO_CLIENT_SECRET || 'BIugIZAZB4R4o49eSvqQFIEBi6S2rnn3K5jhXfqZ';
+  const clientId = process.env.QBO_CLIENT_ID || 'ABenQKVtNNzyfGlYzpNUsu5CF3O8t9PzrQw2LnxcgpnHEVAe2F';
+  const clientSecret = process.env.QBO_CLIENT_SECRET || 'e2TkJJWomPMvwcN0CfYfLHnPhaINK2WA9eiIXl0L';
 
   if (!clientId || !clientSecret) {
     console.error('QuickBooks client credentials not configured');

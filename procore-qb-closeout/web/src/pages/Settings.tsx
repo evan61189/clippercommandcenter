@@ -182,7 +182,7 @@ export default function Settings() {
   }
 
   function connectQuickBooks() {
-    const clientId = import.meta.env.VITE_QBO_CLIENT_ID || 'ABE01lFAdrTOVwsFkI5YwJoUPD1OpG8pwMbW9FEGjVf4bgT6Y7'
+    const clientId = import.meta.env.VITE_QBO_CLIENT_ID || 'ABenQKVtNNzyfGlYzpNUsu5CF3O8t9PzrQw2LnxcgpnHEVAe2F'
     const redirectUri = `${window.location.origin}/.netlify/functions/oauth-callback?provider=quickbooks`
     const scope = 'com.intuit.quickbooks.accounting'
 
