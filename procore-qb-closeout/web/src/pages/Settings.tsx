@@ -161,6 +161,13 @@ export default function Settings() {
     }
   }
 
+  function generateCsrfState(provider: string): string {
+    const nonce = crypto.randomUUID()
+    const state = JSON.stringify({ userId, nonce, provider })
+    sessionStorage.setItem('oauth_csrf_state', state)
+    return btoa(state)
+  }
+
   function connectProcore() {
     const clientId = import.meta.env.VITE_PROCORE_CLIENT_ID || '5m6ntNDYctNihGwfspa4OiG6EXHXx1HCXSHRVetAb7k'
     const redirectUri = `${window.location.origin}/.netlify/functions/oauth-callback?provider=procore`
@@ -169,7 +176,7 @@ export default function Settings() {
     authUrl.searchParams.set('client_id', clientId)
     authUrl.searchParams.set('response_type', 'code')
     authUrl.searchParams.set('redirect_uri', redirectUri)
-    authUrl.searchParams.set('state', userId)
+    authUrl.searchParams.set('state', generateCsrfState('procore'))
 
     window.location.href = authUrl.toString()
   }
@@ -184,7 +191,7 @@ export default function Settings() {
     authUrl.searchParams.set('response_type', 'code')
     authUrl.searchParams.set('redirect_uri', redirectUri)
     authUrl.searchParams.set('scope', scope)
-    authUrl.searchParams.set('state', userId)
+    authUrl.searchParams.set('state', generateCsrfState('quickbooks'))
 
     window.location.href = authUrl.toString()
   }

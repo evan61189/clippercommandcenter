@@ -12,15 +12,31 @@ const QBO_TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer
 export const handler: Handler = async (event) => {
   const { provider } = event.queryStringParameters || {};
   const code = event.queryStringParameters?.code;
-  const state = event.queryStringParameters?.state; // Contains userId
+  const rawState = event.queryStringParameters?.state;
   const realmId = event.queryStringParameters?.realmId; // QuickBooks company ID
 
-  if (!provider || !code || !state) {
+  if (!provider || !code || !rawState) {
     return {
       statusCode: 302,
       headers: { Location: '/?error=missing_params' },
       body: '',
     };
+  }
+
+  // Parse CSRF state — supports both new JSON format and legacy plain userId
+  let state: string;
+  try {
+    const decoded = JSON.parse(Buffer.from(rawState, 'base64').toString('utf-8'));
+    if (!decoded.userId || !decoded.nonce) {
+      console.error('Invalid CSRF state: missing fields');
+      return { statusCode: 302, headers: { Location: '/?error=csrf_invalid' }, body: '' };
+    }
+    state = decoded.userId;
+    console.log(`OAuth callback with CSRF nonce for provider=${decoded.provider}, userId=${state}`);
+  } catch {
+    // Legacy fallback: state is just the raw userId string
+    state = rawState;
+    console.log('OAuth callback with legacy state (no CSRF nonce)');
   }
 
   try {
