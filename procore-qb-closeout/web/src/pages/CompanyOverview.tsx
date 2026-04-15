@@ -101,6 +101,7 @@ export default function CompanyOverview() {
   const [staff, setStaff] = useState<StaffMember[]>([])
   const [wipData, setWipData] = useState<WipRow[]>([])
   const [actionItems, setActionItems] = useState<ActionItem[]>([])
+  const [cashOnHand, setCashOnHand] = useState<number>(0)
   const [loading, setLoading] = useState(true)
   const [_hasProcore, setHasProcore] = useState(false)
   const [hasQB, setHasQB] = useState(false)
@@ -109,7 +110,8 @@ export default function CompanyOverview() {
   const totalContractValue = wipData.reduce((s, w) => s + (w.revised_contract_value || 0), 0)
   const totalBilled = wipData.reduce((s, w) => s + (w.total_billed || 0), 0)
   const totalCost = wipData.reduce((s, w) => s + (w.total_cost || 0), 0)
-  const companyMargin = totalContractValue > 0 ? ((totalContractValue - totalCost) / totalContractValue) * 100 : 0
+  const hasCostData = totalCost > 0
+  const companyMargin = hasCostData && totalContractValue > 0 ? ((totalContractValue - totalCost) / totalContractValue) * 100 : 0
 
   useEffect(() => {
     loadData()
@@ -130,6 +132,12 @@ export default function CompanyOverview() {
       // Load WIP data
       const { data: wipRows } = await supabase.from('wip_schedule').select('*')
       if (wipRows) setWipData(wipRows)
+
+      // Load bank balances for cash position
+      const { data: bankData } = await supabase.from('qb_bank_balances').select('current_balance')
+      if (bankData) {
+        setCashOnHand(bankData.reduce((s: number, b: any) => s + (b.current_balance || 0), 0))
+      }
 
       // Load action items (overdue RFIs, pending invoices, etc.)
       const items: ActionItem[] = []
@@ -251,22 +259,21 @@ export default function CompanyOverview() {
         />
         <StatCard
           label="Billed to Date"
-          value={hasProjectData ? formatCurrency(totalBilled) : '—'}
+          value={totalBilled > 0 ? formatCurrency(totalBilled) : '—'}
           icon={FileText}
-          subtitle={hasProjectData ? `${totalContractValue > 0 ? ((totalBilled / totalContractValue) * 100).toFixed(0) : 0}% of contract` : undefined}
+          subtitle={totalBilled > 0 ? `${totalContractValue > 0 ? ((totalBilled / totalContractValue) * 100).toFixed(0) : 0}% of contract` : 'Awaiting billing data'}
         />
         <StatCard
           label="Cash Position"
-          value={hasQB ? formatCurrency(0) : '—'}
+          value={cashOnHand > 0 ? formatCurrency(cashOnHand) : (hasQB ? '$0' : '—')}
           icon={Wallet}
-          subtitle={hasQB ? 'From QuickBooks' : 'Connect QuickBooks'}
+          subtitle={cashOnHand > 0 ? 'From QuickBooks' : (hasQB ? 'Sync QuickBooks' : 'Connect QuickBooks')}
         />
         <StatCard
           label="Company Margin"
-          value={hasProjectData ? formatPercent(companyMargin) : '—'}
+          value={hasCostData ? formatPercent(companyMargin) : '—'}
           icon={TrendingUp}
-          subtitle={hasProjectData ? formatCurrency(totalContractValue - totalCost) + ' projected profit' : undefined}
-          color={companyMargin > 10 ? 'default' : 'default'}
+          subtitle={hasCostData ? formatCurrency(totalContractValue - totalCost) + ' projected profit' : 'Awaiting cost data'}
         />
         <StatCard
           label="Action Items"
@@ -310,6 +317,8 @@ export default function CompanyOverview() {
                   {wipData.map((row) => {
                     const overUnder = row.over_under_billing || 0
                     const margin = row.gross_margin_percent || 0
+                    const rowHasCost = (row.total_cost || 0) > 0
+                    const rowHasBilled = (row.total_billed || 0) > 0
                     return (
                       <tr key={row.project_id} className="border-b border-gray-100 hover:bg-gray-50">
                         <td className="py-2.5 pr-4">
@@ -319,11 +328,13 @@ export default function CompanyOverview() {
                           {row.code && <p className="text-xs text-gray-500">{row.project_name}</p>}
                         </td>
                         <td className="py-2.5 px-3 text-right font-medium">{formatCurrency(row.revised_contract_value)}</td>
-                        <td className="py-2.5 px-3 text-right">{formatCurrency(row.total_billed)}</td>
-                        <td className={`py-2.5 px-3 text-right font-medium ${overUnder > 0 ? 'text-amber-600' : overUnder < 0 ? 'text-red-600' : ''}`}>
-                          {formatCurrency(overUnder)}
+                        <td className="py-2.5 px-3 text-right text-gray-500">{rowHasBilled ? formatCurrency(row.total_billed) : '—'}</td>
+                        <td className={`py-2.5 px-3 text-right font-medium ${overUnder > 0 ? 'text-amber-600' : overUnder < 0 ? 'text-red-600' : 'text-gray-400'}`}>
+                          {rowHasBilled || rowHasCost ? formatCurrency(overUnder) : '—'}
                         </td>
-                        <td className="py-2.5 px-3 text-right"><MarginColor value={margin} /></td>
+                        <td className="py-2.5 px-3 text-right">
+                          {rowHasCost ? <MarginColor value={margin} /> : <span className="text-gray-400">—</span>}
+                        </td>
                       </tr>
                     )
                   })}
@@ -332,9 +343,11 @@ export default function CompanyOverview() {
                   <tr className="border-t-2 border-gray-300 font-semibold">
                     <td className="py-2.5 pr-4">Total ({wipData.length} projects)</td>
                     <td className="py-2.5 px-3 text-right">{formatCurrency(totalContractValue)}</td>
-                    <td className="py-2.5 px-3 text-right">{formatCurrency(totalBilled)}</td>
-                    <td className="py-2.5 px-3 text-right">—</td>
-                    <td className="py-2.5 px-3 text-right"><MarginColor value={companyMargin} /></td>
+                    <td className="py-2.5 px-3 text-right text-gray-500">{totalBilled > 0 ? formatCurrency(totalBilled) : '—'}</td>
+                    <td className="py-2.5 px-3 text-right text-gray-400">—</td>
+                    <td className="py-2.5 px-3 text-right">
+                      {hasCostData ? <MarginColor value={companyMargin} /> : <span className="text-gray-400">—</span>}
+                    </td>
                   </tr>
                 </tfoot>
               </table>

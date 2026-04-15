@@ -52,8 +52,8 @@ export default function FinancialHealth() {
     async function load() {
       const [wipRes, arRes, apRes, bankRes] = await Promise.all([
         supabase.from('wip_schedule').select('*'),
-        supabase.from('qb_ar_aging').select('*').order('days_past_due', { ascending: false }).limit(20),
-        supabase.from('qb_ap_aging').select('*').order('days_past_due', { ascending: false }).limit(20),
+        supabase.from('qb_ar_aging').select('*').gt('amount', 0).order('days_past_due', { ascending: false }).limit(50),
+        supabase.from('qb_ap_aging').select('*').gt('amount', 0).order('days_past_due', { ascending: false }).limit(50),
         supabase.from('qb_bank_balances').select('*').order('current_balance', { ascending: false }),
       ])
       if (wipRes.data) setWip(wipRes.data)
@@ -80,7 +80,8 @@ export default function FinancialHealth() {
   const totalBilled = wip.reduce((s, r) => s + (r.total_billed || 0), 0)
   const totalCost = wip.reduce((s, r) => s + (r.total_cost || 0), 0)
   const totalOverUnder = wip.reduce((s, r) => s + (r.over_under_billing || 0), 0)
-  const overallMargin = totalContract > 0 ? ((totalContract - totalCost) / totalContract) * 100 : 0
+  const hasCostData = totalCost > 0
+  const overallMargin = hasCostData && totalContract > 0 ? ((totalContract - totalCost) / totalContract) * 100 : 0
   const cashOnHand = bank.reduce((s, b) => s + (b.current_balance || 0), 0)
   const arTotal = ar.reduce((s, r) => s + (r.amount || 0), 0)
   const apTotal = ap.reduce((s, r) => s + (r.amount || 0), 0)
@@ -123,22 +124,22 @@ export default function FinancialHealth() {
         </div>
         <div className="stat-card">
           <div className="text-xs font-medium text-gray-500 uppercase tracking-wider">Total Billed</div>
-          <div className="text-xl font-bold mt-1">{fmt(totalBilled)}</div>
+          <div className="text-xl font-bold mt-1">{totalBilled > 0 ? fmt(totalBilled) : '—'}</div>
         </div>
         <div className="stat-card">
           <div className="text-xs font-medium text-gray-500 uppercase tracking-wider">Total Cost</div>
-          <div className="text-xl font-bold mt-1">{fmt(totalCost)}</div>
+          <div className="text-xl font-bold mt-1">{totalCost > 0 ? fmt(totalCost) : '—'}</div>
         </div>
         <div className="stat-card">
           <div className="text-xs font-medium text-gray-500 uppercase tracking-wider">Over/Under</div>
-          <div className={`text-xl font-bold mt-1 ${totalOverUnder >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-            {fmt(totalOverUnder)}
+          <div className={`text-xl font-bold mt-1 ${hasCostData ? (totalOverUnder >= 0 ? 'text-emerald-600' : 'text-red-600') : 'text-gray-400'}`}>
+            {hasCostData ? fmt(totalOverUnder) : '—'}
           </div>
         </div>
         <div className="stat-card">
           <div className="text-xs font-medium text-gray-500 uppercase tracking-wider">Gross Margin</div>
-          <div className={`text-xl font-bold mt-1 ${marginColor(overallMargin)}`}>
-            {overallMargin.toFixed(1)}%
+          <div className={`text-xl font-bold mt-1 ${hasCostData ? marginColor(overallMargin) : 'text-gray-400'}`}>
+            {hasCostData ? `${overallMargin.toFixed(1)}%` : '—'}
           </div>
         </div>
         <div className="stat-card">
@@ -167,20 +168,24 @@ export default function FinancialHealth() {
                 </tr>
               </thead>
               <tbody>
-                {wip.map((r) => (
-                  <tr key={r.project_id} className="border-b border-gray-100 hover:bg-gray-50">
-                    <td className="py-3 pr-4 font-medium">{r.project_name}</td>
-                    <td className="py-3 px-3 text-right">{fmt(r.revised_contract_value)}</td>
-                    <td className="py-3 px-3 text-right">{fmt(r.total_billed)}</td>
-                    <td className="py-3 px-3 text-right">{fmt(r.total_cost)}</td>
-                    <td className={`py-3 px-3 text-right font-medium ${(r.over_under_billing || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                      {fmt(r.over_under_billing)}
-                    </td>
-                    <td className={`py-3 px-3 text-right font-medium ${marginColor(r.gross_margin_percent || 0)}`}>
-                      {(r.gross_margin_percent || 0).toFixed(1)}%
-                    </td>
-                  </tr>
-                ))}
+                {wip.map((r) => {
+                  const rowHasCost = (r.total_cost || 0) > 0
+                  const rowHasBilled = (r.total_billed || 0) > 0
+                  return (
+                    <tr key={r.project_id} className="border-b border-gray-100 hover:bg-gray-50">
+                      <td className="py-3 pr-4 font-medium">{r.project_name}</td>
+                      <td className="py-3 px-3 text-right">{fmt(r.revised_contract_value)}</td>
+                      <td className="py-3 px-3 text-right text-gray-500">{rowHasBilled ? fmt(r.total_billed) : '—'}</td>
+                      <td className="py-3 px-3 text-right text-gray-500">{rowHasCost ? fmt(r.total_cost) : '—'}</td>
+                      <td className={`py-3 px-3 text-right font-medium ${rowHasCost || rowHasBilled ? ((r.over_under_billing || 0) >= 0 ? 'text-emerald-600' : 'text-red-600') : 'text-gray-400'}`}>
+                        {rowHasCost || rowHasBilled ? fmt(r.over_under_billing) : '—'}
+                      </td>
+                      <td className={`py-3 px-3 text-right font-medium ${rowHasCost ? marginColor(r.gross_margin_percent || 0) : 'text-gray-400'}`}>
+                        {rowHasCost ? `${(r.gross_margin_percent || 0).toFixed(1)}%` : '—'}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
