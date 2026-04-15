@@ -154,7 +154,7 @@ export const handler: Handler = async (event) => {
     if (!tokens) return { statusCode: 401, headers, body: JSON.stringify({ error: 'QuickBooks not connected' }) };
 
     const now = new Date();
-    let arCount = 0, apCount = 0, bankCount = 0;
+    let arCount = 0, apCount = 0, bankCount = 0, jobCostCount = 0, mapCount = 0;
 
     // --- Fetch ALL invoices and bills with pagination, plus bank accounts ---
     const [invoices, bills, accountRes] = await Promise.all([
@@ -165,6 +165,13 @@ export const handler: Handler = async (event) => {
 
     const bankAccounts = accountRes.Account || [];
     console.log(`QB fetched: ${invoices.length} invoices, ${bills.length} bills, ${bankAccounts.length} bank accounts`);
+
+    // --- Load project_customer_map for cost allocation ---
+    const { data: mapData } = await supabase.from('project_customer_map').select('project_id, qb_customer_name');
+    const customerToProject: Record<string, string> = {};
+    for (const m of mapData || []) {
+      customerToProject[m.qb_customer_name.toLowerCase()] = m.project_id;
+    }
 
     // --- Process AR (Invoices) ---
     await supabase.from('qb_ar_aging').delete().neq('id', '00000000-0000-0000-0000-000000000000');
@@ -183,7 +190,6 @@ export const handler: Handler = async (event) => {
       };
     });
 
-    // Batch insert in chunks of 500
     for (let i = 0; i < arRows.length; i += 500) {
       const chunk = arRows.slice(i, i + 500);
       const { error } = await supabase.from('qb_ar_aging').insert(chunk);
@@ -215,6 +221,85 @@ export const handler: Handler = async (event) => {
       else console.error('AP insert error:', error.message);
     }
 
+    // --- Extract per-project job costs from bill line items ---
+    // QB bills can have CustomerRef on line items (Customer:Job tracking)
+    await supabase.from('qb_job_costs').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+
+    const jobCostRows: any[] = [];
+    for (const bill of bills) {
+      const vendorName = bill.VendorRef?.name || 'Unknown Vendor';
+      const billDate = bill.TxnDate;
+      const lines = bill.Line || [];
+
+      for (const line of lines) {
+        // Skip subtotal lines
+        if (line.DetailType === 'SubTotalLineDetail') continue;
+
+        // Check for CustomerRef on the line item (AccountBasedExpenseLineDetail or ItemBasedExpenseLineDetail)
+        const detail = line.AccountBasedExpenseLineDetail || line.ItemBasedExpenseLineDetail || {};
+        const customerRef = detail.CustomerRef;
+
+        if (customerRef?.name) {
+          const customerName = customerRef.name;
+          const projectId = customerToProject[customerName.toLowerCase()];
+
+          if (projectId) {
+            jobCostRows.push({
+              project_id: projectId,
+              cost_code: detail.AccountRef?.name || detail.ItemRef?.name || 'General',
+              description: line.Description || `${vendorName} - ${bill.DocNumber || bill.Id}`,
+              vendor: vendorName,
+              amount: line.Amount || 0,
+              date: billDate,
+              category: detail.AccountRef?.name || 'Uncategorized',
+              qb_txn_id: String(bill.Id),
+            });
+          }
+        }
+      }
+    }
+
+    // Batch insert job costs
+    for (let i = 0; i < jobCostRows.length; i += 500) {
+      const chunk = jobCostRows.slice(i, i + 500);
+      const { error } = await supabase.from('qb_job_costs').insert(chunk);
+      if (!error) jobCostCount += chunk.length;
+      else console.error('Job cost insert error:', error.message);
+    }
+
+    // --- Auto-update project_customer_map with new exact matches ---
+    const allCustomerNames = [...new Set(invoices.map((inv: any) => inv.CustomerRef?.name).filter(Boolean))];
+    const { data: existingMap } = await supabase.from('project_customer_map').select('qb_customer_name');
+    const mappedNames = new Set((existingMap || []).map((m: any) => m.qb_customer_name));
+    const unmappedCustomers = allCustomerNames.filter((name: string) => !mappedNames.has(name));
+
+    if (unmappedCustomers.length > 0) {
+      const { data: projects } = await supabase.from('projects').select('id, name');
+      const projectsByNameLower: Record<string, string> = {};
+      for (const p of projects || []) {
+        projectsByNameLower[p.name.toLowerCase()] = p.id;
+      }
+
+      const newMappings: any[] = [];
+      for (const custName of unmappedCustomers) {
+        // Exact match (case-insensitive)
+        const projectId = projectsByNameLower[custName.toLowerCase()];
+        if (projectId) {
+          newMappings.push({
+            project_id: projectId,
+            qb_customer_name: custName,
+            match_type: custName === (projects || []).find((p: any) => p.id === projectId)?.name ? 'exact' : 'case_insensitive',
+          });
+        }
+      }
+
+      if (newMappings.length > 0) {
+        const { error: mapErr } = await supabase.from('project_customer_map').upsert(newMappings, { onConflict: 'qb_customer_name' });
+        if (!mapErr) mapCount = newMappings.length;
+        else console.error('Map upsert error:', mapErr.message);
+      }
+    }
+
     // --- Process Bank Balances ---
     await supabase.from('qb_bank_balances').delete().neq('id', '00000000-0000-0000-0000-000000000000');
 
@@ -228,7 +313,7 @@ export const handler: Handler = async (event) => {
     if (!bankErr) bankCount = bankRows.length;
     else console.error('Bank insert error:', bankErr.message);
 
-    console.log(`QB Sync: ${arCount} AR, ${apCount} AP, ${bankCount} bank accounts`);
+    console.log(`QB Sync: ${arCount} AR, ${apCount} AP, ${jobCostCount} job costs, ${bankCount} bank, ${mapCount} new mappings`);
 
     return {
       statusCode: 200,
@@ -238,7 +323,9 @@ export const handler: Handler = async (event) => {
         synced: {
           ar_invoices: arCount,
           ap_bills: apCount,
+          job_costs: jobCostCount,
           bank_accounts: bankCount,
+          new_mappings: mapCount,
         },
       }),
     };

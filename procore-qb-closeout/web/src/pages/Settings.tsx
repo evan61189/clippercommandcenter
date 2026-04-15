@@ -119,7 +119,11 @@ export default function Settings() {
 
       if (!res.ok) throw new Error(result.error || 'QB Sync failed')
 
-      setMessage(`QuickBooks sync complete! ${result.synced?.ar_invoices || 0} invoices, ${result.synced?.ap_bills || 0} bills, ${result.synced?.bank_accounts || 0} bank accounts synced.`)
+      const s = result.synced || {}
+      const parts = [`${s.ar_invoices || 0} invoices`, `${s.ap_bills || 0} bills`, `${s.bank_accounts || 0} bank accounts`]
+      if (s.job_costs > 0) parts.push(`${s.job_costs} job costs`)
+      if (s.new_mappings > 0) parts.push(`${s.new_mappings} new project mappings`)
+      setMessage(`QuickBooks sync complete! ${parts.join(', ')} synced.`)
       setMessageType('success')
       setTimeout(() => setMessage(null), 8000)
     } catch (err: any) {
