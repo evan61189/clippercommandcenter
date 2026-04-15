@@ -80,12 +80,22 @@ async function qboRequest(endpoint: string, tokens: TokenData, userId: string): 
     },
   });
 
+  const intuitTid = res.headers.get('intuit_tid');
+  if (intuitTid) {
+    console.log(`QB API [${endpoint}] intuit_tid: ${intuitTid}`);
+  }
+
   if (res.status === 401) {
+    console.log(`QB 401 error, intuit_tid: ${intuitTid || 'not provided'}`);
     const refreshed = await refreshAccessToken(tokens, userId);
     if (refreshed) return qboRequest(endpoint, refreshed, userId);
-    throw new Error('QB auth failed');
+    throw new Error(`QB auth failed (intuit_tid: ${intuitTid || 'N/A'})`);
   }
-  if (!res.ok) throw new Error(`QB API ${res.status}`);
+  if (!res.ok) {
+    const errBody = await res.text();
+    console.error(`QB API error: ${res.status}, intuit_tid: ${intuitTid}, body: ${errBody}`);
+    throw new Error(`QB API ${res.status} (intuit_tid: ${intuitTid || 'N/A'})`);
+  }
   return res.json();
 }
 
