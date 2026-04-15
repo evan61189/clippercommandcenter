@@ -1,5 +1,5 @@
 import { useParams, Link } from 'react-router-dom'
-import { ArrowLeft, DollarSign, Calendar, AlertTriangle, CheckCircle2, Clock, FileQuestion, ClipboardList, CheckSquare, Users, TrendingUp, TrendingDown, AlertCircle, Mail } from 'lucide-react'
+import { ArrowLeft, DollarSign, Calendar, AlertTriangle, CheckCircle2, FileQuestion, ClipboardList, CheckSquare, Users, TrendingUp, AlertCircle, Mail } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -135,7 +135,6 @@ export default function ProjectDeepDive() {
   const closedPunch = punch.filter(p => ['Closed', 'closed'].includes(p.status))
 
   const schedulePct = pctComplete(project.start_date, project.estimated_completion_date)
-  const totalDays = daysBetween(project.start_date, project.estimated_completion_date)
   const daysRemaining = project.estimated_completion_date ? Math.max(0, Math.floor((new Date(project.estimated_completion_date).getTime() - Date.now()) / 86400000)) : null
 
   // --- Auto-generated action items ---
@@ -363,7 +362,6 @@ export default function ProjectDeepDive() {
               <div className="space-y-1.5">
                 {topSubs.map((sub) => {
                   // Find any pending COs for this sub
-                  const subCOs = cos.filter(c => c.change_type === 'commitment')
                   return (
                     <div key={sub.id} className="flex items-center justify-between py-1 text-sm">
                       <div className="flex items-center gap-2 min-w-0">

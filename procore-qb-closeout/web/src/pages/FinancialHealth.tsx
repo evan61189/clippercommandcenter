@@ -97,8 +97,9 @@ export default function FinancialHealth() {
   const cashOnHand = bank.reduce((s, b) => s + (b.current_balance || 0), 0)
   const arTotal = ar.reduce((s, r) => s + (r.amount || 0), 0)
   const apTotal = ap.reduce((s, r) => s + (r.amount || 0), 0)
-  const totalOpenRfis = wip.reduce((s, r) => s + (r.open_rfis || 0), 0)
-  const totalOpenPunch = wip.reduce((s, r) => s + (r.open_punch_items || 0), 0)
+  // Available for future use: risk summary counts
+  // const totalOpenRfis = wip.reduce((s, r) => s + (r.open_rfis || 0), 0)
+  // const totalOpenPunch = wip.reduce((s, r) => s + (r.open_punch_items || 0), 0)
 
   if (!hasData) {
     return (
