@@ -28,6 +28,11 @@ async function getStoredTokens(userId: string): Promise<TokenData | null> {
 async function refreshAccessToken(tokens: TokenData, userId: string): Promise<TokenData | null> {
   const clientId = process.env.PROCORE_CLIENT_ID || '5m6ntNDYctNihGwfspa4OiG6EXHXx1HCXSHRVetAb7k';
   const clientSecret = process.env.PROCORE_CLIENT_SECRET || 'z-aqwtz7agk1fyEyXW10zsV4SGKrjNP58bGqXgD4vd0';
+  const redirectUri = process.env.PROCORE_REDIRECT_URI || `${process.env.URL || 'https://clipper-command-terminal.netlify.app'}/.netlify/functions/oauth-callback?provider=procore`;
+
+  console.log('Refreshing Procore token for user:', userId);
+  console.log('Refresh token exists:', !!tokens.refresh_token);
+  console.log('Token expires_at:', tokens.expires_at);
 
   const response = await fetch(`${PROCORE_BASE_URL}/oauth/token`, {
     method: 'POST',
@@ -37,10 +42,15 @@ async function refreshAccessToken(tokens: TokenData, userId: string): Promise<To
       refresh_token: tokens.refresh_token,
       client_id: clientId,
       client_secret: clientSecret,
+      redirect_uri: redirectUri,
     }),
   });
 
-  if (!response.ok) return null;
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('Procore token refresh failed:', response.status, errorText);
+    return null;
+  }
 
   const data = await response.json();
   const newTokens: TokenData = {
@@ -87,9 +97,10 @@ async function procoreGet(endpoint: string, tokens: TokenData, params?: Record<s
     clearTimeout(timeoutId);
 
     if (res.status === 401 && userId) {
+      console.log('Got 401, attempting token refresh...');
       const refreshed = await refreshAccessToken(tokens, userId);
       if (refreshed) return procoreGet(endpoint, refreshed, params, userId);
-      throw new Error('Auth failed');
+      throw new Error('Auth failed — your Procore session has expired. Please disconnect and reconnect in Settings.');
     }
     if (res.status === 403 || res.status === 404) return []; // Graceful skip
     if (!res.ok) throw new Error(`Procore ${res.status}`);
