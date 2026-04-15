@@ -133,6 +133,19 @@ export default function Settings() {
 
   async function disconnect(provider: 'procore' | 'quickbooks') {
     try {
+      // If QuickBooks, revoke token with Intuit first
+      if (provider === 'quickbooks') {
+        try {
+          await fetch('/.netlify/functions/quickbooks-revoke', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId }),
+          })
+        } catch (e) {
+          console.warn('Token revocation failed, proceeding with local disconnect')
+        }
+      }
+
       await supabase
         .from('api_credentials')
         .delete()
