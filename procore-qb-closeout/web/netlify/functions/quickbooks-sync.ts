@@ -105,6 +105,30 @@ async function qboQuery(query: string, tokens: TokenData, userId: string): Promi
   return response.QueryResponse || {};
 }
 
+async function paginatedQuery(
+  baseQuery: string,
+  entityName: string,
+  tokens: TokenData,
+  userId: string
+): Promise<any[]> {
+  const allData: any[] = [];
+  let startPos = 1;
+  const pageSize = 1000;
+
+  while (true) {
+    const query = `${baseQuery} STARTPOSITION ${startPos} MAXRESULTS ${pageSize}`;
+    const response = await qboQuery(query, tokens, userId);
+    const entities = response[entityName] || [];
+
+    if (entities.length === 0) break;
+    allData.push(...entities);
+    if (entities.length < pageSize) break;
+    startPos += pageSize;
+  }
+
+  return allData;
+}
+
 function getAgingBucket(daysPastDue: number): string {
   if (daysPastDue <= 0) return 'Current';
   if (daysPastDue <= 30) return '1-30 Days';
@@ -132,67 +156,77 @@ export const handler: Handler = async (event) => {
     const now = new Date();
     let arCount = 0, apCount = 0, bankCount = 0;
 
-    // --- Fetch open invoices (AR) and unpaid bills (AP) in parallel ---
-    const [invoiceRes, billRes, accountRes] = await Promise.all([
-      qboQuery("SELECT * FROM Invoice WHERE Balance != '0' MAXRESULTS 100", tokens, userId),
-      qboQuery("SELECT * FROM Bill WHERE Balance != '0' MAXRESULTS 100", tokens, userId),
-      qboQuery("SELECT * FROM Account WHERE AccountType = 'Bank' AND Active = true MAXRESULTS 20", tokens, userId),
+    // --- Fetch ALL invoices and bills with pagination, plus bank accounts ---
+    const [invoices, bills, accountRes] = await Promise.all([
+      paginatedQuery('SELECT * FROM Invoice', 'Invoice', tokens, userId),
+      paginatedQuery('SELECT * FROM Bill', 'Bill', tokens, userId),
+      qboQuery("SELECT * FROM Account WHERE AccountType = 'Bank' AND Active = true MAXRESULTS 50", tokens, userId),
     ]);
 
-    const invoices = invoiceRes.Invoice || [];
-    const bills = billRes.Bill || [];
     const bankAccounts = accountRes.Account || [];
+    console.log(`QB fetched: ${invoices.length} invoices, ${bills.length} bills, ${bankAccounts.length} bank accounts`);
 
     // --- Process AR (Invoices) ---
-    // Clear old AR data for this sync
     await supabase.from('qb_ar_aging').delete().neq('id', '00000000-0000-0000-0000-000000000000');
 
-    for (const inv of invoices) {
+    const arRows = invoices.map((inv: any) => {
       const dueDate = inv.DueDate || inv.TxnDate;
       const dueDateObj = new Date(dueDate);
       const daysPastDue = Math.max(0, Math.floor((now.getTime() - dueDateObj.getTime()) / (1000 * 60 * 60 * 24)));
-
-      const { error } = await supabase.from('qb_ar_aging').insert({
+      return {
         customer_name: inv.CustomerRef?.name || 'Unknown Customer',
         invoice_number: inv.DocNumber || String(inv.Id),
-        amount: inv.Balance || 0,
+        amount: inv.TotalAmt || inv.Balance || 0,
         due_date: dueDate,
         aging_bucket: getAgingBucket(daysPastDue),
         days_past_due: daysPastDue,
-      });
-      if (!error) arCount++;
+      };
+    });
+
+    // Batch insert in chunks of 500
+    for (let i = 0; i < arRows.length; i += 500) {
+      const chunk = arRows.slice(i, i + 500);
+      const { error } = await supabase.from('qb_ar_aging').insert(chunk);
+      if (!error) arCount += chunk.length;
+      else console.error('AR insert error:', error.message);
     }
 
     // --- Process AP (Bills) ---
     await supabase.from('qb_ap_aging').delete().neq('id', '00000000-0000-0000-0000-000000000000');
 
-    for (const bill of bills) {
+    const apRows = bills.map((bill: any) => {
       const dueDate = bill.DueDate || bill.TxnDate;
       const dueDateObj = new Date(dueDate);
       const daysPastDue = Math.max(0, Math.floor((now.getTime() - dueDateObj.getTime()) / (1000 * 60 * 60 * 24)));
-
-      const { error } = await supabase.from('qb_ap_aging').insert({
+      return {
         vendor_name: bill.VendorRef?.name || 'Unknown Vendor',
         bill_number: bill.DocNumber || String(bill.Id),
-        amount: bill.Balance || 0,
+        amount: bill.TotalAmt || bill.Balance || 0,
         due_date: dueDate,
         aging_bucket: getAgingBucket(daysPastDue),
         days_past_due: daysPastDue,
-      });
-      if (!error) apCount++;
+      };
+    });
+
+    for (let i = 0; i < apRows.length; i += 500) {
+      const chunk = apRows.slice(i, i + 500);
+      const { error } = await supabase.from('qb_ap_aging').insert(chunk);
+      if (!error) apCount += chunk.length;
+      else console.error('AP insert error:', error.message);
     }
 
     // --- Process Bank Balances ---
     await supabase.from('qb_bank_balances').delete().neq('id', '00000000-0000-0000-0000-000000000000');
 
-    for (const acct of bankAccounts) {
-      const { error } = await supabase.from('qb_bank_balances').insert({
-        account_name: acct.Name || acct.FullyQualifiedName || 'Unknown Account',
-        current_balance: acct.CurrentBalance || 0,
-        as_of_date: now.toISOString().split('T')[0],
-      });
-      if (!error) bankCount++;
-    }
+    const bankRows = bankAccounts.map((acct: any) => ({
+      account_name: acct.Name || acct.FullyQualifiedName || 'Unknown Account',
+      current_balance: acct.CurrentBalance || 0,
+      as_of_date: now.toISOString().split('T')[0],
+    }));
+
+    const { error: bankErr } = await supabase.from('qb_bank_balances').insert(bankRows);
+    if (!bankErr) bankCount = bankRows.length;
+    else console.error('Bank insert error:', bankErr.message);
 
     console.log(`QB Sync: ${arCount} AR, ${apCount} AP, ${bankCount} bank accounts`);
 
