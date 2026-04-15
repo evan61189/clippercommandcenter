@@ -530,6 +530,38 @@ export const handler: Handler = async (event) => {
         };
         break;
 
+      case 'getEmails':
+        if (!projectId) throw new Error('Project ID required');
+        // Try Procore Correspondence/Emails endpoints
+        result = await safeRequest(async () => {
+          // Try /emails endpoint first (Procore Emails tool)
+          let emails = await safeRequest(() =>
+            fetchAllPages(`/rest/v1.0/projects/${projectId}/emails`, tokens, {
+              company_id: companyId,
+              sort: '-created_at',
+              per_page: '10'
+            }), []);
+
+          // Fallback to /correspondence
+          if (emails.length === 0) {
+            emails = await safeRequest(() =>
+              fetchAllPages(`/rest/v1.0/projects/${projectId}/correspondence`, tokens, {
+                company_id: companyId,
+                per_page: '10'
+              }), []);
+          }
+
+          // Normalize to a consistent format
+          return emails.map((e: any) => ({
+            id: e.id,
+            subject: e.subject || e.title || 'No subject',
+            from_name: e.from?.name || e.author?.name || e.created_by?.name || 'Unknown',
+            date: e.created_at ? new Date(e.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '',
+            snippet: (e.body || e.rich_text_body || e.description || '').replace(/<[^>]*>/g, '').substring(0, 120),
+          }));
+        }, []);
+        break;
+
       default:
         return {
           statusCode: 400,
