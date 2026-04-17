@@ -248,11 +248,14 @@ export default function ProjectDeepDive() {
   if (pendingCommitCOs.length > 0) actions.push({ icon: DollarSign, text: `${pendingCommitCOs.length} commitment CO${pendingCommitCOs.length > 1 ? 's' : ''} to process`, urgency: 'blue' })
   if (openPunch.length > 0) actions.push({ icon: CheckSquare, text: `${openPunch.length} punch item${openPunch.length > 1 ? 's' : ''} open${closedPunch.length > 0 ? ` (${closedPunch.length} closed)` : ''}`, urgency: openPunch.length > 20 ? 'red' : 'amber' })
 
-  // No budget built out — flag immediately
-  if (budget.length === 0 && contractValue > 0) {
+  // No budget built out — flag if project has commitments or a contract but no real budget
+  const tradeBudgetTotal = budget
+    .filter(b => !(b.cost_code || '').startsWith('17-'))
+    .reduce((s, b) => s + num(b.revised_budget), 0)
+  if (tradeBudgetTotal === 0 && (contractValue > 0 || totalCommitted > 0)) {
     actions.push({
       icon: AlertTriangle,
-      text: 'No budget built out in Procore — budget needs to be created',
+      text: 'No project budget built out in Procore — budget needs to be created',
       urgency: 'red',
     })
   }
