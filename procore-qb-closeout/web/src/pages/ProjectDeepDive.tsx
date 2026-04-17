@@ -11,7 +11,7 @@ interface ProjectData {
   start_date: string; estimated_completion_date: string; address: any;
   procore_project_id: string;
 }
-interface SubContract { id: string; vendor_name: string; contract_value: number; status: string; trade: string; }
+interface SubContract { id: string; vendor_name: string; title: string; contract_value: number; status: string; trade: string; number: string; }
 interface ChangeOrder { id: string; title: string; status: string; amount: number; change_type: string; number: string; }
 interface PayApp { id: string; vendor_name: string; amount_due: number; total_completed: number; retainage: number; status: string; number: string; }
 interface RFI { id: string; number: string; subject: string; status: string; due_date: string; created_at: string; priority: string; }
@@ -60,6 +60,7 @@ export default function ProjectDeepDive() {
   const [budget, setBudget] = useState<BudgetLine[]>([])
   const [emails, setEmails] = useState<Correspondence[]>([])
   const [loading, setLoading] = useState(true)
+  const [showAllSubs, setShowAllSubs] = useState(false)
 
   useEffect(() => {
     if (!projectId) return
@@ -153,9 +154,19 @@ export default function ProjectDeepDive() {
   if (pendingPrimeCOs.length > 0) actions.push({ icon: DollarSign, text: `${pendingPrimeCOs.length} prime CO${pendingPrimeCOs.length > 1 ? 's' : ''} pending (${fmt(pendingCOTotal)})`, urgency: 'amber' })
   if (pendingCommitCOs.length > 0) actions.push({ icon: DollarSign, text: `${pendingCommitCOs.length} commitment CO${pendingCommitCOs.length > 1 ? 's' : ''} to process`, urgency: 'blue' })
   if (openPunch.length > 0) actions.push({ icon: CheckSquare, text: `${openPunch.length} punch item${openPunch.length > 1 ? 's' : ''} open${closedPunch.length > 0 ? ` (${closedPunch.length} closed)` : ''}`, urgency: openPunch.length > 20 ? 'red' : 'amber' })
-  // Check for subs with expired or soon-expiring insurance
-  const expiredSubs = subs.filter(s => s.status === 'active' && !s.trade)
-  if (expiredSubs.length === 0 && actions.length === 0) actions.push({ icon: CheckCircle2, text: 'No critical items — project on track', urgency: 'blue' })
+
+  // Budget lines without commitments
+  const uncommittedLines = budget.filter(b => (b.revised_budget || 0) > 0 && (b.committed || 0) === 0)
+  const uncommittedTotal = uncommittedLines.reduce((s, b) => s + (b.revised_budget || 0), 0)
+  if (uncommittedLines.length > 0) {
+    actions.push({
+      icon: DollarSign,
+      text: `${uncommittedLines.length} budget line${uncommittedLines.length > 1 ? 's' : ''} without commitment (${fmt(uncommittedTotal)})`,
+      urgency: uncommittedTotal > contractValue * 0.1 ? 'red' : 'amber',
+    })
+  }
+
+  if (actions.length === 0) actions.push({ icon: CheckCircle2, text: 'No critical items — project on track', urgency: 'blue' })
 
   // Top risks (oldest open RFIs, overdue items)
   const risks: { severity: 'red' | 'amber'; text: string; detail: string }[] = []
@@ -175,8 +186,8 @@ export default function ProjectDeepDive() {
     risks.push({ severity: margin < 0 ? 'red' : 'amber', text: `Margin at ${margin.toFixed(1)}%`, detail: margin < 0 ? 'Project is over budget' : 'Below target margin' })
   }
 
-  // Top subs by value
-  const topSubs = subs.slice(0, 6)
+  // All subs sorted by value
+  const sortedSubs = [...subs].sort((a, b) => (b.contract_value || 0) - (a.contract_value || 0))
 
   const urgencyColors = { red: 'text-red-600 bg-red-50', amber: 'text-amber-600 bg-amber-50', blue: 'text-blue-600 bg-blue-50' }
 
@@ -318,6 +329,23 @@ export default function ProjectDeepDive() {
                 </div>
               ))}
             </div>
+            {/* Uncommitted budget line detail */}
+            {uncommittedLines.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-gray-100">
+                <p className="text-xs font-medium text-gray-500 mb-1.5">Budget lines without commitment:</p>
+                <div className="space-y-1">
+                  {uncommittedLines.slice(0, 8).map((b, i) => (
+                    <div key={i} className="flex items-center justify-between text-xs text-gray-500">
+                      <span className="truncate">{b.cost_code && b.cost_code !== 'N/A' ? b.cost_code : ''}{b.description ? (b.cost_code && b.cost_code !== 'N/A' ? ' — ' : '') + b.description : b.cost_code === 'N/A' ? `Line ${i + 1}` : ''}</span>
+                      <span className="font-mono shrink-0 ml-2">{fmt(b.revised_budget)}</span>
+                    </div>
+                  ))}
+                  {uncommittedLines.length > 8 && (
+                    <p className="text-xs text-gray-400">+ {uncommittedLines.length - 8} more lines</p>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Top Risks */}
@@ -349,32 +377,63 @@ export default function ProjectDeepDive() {
         {/* Right Column */}
         <div className="space-y-4">
 
-          {/* Stakeholders / Key Subs */}
+          {/* Commitments / Subcontractors */}
           <div className="card !py-4">
             <div className="flex items-center gap-2 mb-3">
               <Users className="w-4 h-4 text-clipper-gold" />
-              <h2 className="text-sm font-semibold text-clipper-black">Key Subcontractors</h2>
-              <span className="text-xs text-gray-400 ml-auto">{subs.length} total</span>
+              <h2 className="text-sm font-semibold text-clipper-black">Commitments</h2>
+              <span className="text-xs text-gray-400 ml-auto">{subs.length} total — {fmt(totalCommitted)}</span>
             </div>
-            {topSubs.length === 0 ? (
+            {sortedSubs.length === 0 ? (
               <p className="text-sm text-gray-400">No subcontracts synced yet</p>
             ) : (
-              <div className="space-y-1.5">
-                {topSubs.map((sub) => {
-                  // Find any pending COs for this sub
+              <div className="space-y-1">
+                {(showAllSubs ? sortedSubs : sortedSubs.slice(0, 6)).map((sub) => {
+                  // Show vendor name if available and different from title, otherwise show title with number
+                  const displayName = sub.vendor_name && sub.vendor_name !== sub.title
+                    ? sub.vendor_name
+                    : sub.title || sub.vendor_name || 'Unknown'
+                  const subtitle = sub.vendor_name && sub.vendor_name !== sub.title
+                    ? sub.title
+                    : sub.number || null
+
                   return (
-                    <div key={sub.id} className="flex items-center justify-between py-1 text-sm">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${sub.status === 'active' || sub.status === 'approved' ? 'bg-emerald-500' : 'bg-gray-300'}`} />
-                        <span className="truncate font-medium">{sub.vendor_name}</span>
-                        {sub.trade && <span className="text-[10px] text-gray-400 shrink-0">{sub.trade}</span>}
+                    <div key={sub.id} className="flex items-center justify-between py-1.5 text-sm border-b border-gray-50 last:border-0">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                          sub.status === 'active' || sub.status === 'Approved' || sub.status === 'approved'
+                            ? 'bg-emerald-500'
+                            : sub.status === 'Out For Signature'
+                            ? 'bg-amber-400'
+                            : sub.status === 'Draft'
+                            ? 'bg-gray-300'
+                            : 'bg-gray-300'
+                        }`} />
+                        <div className="min-w-0">
+                          <span className="truncate font-medium block">{displayName}</span>
+                          <div className="flex items-center gap-2">
+                            {subtitle && <span className="text-[10px] text-gray-400 truncate">{subtitle}</span>}
+                            {sub.trade && <span className="text-[10px] text-blue-500 bg-blue-50 px-1 rounded">{sub.trade}</span>}
+                            {sub.status && !['active', 'Approved', 'approved'].includes(sub.status) && (
+                              <span className={`text-[10px] px-1 rounded ${
+                                sub.status === 'Out For Signature' ? 'text-amber-600 bg-amber-50' :
+                                sub.status === 'Draft' ? 'text-gray-500 bg-gray-100' : 'text-gray-500 bg-gray-100'
+                              }`}>{sub.status}</span>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                      <span className="text-gray-500 font-mono text-xs shrink-0 ml-2">{fmt(sub.contract_value)}</span>
+                      <span className="text-gray-600 font-mono text-xs shrink-0 ml-3">{fmt(sub.contract_value)}</span>
                     </div>
                   )
                 })}
-                {subs.length > 6 && (
-                  <div className="text-xs text-gray-400 pt-1">+ {subs.length - 6} more</div>
+                {sortedSubs.length > 6 && (
+                  <button
+                    onClick={() => setShowAllSubs(!showAllSubs)}
+                    className="text-xs text-clipper-gold-dark hover:underline pt-1.5 w-full text-left"
+                  >
+                    {showAllSubs ? 'Show less' : `+ ${sortedSubs.length - 6} more commitments`}
+                  </button>
                 )}
               </div>
             )}

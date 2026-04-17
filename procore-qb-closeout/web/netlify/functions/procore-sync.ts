@@ -197,10 +197,12 @@ async function syncProjectDetails(
 
   // Subcontracts
   for (const sub of subList) {
+    // Procore vendor info may be in vendor object, contractor, or separate fields
+    const vendorName = sub.vendor?.name || sub.vendor?.company || sub.contractor?.name || sub.assignee?.company?.name || null;
     await supabase.from('subcontracts').upsert({
       project_id: internalId,
       procore_id: String(sub.id),
-      vendor_name: sub.vendor?.name || sub.title || 'Unknown',
+      vendor_name: vendorName || sub.title || 'Unknown',
       title: sub.title || null,
       number: sub.number || null,
       status: sub.status || 'active',
