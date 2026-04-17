@@ -588,7 +588,6 @@ export default function ProjectDeepDive() {
                   .filter(b => (b.description || '').includes('Commitment') && (b.revised_budget || 0) > 0)
                   .sort((a, b) => (b.revised_budget || 0) - (a.revised_budget || 0))
 
-                // If we have budget lines, show the buyout table
                 if (commitmentBudgetLines.length > 0) {
                   const displayLines = showAllSubs ? commitmentBudgetLines : commitmentBudgetLines.slice(0, 10)
                   const totalBudgeted = commitmentBudgetLines.reduce((s, b) => s + (b.revised_budget || 0), 0)
@@ -596,6 +595,8 @@ export default function ProjectDeepDive() {
                   const totalBuyout = commitmentBudgetLines.filter(b => (b.committed || 0) > 0).reduce((s, b) => s + ((b.committed || 0) - (b.revised_budget || 0)), 0)
                   return (
                     <>
+                      {/* Buyout by Trade */}
+                      <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Buyout by Trade</h4>
                       <table className="w-full text-xs">
                         <thead>
                           <tr className="border-b border-gray-200 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
@@ -646,11 +647,45 @@ export default function ProjectDeepDive() {
                           {showAllSubs ? 'Show less' : `+ ${commitmentBudgetLines.length - 10} more lines`}
                         </button>
                       )}
+
+                      {/* Subcontractors list below buyout table */}
+                      {sortedSubs.length > 0 && (
+                        <div className="mt-4 pt-3 border-t border-gray-100">
+                          <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Subcontractors</h4>
+                          <div className="space-y-1">
+                            {sortedSubs.map((sub) => {
+                              const displayName = sub.vendor_name && sub.vendor_name !== sub.title
+                                ? sub.vendor_name
+                                : sub.title || sub.vendor_name || 'Unknown'
+                              const subtitle = sub.vendor_name && sub.vendor_name !== sub.title ? sub.title : sub.number || null
+                              return (
+                                <div key={sub.id} className="flex items-center justify-between py-1 text-xs border-b border-gray-50 last:border-0">
+                                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusDot(sub.status)}`} />
+                                    <div className="min-w-0">
+                                      <span className="truncate font-medium block text-gray-700">{displayName}</span>
+                                      {subtitle && <span className="text-[10px] text-gray-400 truncate block">{subtitle}</span>}
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2 shrink-0 ml-3">
+                                    {sub.status && !['active', 'Approved', 'approved'].includes(sub.status) && (
+                                      <span className={`text-[9px] px-1 rounded ${
+                                        sub.status === 'Out For Signature' ? 'text-amber-600 bg-amber-50' : 'text-gray-500 bg-gray-100'
+                                      }`}>{sub.status}</span>
+                                    )}
+                                    <span className="text-gray-600 font-mono text-xs">{fmt(sub.contract_value)}</span>
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </>
                   )
                 }
 
-                // Fallback: no budget lines, show subs list
+                // Fallback: no budget lines, show subs list only
                 if (sortedSubs.length === 0) return <p className="text-sm text-gray-400">No subcontracts synced yet</p>
                 return (
                   <div className="space-y-1">
@@ -658,9 +693,7 @@ export default function ProjectDeepDive() {
                       const displayName = sub.vendor_name && sub.vendor_name !== sub.title
                         ? sub.vendor_name
                         : sub.title || sub.vendor_name || 'Unknown'
-                      const subtitle = sub.vendor_name && sub.vendor_name !== sub.title
-                        ? sub.title
-                        : sub.number || null
+                      const subtitle = sub.vendor_name && sub.vendor_name !== sub.title ? sub.title : sub.number || null
                       return (
                         <div key={sub.id} className="flex items-center justify-between py-1.5 text-sm border-b border-gray-50 last:border-0">
                           <div className="flex items-center gap-2 min-w-0 flex-1">
