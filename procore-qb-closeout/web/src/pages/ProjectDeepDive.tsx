@@ -579,53 +579,121 @@ export default function ProjectDeepDive() {
         {/* Right Column */}
         <div className="space-y-4">
 
-          {/* Commitments / Subcontractors */}
-          <Section title="Commitments" icon={Users} badge={`${subs.length} total — ${fmt(totalCommitted)}`} defaultOpen={true}>
+          {/* Commitments — budget-line view with buyout analysis */}
+          <Section title="Commitments" icon={Users} badge={`${subs.length} subs — ${fmt(totalCommitted)}`} defaultOpen={true}>
             <div className="mt-3">
-              {sortedSubs.length === 0 ? (
-                <p className="text-sm text-gray-400">No subcontracts synced yet</p>
-              ) : (
-                <div className="space-y-1">
-                  {(showAllSubs ? sortedSubs : sortedSubs.slice(0, 8)).map((sub) => {
-                    const displayName = sub.vendor_name && sub.vendor_name !== sub.title
-                      ? sub.vendor_name
-                      : sub.title || sub.vendor_name || 'Unknown'
-                    const subtitle = sub.vendor_name && sub.vendor_name !== sub.title
-                      ? sub.title
-                      : sub.number || null
+              {(() => {
+                // Budget commitment lines (have the budget vs committed comparison)
+                const commitmentBudgetLines = budget
+                  .filter(b => (b.description || '').includes('Commitment') && (b.revised_budget || 0) > 0)
+                  .sort((a, b) => (b.revised_budget || 0) - (a.revised_budget || 0))
 
-                    return (
-                      <div key={sub.id} className="flex items-center justify-between py-1.5 text-sm border-b border-gray-50 last:border-0">
-                        <div className="flex items-center gap-2 min-w-0 flex-1">
-                          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusDot(sub.status)}`} />
-                          <div className="min-w-0">
-                            <span className="truncate font-medium block">{displayName}</span>
-                            <div className="flex items-center gap-2">
-                              {subtitle && <span className="text-[10px] text-gray-400 truncate">{subtitle}</span>}
-                              {sub.trade && <span className="text-[10px] text-blue-500 bg-blue-50 px-1 rounded">{sub.trade}</span>}
-                              {sub.status && !['active', 'Approved', 'approved'].includes(sub.status) && (
-                                <span className={`text-[10px] px-1 rounded ${
-                                  sub.status === 'Out For Signature' ? 'text-amber-600 bg-amber-50' :
-                                  sub.status === 'Draft' ? 'text-gray-500 bg-gray-100' : 'text-gray-500 bg-gray-100'
-                                }`}>{sub.status}</span>
-                              )}
+                // If we have budget lines, show the buyout table
+                if (commitmentBudgetLines.length > 0) {
+                  const displayLines = showAllSubs ? commitmentBudgetLines : commitmentBudgetLines.slice(0, 10)
+                  const totalBudgeted = commitmentBudgetLines.reduce((s, b) => s + (b.revised_budget || 0), 0)
+                  const totalBoughtOut = commitmentBudgetLines.filter(b => (b.committed || 0) > 0).reduce((s, b) => s + (b.committed || 0), 0)
+                  const totalBuyout = commitmentBudgetLines.filter(b => (b.committed || 0) > 0).reduce((s, b) => s + ((b.committed || 0) - (b.revised_budget || 0)), 0)
+                  return (
+                    <>
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b border-gray-200 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+                            <th className="text-left py-2 pr-2">Trade</th>
+                            <th className="text-right py-2 px-2 w-20">Budget</th>
+                            <th className="text-right py-2 px-2 w-20">Committed</th>
+                            <th className="text-right py-2 pl-2 w-24">Buyout +/−</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {displayLines.map((b) => {
+                            const tradeName = (b.cost_code || '').replace(/^\d+-\d+\s*-\s*/, '')
+                            const budgetAmt = b.revised_budget || 0
+                            const committedAmt = b.committed || 0
+                            const buyout = committedAmt > 0 ? committedAmt - budgetAmt : null
+                            return (
+                              <tr key={b.id} className="border-b border-gray-50 last:border-0">
+                                <td className="py-1.5 pr-2 font-medium text-gray-700">{tradeName || b.cost_code || '—'}</td>
+                                <td className="py-1.5 px-2 text-right font-mono text-gray-500">{fmt(budgetAmt)}</td>
+                                <td className="py-1.5 px-2 text-right font-mono text-gray-700">
+                                  {committedAmt > 0 ? fmt(committedAmt) : <span className="text-gray-300">—</span>}
+                                </td>
+                                <td className={`py-1.5 pl-2 text-right font-mono font-medium ${
+                                  buyout === null ? 'text-gray-300' : buyout > 0 ? 'text-red-600' : buyout < 0 ? 'text-emerald-600' : 'text-gray-400'
+                                }`}>
+                                  {buyout === null ? '—' : buyout > 0 ? `+${fmt(buyout)}` : buyout < 0 ? `−${fmt(Math.abs(buyout))}` : '$0'}
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                        <tfoot>
+                          <tr className="border-t border-gray-200 font-semibold text-[11px]">
+                            <td className="py-2 pr-2 text-gray-600">Total</td>
+                            <td className="py-2 px-2 text-right font-mono text-gray-600">{fmt(totalBudgeted)}</td>
+                            <td className="py-2 px-2 text-right font-mono text-gray-800">{fmt(totalBoughtOut)}</td>
+                            <td className={`py-2 pl-2 text-right font-mono ${totalBuyout > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                              {totalBuyout > 0 ? `+${fmt(totalBuyout)}` : totalBuyout < 0 ? `−${fmt(Math.abs(totalBuyout))}` : '$0'}
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                      {commitmentBudgetLines.length > 10 && (
+                        <button
+                          onClick={() => setShowAllSubs(!showAllSubs)}
+                          className="text-xs text-clipper-gold-dark hover:underline pt-2 w-full text-left"
+                        >
+                          {showAllSubs ? 'Show less' : `+ ${commitmentBudgetLines.length - 10} more lines`}
+                        </button>
+                      )}
+                    </>
+                  )
+                }
+
+                // Fallback: no budget lines, show subs list
+                if (sortedSubs.length === 0) return <p className="text-sm text-gray-400">No subcontracts synced yet</p>
+                return (
+                  <div className="space-y-1">
+                    {(showAllSubs ? sortedSubs : sortedSubs.slice(0, 8)).map((sub) => {
+                      const displayName = sub.vendor_name && sub.vendor_name !== sub.title
+                        ? sub.vendor_name
+                        : sub.title || sub.vendor_name || 'Unknown'
+                      const subtitle = sub.vendor_name && sub.vendor_name !== sub.title
+                        ? sub.title
+                        : sub.number || null
+                      return (
+                        <div key={sub.id} className="flex items-center justify-between py-1.5 text-sm border-b border-gray-50 last:border-0">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusDot(sub.status)}`} />
+                            <div className="min-w-0">
+                              <span className="truncate font-medium block">{displayName}</span>
+                              <div className="flex items-center gap-2">
+                                {subtitle && <span className="text-[10px] text-gray-400 truncate">{subtitle}</span>}
+                                {sub.trade && <span className="text-[10px] text-blue-500 bg-blue-50 px-1 rounded">{sub.trade}</span>}
+                                {sub.status && !['active', 'Approved', 'approved'].includes(sub.status) && (
+                                  <span className={`text-[10px] px-1 rounded ${
+                                    sub.status === 'Out For Signature' ? 'text-amber-600 bg-amber-50' :
+                                    sub.status === 'Draft' ? 'text-gray-500 bg-gray-100' : 'text-gray-500 bg-gray-100'
+                                  }`}>{sub.status}</span>
+                                )}
+                              </div>
                             </div>
                           </div>
+                          <span className="text-gray-600 font-mono text-xs shrink-0 ml-3">{fmt(sub.contract_value)}</span>
                         </div>
-                        <span className="text-gray-600 font-mono text-xs shrink-0 ml-3">{fmt(sub.contract_value)}</span>
-                      </div>
-                    )
-                  })}
-                  {sortedSubs.length > 8 && (
-                    <button
-                      onClick={() => setShowAllSubs(!showAllSubs)}
-                      className="text-xs text-clipper-gold-dark hover:underline pt-1.5 w-full text-left"
-                    >
-                      {showAllSubs ? 'Show less' : `+ ${sortedSubs.length - 8} more commitments`}
-                    </button>
-                  )}
-                </div>
-              )}
+                      )
+                    })}
+                    {sortedSubs.length > 8 && (
+                      <button
+                        onClick={() => setShowAllSubs(!showAllSubs)}
+                        className="text-xs text-clipper-gold-dark hover:underline pt-1.5 w-full text-left"
+                      >
+                        {showAllSubs ? 'Show less' : `+ ${sortedSubs.length - 8} more commitments`}
+                      </button>
+                    )}
+                  </div>
+                )
+              })()}
             </div>
           </Section>
 
