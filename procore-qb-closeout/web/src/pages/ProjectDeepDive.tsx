@@ -299,8 +299,6 @@ export default function ProjectDeepDive() {
       {primes.length > 0 && (
         <div className="space-y-3">
           {primes.map((pc) => {
-            // Find pay apps associated with this prime
-            const primePayApps = ownerPayApps // For now all owner pay apps are project-level
             const primeBilled = primes.length === 1
               ? totalBilled
               : null // Can't split billing across primes without Procore linking
