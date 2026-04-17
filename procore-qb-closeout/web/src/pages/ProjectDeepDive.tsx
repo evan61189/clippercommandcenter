@@ -30,6 +30,9 @@ function fmt(n: number | null | undefined): string {
   return n < 0 ? `-$${Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 0 })}` : `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
 }
 
+// Supabase returns numeric/decimal columns as strings — safely parse to number
+function num(v: any): number { return typeof v === 'number' ? v : parseFloat(v) || 0 }
+
 function daysAgo(dateStr: string): number {
   if (!dateStr) return 0
   return Math.max(0, Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000))
@@ -189,20 +192,26 @@ export default function ProjectDeepDive() {
   const totalBilled = ownerPayApps.reduce((s, p) => s + (p.amount_due || 0), 0)
   const totalRetainage = ownerPayApps.reduce((s, p) => s + (p.retainage || 0), 0)
   const totalSubCost = subInvoices.reduce((s, p) => s + (p.amount_due || 0), 0)
-  const budgetActualCost = budget.reduce((s, b) => s + (b.actual_costs || 0), 0)
+  const budgetActualCost = budget.reduce((s, b) => s + num(b.actual_costs), 0)
   const totalCost = totalSubCost > 0 ? totalSubCost : budgetActualCost
 
-  // Margin calculation — uses P&O budget lines + buyout over/under when budget exists
+  // Margin calculation — uses P&O budget lines + actual buyout results when budget exists
   // P&O lines are cost codes starting with "17-" for Profit, Overhead, Markup (not Contingency/Bond/Buyout)
   const poLines = budget.filter(b => {
     const cc = (b.cost_code || '').toLowerCase()
     return cc.startsWith('17-40') || cc.startsWith('17-50') || cc.startsWith('17-70') || cc.startsWith('17-80')
   })
-  const budgetedPO = poLines.reduce((s, b) => s + (b.revised_budget || 0), 0)
-  const totalBuyoutOverUnder = budget.reduce((s, b) => s + (b.over_under || 0), 0)
-  // Real margin = planned P&O + buyout wins/losses
+  const budgetedPO = poLines.reduce((s, b) => s + num(b.revised_budget), 0)
+  // Actual buyout = sum of (revised_budget - committed) for non-P&O lines that have been bought out
+  // Positive = savings (win), Negative = bust (loss) — both are reflected
+  const boughtOutLines = budget.filter(b => {
+    const cc = (b.cost_code || '').toLowerCase()
+    return num(b.committed) > 0 && !cc.startsWith('17-')
+  })
+  const actualBuyoutSavings = boughtOutLines.reduce((s, b) => s + (num(b.revised_budget) - num(b.committed)), 0)
+  // Real margin = planned P&O + actual buyout wins/losses
   const hasBudgetMargin = budget.length > 0 && budgetedPO > 0
-  const realMarginDollars = hasBudgetMargin ? budgetedPO + totalBuyoutOverUnder : null
+  const realMarginDollars = hasBudgetMargin ? budgetedPO + actualBuyoutSavings : null
   const margin = hasBudgetMargin && contractValue > 0
     ? (realMarginDollars! / contractValue) * 100
     : (contractValue > 0 && totalCommitted > 0 ? ((contractValue - totalCommitted) / contractValue) * 100 : null)
@@ -249,8 +258,8 @@ export default function ProjectDeepDive() {
   }
 
   // Budget lines without commitments
-  const uncommittedLines = budget.filter(b => (b.revised_budget || 0) > 0 && (b.committed || 0) === 0)
-  const uncommittedTotal = uncommittedLines.reduce((s, b) => s + (b.revised_budget || 0), 0)
+  const uncommittedLines = budget.filter(b => num(b.revised_budget) > 0 && num(b.committed) === 0)
+  const uncommittedTotal = uncommittedLines.reduce((s, b) => s + num(b.revised_budget), 0)
   if (uncommittedLines.length > 0) {
     actions.push({
       icon: DollarSign,
@@ -363,7 +372,7 @@ export default function ProjectDeepDive() {
             </div>
             {margin !== null && (
               <div className="text-[9px] text-gray-400">
-                {hasBudgetMargin ? `P&O ${fmt(budgetedPO)} + buyout ${totalBuyoutOverUnder >= 0 ? '+' : ''}${fmt(totalBuyoutOverUnder)}` : 'est. from commitments'}
+                {hasBudgetMargin ? `P&O ${fmt(budgetedPO)} + buyout ${actualBuyoutSavings >= 0 ? '+' : ''}${fmt(actualBuyoutSavings)}` : 'est. from commitments'}
               </div>
             )}
           </div>
@@ -612,14 +621,14 @@ export default function ProjectDeepDive() {
 
                 // Budget commitment lines (have the budget vs committed comparison)
                 const commitmentBudgetLines = budget
-                  .filter(b => (b.description || '').includes('Commitment') && (b.revised_budget || 0) > 0)
-                  .sort((a, b) => (b.revised_budget || 0) - (a.revised_budget || 0))
+                  .filter(b => (b.description || '').includes('Commitment') && num(b.revised_budget) > 0)
+                  .sort((a, b) => num(b.revised_budget) - num(a.revised_budget))
 
                 if (commitmentBudgetLines.length > 0) {
                   const displayLines = showAllSubs ? commitmentBudgetLines : commitmentBudgetLines.slice(0, 10)
-                  const totalBudgeted = commitmentBudgetLines.reduce((s, b) => s + (b.revised_budget || 0), 0)
-                  const totalBoughtOut = commitmentBudgetLines.filter(b => (b.committed || 0) > 0).reduce((s, b) => s + (b.committed || 0), 0)
-                  const totalBuyout = commitmentBudgetLines.filter(b => (b.committed || 0) > 0).reduce((s, b) => s + ((b.committed || 0) - (b.revised_budget || 0)), 0)
+                  const totalBudgeted = commitmentBudgetLines.reduce((s, b) => s + num(b.revised_budget), 0)
+                  const totalBoughtOut = commitmentBudgetLines.filter(b => num(b.committed) > 0).reduce((s, b) => s + num(b.committed), 0)
+                  const totalBuyout = commitmentBudgetLines.filter(b => num(b.committed) > 0).reduce((s, b) => s + (num(b.committed) - num(b.revised_budget)), 0)
                   return (
                     <>
                       {/* Buyout by Trade */}
@@ -642,8 +651,8 @@ export default function ProjectDeepDive() {
                             const ccPrefix = cc.split(' - ')[0]?.trim()
                             const ccName = cc.split(' - ').slice(1).join(' - ').trim()
                             const vendors = costCodeVendors[cc] || costCodeVendors[ccPrefix] || costCodeVendors[ccName] || []
-                            const budgetAmt = b.revised_budget || 0
-                            const committedAmt = b.committed || 0
+                            const budgetAmt = num(b.revised_budget)
+                            const committedAmt = num(b.committed)
                             const buyout = committedAmt > 0 ? committedAmt - budgetAmt : null
                             return (
                               <tr key={b.id} className="border-b border-gray-50 last:border-0">
@@ -765,7 +774,7 @@ export default function ProjectDeepDive() {
               <div className="mt-3 grid grid-cols-3 gap-3 text-center text-sm">
                 <div>
                   <div className="text-[10px] text-gray-400 uppercase">Budget</div>
-                  <div className="font-bold">{fmt(budget.reduce((s, b) => s + (b.revised_budget || 0), 0))}</div>
+                  <div className="font-bold">{fmt(budget.reduce((s, b) => s + num(b.revised_budget), 0))}</div>
                 </div>
                 <div>
                   <div className="text-[10px] text-gray-400 uppercase">Actual</div>
@@ -773,7 +782,7 @@ export default function ProjectDeepDive() {
                 </div>
                 <div>
                   <div className="text-[10px] text-gray-400 uppercase">Projected</div>
-                  <div className="font-bold">{fmt(budget.reduce((s, b) => s + (b.projected_cost || 0), 0))}</div>
+                  <div className="font-bold">{fmt(budget.reduce((s, b) => s + num(b.projected_cost), 0))}</div>
                 </div>
               </div>
             </Section>
