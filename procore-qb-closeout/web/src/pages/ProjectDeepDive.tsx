@@ -230,6 +230,19 @@ export default function ProjectDeepDive() {
     })
   }
 
+  // Contract vs committed gap (catches projects without budget lines too)
+  const uncommittedGap = contractValue - totalCommitted
+  if (uncommittedGap > 0 && contractValue > 0 && uncommittedLines.length === 0) {
+    const gapPct = (uncommittedGap / contractValue) * 100
+    if (gapPct > 10) {
+      actions.push({
+        icon: AlertTriangle,
+        text: `${fmt(uncommittedGap)} uncommitted (${gapPct.toFixed(0)}% of contract not under commitment)`,
+        urgency: gapPct > 50 ? 'red' : 'amber',
+      })
+    }
+  }
+
   if (actions.length === 0) actions.push({ icon: CheckCircle2, text: 'No critical items — project on track', urgency: 'blue' })
 
   // Top risks
