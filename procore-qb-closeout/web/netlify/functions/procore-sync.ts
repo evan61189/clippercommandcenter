@@ -555,13 +555,12 @@ export const handler: Handler = async (event) => {
     console.log(`Synced ${counts.projects} projects, ${Object.keys(projectMap).length} active`);
 
     // Step 2: Sync financial + risk details for active projects
-    // Process in batches of 3 to stay within time limits
+    // Netlify functions have a 26s timeout — use 22s guard to leave buffer
     const activeProjects = Object.values(projectMap);
     let projectsSynced = 0;
 
     for (let i = 0; i < activeProjects.length; i += 3) {
-      // Time guard: stop if we're running close to timeout (leave 5s buffer)
-      if (Date.now() - startTime > 20000) {
+      if (Date.now() - startTime > 22000) {
         console.log(`Time guard: stopping after ${projectsSynced} project details (${Math.round((Date.now() - startTime) / 1000)}s elapsed)`);
         break;
       }

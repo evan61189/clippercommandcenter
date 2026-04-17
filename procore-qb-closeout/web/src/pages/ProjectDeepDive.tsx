@@ -1,5 +1,5 @@
 import { useParams, Link } from 'react-router-dom'
-import { ArrowLeft, DollarSign, Calendar, AlertTriangle, CheckCircle2, FileQuestion, ClipboardList, CheckSquare, Users, TrendingUp, AlertCircle, Mail, ChevronDown, ChevronRight, FileText } from 'lucide-react'
+import { ArrowLeft, DollarSign, Calendar, AlertTriangle, CheckCircle2, FileQuestion, ClipboardList, CheckSquare, Users, TrendingUp, AlertCircle, Mail, ChevronDown, ChevronRight, FileText, RefreshCw, Loader2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -80,6 +80,7 @@ export default function ProjectDeepDive() {
   const [budget, setBudget] = useState<BudgetLine[]>([])
   const [emails, setEmails] = useState<Correspondence[]>([])
   const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
   const [showAllSubs, setShowAllSubs] = useState(false)
   const [showAllUncommitted, setShowAllUncommitted] = useState(false)
 
@@ -126,6 +127,43 @@ export default function ProjectDeepDive() {
     }
     load()
   }, [projectId, user?.id])
+
+  async function syncProject() {
+    if (!projectId || !user?.id) return
+    setSyncing(true)
+    try {
+      const res = await fetch('/.netlify/functions/procore-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, action: 'sync_project', projectId }),
+      })
+      if (res.ok) {
+        // Reload all data
+        const [primesRes, subsRes, cosRes, paRes, rfiRes, subRes, punchRes, budgetRes] = await Promise.all([
+          supabase.from('prime_contracts').select('*').eq('project_id', projectId).order('contract_value', { ascending: false }),
+          supabase.from('subcontracts').select('*').eq('project_id', projectId).order('contract_value', { ascending: false }),
+          supabase.from('procore_change_orders').select('*').eq('project_id', projectId),
+          supabase.from('procore_pay_apps').select('*').eq('project_id', projectId),
+          supabase.from('rfis').select('*').eq('project_id', projectId).order('created_at', { ascending: false }),
+          supabase.from('submittals').select('*').eq('project_id', projectId),
+          supabase.from('punch_items').select('*').eq('project_id', projectId),
+          supabase.from('procore_budget').select('*').eq('project_id', projectId),
+        ])
+        if (primesRes.data) setPrimes(primesRes.data)
+        if (subsRes.data) setSubs(subsRes.data)
+        if (cosRes.data) setCos(cosRes.data)
+        if (paRes.data) setPayApps(paRes.data)
+        if (rfiRes.data) setRfis(rfiRes.data)
+        if (subRes.data) setSubmittals(subRes.data)
+        if (punchRes.data) setPunch(punchRes.data)
+        if (budgetRes.data) setBudget(budgetRes.data)
+      }
+    } catch (err) {
+      console.error('Sync failed:', err)
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   if (loading) {
     return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-clipper-gold" /></div>
@@ -238,7 +276,17 @@ export default function ProjectDeepDive() {
             </div>
           </div>
         </div>
-        <span className={`badge ${project.status === 'active' ? 'badge-green' : 'badge-yellow'}`}>{project.status.replace('_', ' ')}</span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={syncProject}
+            disabled={syncing}
+            className="px-3 py-1.5 text-xs font-medium text-clipper-black bg-clipper-gold rounded-lg hover:bg-clipper-gold-dark disabled:opacity-50 flex items-center gap-1 transition-colors"
+          >
+            {syncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            {syncing ? 'Syncing...' : 'Sync'}
+          </button>
+          <span className={`badge ${project.status === 'active' ? 'badge-green' : 'badge-yellow'}`}>{project.status.replace('_', ' ')}</span>
+        </div>
       </div>
 
       {/* Financial Summary Bar */}
