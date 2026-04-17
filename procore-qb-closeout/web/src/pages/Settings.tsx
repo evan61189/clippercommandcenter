@@ -162,18 +162,29 @@ export default function Settings() {
         }
       }
 
-      await supabase
+      const { error: deleteError } = await supabase
         .from('api_credentials')
         .delete()
         .eq('user_id', userId)
         .eq('provider', provider)
 
-      checkConnections()
+      if (deleteError) {
+        console.error('Delete failed:', deleteError)
+        setMessage(`Failed to disconnect: ${deleteError.message}`)
+        setMessageType('error')
+        setTimeout(() => setMessage(null), 5000)
+        return
+      }
+
+      await checkConnections()
       setMessage(`Disconnected from ${provider === 'procore' ? 'Procore' : 'QuickBooks'}`)
       setMessageType('success')
       setTimeout(() => setMessage(null), 3000)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error disconnecting:', error)
+      setMessage(`Disconnect error: ${error.message}`)
+      setMessageType('error')
+      setTimeout(() => setMessage(null), 5000)
     }
   }
 
