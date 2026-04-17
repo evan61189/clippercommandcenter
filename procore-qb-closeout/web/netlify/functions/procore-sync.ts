@@ -102,7 +102,10 @@ async function procoreGet(endpoint: string, tokens: TokenData, params?: Record<s
       if (refreshed) return procoreGet(endpoint, refreshed, params, userId);
       throw new Error('Auth failed — your Procore session has expired. Please disconnect and reconnect in Settings.');
     }
-    if (res.status === 403 || res.status === 404) return []; // Graceful skip
+    if (res.status === 403 || res.status === 404) {
+      console.warn(`Procore ${res.status} for ${endpoint}`);
+      return [];
+    }
     if (!res.ok) throw new Error(`Procore ${res.status}`);
     return res.json();
   } catch (error: any) {
@@ -134,9 +137,16 @@ async function getOrgId(): Promise<string> {
   return data?.id || '00000000-0000-0000-0000-000000000001';
 }
 
-// Safe fetch wrapper - returns default on error
-async function safe<T>(fn: () => Promise<T>, defaultVal: T): Promise<T> {
-  try { return await fn(); } catch { return defaultVal; }
+// Safe fetch wrapper - returns default on error, with logging
+async function safe<T>(fn: () => Promise<T>, defaultVal: T, label?: string): Promise<T> {
+  try {
+    const result = await fn();
+    if (label) console.log(`[safe] ${label}: got ${Array.isArray(result) ? result.length + ' items' : 'result'}`);
+    return result;
+  } catch (err: any) {
+    console.warn(`[safe] ${label || 'unknown'} failed:`, err.message);
+    return defaultVal;
+  }
 }
 
 interface SyncCounts {
@@ -166,11 +176,14 @@ async function syncProjectDetails(
   const p = { company_id: companyId, project_id: procoreProjectId };
 
   // --- FINANCIAL DATA (parallel fetch) ---
+  const projPath = `/rest/v1.0/projects/${procoreProjectId}`;
+  const cp = { company_id: companyId }; // company-only params (project in path)
+
   const [primeContracts, subList, poList, budgetViews] = await Promise.all([
-    safe(() => fetchAllPages('/rest/v1.0/prime_contracts', tokens, { ...p, per_page: '50' }, userId), []),
-    safe(() => fetchAllPages('/rest/v1.0/work_order_contracts', tokens, p, userId), []),
-    safe(() => fetchAllPages('/rest/v1.0/purchase_order_contracts', tokens, p, userId), []),
-    safe(() => procoreGet('/rest/v1.0/budget_views', tokens, p, userId), []),
+    safe(() => fetchAllPages(`${projPath}/prime_contract`, tokens, cp, userId), [], 'prime_contracts'),
+    safe(() => fetchAllPages(`${projPath}/work_order_contracts`, tokens, cp, userId), [], 'work_order_contracts'),
+    safe(() => fetchAllPages(`${projPath}/purchase_order_contracts`, tokens, cp, userId), [], 'purchase_order_contracts'),
+    safe(() => procoreGet(`${projPath}/budget_views`, tokens, cp, userId), [], 'budget_views'),
   ]);
 
   // Prime contracts → update project contract values
@@ -232,9 +245,9 @@ async function syncProjectDetails(
   // Budget line items
   if (Array.isArray(budgetViews) && budgetViews.length > 0) {
     const budgetRows = await safe(() =>
-      fetchAllPages(`/rest/v1.0/budget_views/${budgetViews[0].id}/detail_rows`, tokens,
-        { project_id: procoreProjectId, company_id: companyId }, userId
-      ), []);
+      fetchAllPages(`${projPath}/budget_views/${budgetViews[0].id}/detail_rows`, tokens,
+        cp, userId
+      ), [], 'budget_detail_rows');
 
     // Clear old budget for this project
     await supabase.from('procore_budget').delete().eq('project_id', internalId);
@@ -262,13 +275,18 @@ async function syncProjectDetails(
 
   // --- CHANGE ORDERS, PAY APPS, SUB INVOICES, DIRECT COSTS (parallel) ---
   const primeContractIds = new Set(primeContracts.map((pc: any) => String(pc.id)));
+  const firstPrimeId = primeContracts.length > 0 ? primeContracts[0].id : null;
 
   const [commitmentCOs, primeCOs, requisitions, payApps, directCostsList] = await Promise.all([
-    safe(() => fetchAllPages('/rest/v1.0/change_order_packages', tokens, p, userId), []),
-    safe(() => fetchAllPages('/rest/v1.0/prime_contract/change_order_packages', tokens, p, userId), []),
-    safe(() => fetchAllPages('/rest/v1.1/requisitions', tokens, p, userId), []),
-    safe(() => fetchAllPages('/rest/v1.1/payment_applications', tokens, p, userId), []),
-    safe(() => fetchAllPages(`/rest/v1.0/projects/${procoreProjectId}/direct_costs`, tokens, { company_id: companyId }, userId), []),
+    safe(() => fetchAllPages(`${projPath}/change_order_packages`, tokens, cp, userId), [], 'commitment_cos'),
+    firstPrimeId
+      ? safe(() => fetchAllPages(`${projPath}/prime_contract/${firstPrimeId}/change_order_packages`, tokens, cp, userId), [], 'prime_cos')
+      : Promise.resolve([]),
+    safe(() => fetchAllPages(`${projPath}/requisitions`, tokens, cp, userId), [], 'requisitions'),
+    firstPrimeId
+      ? safe(() => fetchAllPages(`${projPath}/prime_contract/${firstPrimeId}/payment_applications`, tokens, cp, userId), [], 'payment_apps')
+      : Promise.resolve([]),
+    safe(() => fetchAllPages(`${projPath}/direct_costs`, tokens, cp, userId), [], 'direct_costs'),
   ]);
 
   // Change orders (both prime and commitment)
@@ -300,9 +318,8 @@ async function syncProjectDetails(
     counts.change_orders++;
   }
 
-  // Subcontractor invoices (requisitions) — filter to this project
-  const projectReqs = requisitions.filter((r: any) => String(r.project_id) === procoreProjectId);
-  for (const req of projectReqs) {
+  // Subcontractor invoices (requisitions)
+  for (const req of requisitions) {
     await supabase.from('procore_pay_apps').upsert({
       project_id: internalId,
       procore_id: `sub_${req.id}`,
@@ -322,13 +339,8 @@ async function syncProjectDetails(
     counts.sub_invoices++;
   }
 
-  // Payment applications (billings to owner) — filter to this project's prime contracts
-  const projectPayApps = payApps.filter((app: any) => {
-    const contractId = String(app.prime_contract_id || app.contract_id || '');
-    return primeContractIds.has(contractId) || String(app.project_id) === procoreProjectId;
-  });
-
-  for (const app of projectPayApps) {
+  // Payment applications (billings to owner)
+  for (const app of payApps) {
     await supabase.from('procore_pay_apps').upsert({
       project_id: internalId,
       procore_id: `owner_${app.id}`,
@@ -366,9 +378,9 @@ async function syncProjectDetails(
 
   // --- RISK DATA (parallel) ---
   const [rfiList, submittalList, punchList] = await Promise.all([
-    safe(() => fetchAllPages(`/rest/v1.0/projects/${procoreProjectId}/rfis`, tokens, { company_id: companyId }, userId), []),
-    safe(() => fetchAllPages(`/rest/v1.0/projects/${procoreProjectId}/submittals`, tokens, { company_id: companyId }, userId), []),
-    safe(() => fetchAllPages(`/rest/v1.0/projects/${procoreProjectId}/punch_items`, tokens, { company_id: companyId }, userId), []),
+    safe(() => fetchAllPages(`${projPath}/rfis`, tokens, cp, userId), [], 'rfis'),
+    safe(() => fetchAllPages(`${projPath}/submittals`, tokens, cp, userId), [], 'submittals'),
+    safe(() => fetchAllPages(`${projPath}/punch_items`, tokens, cp, userId), [], 'punch_items'),
   ]);
 
   // RFIs
