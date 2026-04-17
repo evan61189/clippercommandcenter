@@ -590,14 +590,23 @@ export default function ProjectDeepDive() {
             <div className="mt-3">
               {(() => {
                 // Build cost code → vendor mapping from commitment line items
+                // Line items use short names ("HVAC"), budget uses "15-700 - HVAC"
+                // Index by both the full code AND the short name for flexible matching
                 const costCodeVendors: Record<string, string[]> = {}
                 for (const li of commitLineItems) {
-                  if (!li.cost_code) continue
-                  // Match on the numeric prefix (e.g. "16-100") since budget uses "16-100 - Electrical"
-                  const prefix = li.cost_code.split(' - ')[0]?.trim() || li.cost_code
-                  if (!costCodeVendors[prefix]) costCodeVendors[prefix] = []
-                  if (li.vendor_name && !costCodeVendors[prefix].includes(li.vendor_name)) {
-                    costCodeVendors[prefix].push(li.vendor_name)
+                  if (!li.cost_code || !li.vendor_name) continue
+                  const keys = [li.cost_code.trim().toLowerCase()]
+                  // Also add numeric prefix if it looks like "15-700 - HVAC"
+                  const parts = li.cost_code.split(' - ')
+                  if (parts.length > 1) {
+                    keys.push(parts[0].trim().toLowerCase())
+                    keys.push(parts.slice(1).join(' - ').trim().toLowerCase())
+                  }
+                  for (const key of keys) {
+                    if (!costCodeVendors[key]) costCodeVendors[key] = []
+                    if (!costCodeVendors[key].includes(li.vendor_name)) {
+                      costCodeVendors[key].push(li.vendor_name)
+                    }
                   }
                 }
 
@@ -628,8 +637,11 @@ export default function ProjectDeepDive() {
                         <tbody>
                           {displayLines.map((b) => {
                             const tradeName = (b.cost_code || '').replace(/^\d+-\d+\s*-\s*/, '')
-                            const codePrefix = (b.cost_code || '').split(' - ')[0]?.trim()
-                            const vendors = codePrefix ? (costCodeVendors[codePrefix] || []) : []
+                            // Try matching by numeric prefix, trade name, or full code
+                            const cc = (b.cost_code || '').toLowerCase()
+                            const ccPrefix = cc.split(' - ')[0]?.trim()
+                            const ccName = cc.split(' - ').slice(1).join(' - ').trim()
+                            const vendors = costCodeVendors[cc] || costCodeVendors[ccPrefix] || costCodeVendors[ccName] || []
                             const budgetAmt = b.revised_budget || 0
                             const committedAmt = b.committed || 0
                             const buyout = committedAmt > 0 ? committedAmt - budgetAmt : null
