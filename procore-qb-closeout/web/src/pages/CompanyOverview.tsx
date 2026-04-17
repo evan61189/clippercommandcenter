@@ -153,7 +153,9 @@ export default function CompanyOverview() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId }),
       })
-      const result = await res.json()
+      const text = await res.text()
+      let result: any
+      try { result = JSON.parse(text) } catch { throw new Error('Sync service unavailable — deploy may still be in progress. Try again in a minute.') }
       if (!res.ok) throw new Error(result.error || 'Sync failed')
 
       const s = result.synced || {}
