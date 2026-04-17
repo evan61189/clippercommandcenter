@@ -188,13 +188,14 @@ async function syncProjectDetails(
     safe(() => procoreGet('/rest/v1.0/budget_views', tokens, fp, userId), [], 'budget_views'),
   ]);
 
-  // Prime contracts → update project contract values
+  // Prime contracts → SUM all prime contract values for the project total
+  let totalOriginal = 0;
+  let totalCurrent = 0;
+
   for (const pc of primeContracts) {
     const val = pc.grand_total || pc.revised_grand_total || pc.original_value || 0;
-    await supabase.from('projects').update({
-      original_contract_value: pc.original_value || 0,
-      current_contract_value: val,
-    }).eq('id', internalId);
+    totalOriginal += (pc.original_value || 0);
+    totalCurrent += val;
 
     await supabase.from('prime_contracts').upsert({
       project_id: internalId,
@@ -208,6 +209,14 @@ async function syncProjectDetails(
       executed: !!pc.executed_date,
     }, { onConflict: 'procore_id', ignoreDuplicates: false });
     counts.contracts++;
+  }
+
+  // Update project with summed contract values (handles multi-prime projects)
+  if (primeContracts.length > 0) {
+    await supabase.from('projects').update({
+      original_contract_value: totalOriginal,
+      current_contract_value: totalCurrent,
+    }).eq('id', internalId);
   }
 
   // Subcontracts
