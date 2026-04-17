@@ -187,7 +187,7 @@ async function syncProjectDetails(
 
   // --- FINANCIAL DATA (parallel fetch) ---
   const [primeContracts, subList, poList, budgetViews] = await Promise.all([
-    safe(() => fetchAllPages('/rest/v1.0/prime_contract', tokens, fp, userId), [], 'prime_contracts'),
+    safe(() => fetchAllPages('/rest/v1.0/prime_contracts', tokens, fp, userId), [], 'prime_contracts'),
     safe(() => fetchAllPages('/rest/v1.0/work_order_contracts', tokens, fp, userId), [], 'work_order_contracts'),
     safe(() => fetchAllPages('/rest/v1.0/purchase_order_contracts', tokens, fp, userId), [], 'purchase_order_contracts'),
     safe(() => procoreGet('/rest/v1.0/budget_views', tokens, fp, userId), [], 'budget_views'),
@@ -342,24 +342,29 @@ async function syncProjectDetails(
   }
 
   // --- CHANGE ORDERS, PAY APPS, SUB INVOICES, DIRECT COSTS (parallel) ---
-  const firstPrimeId = primeContracts.length > 0 ? primeContracts[0].id : null;
+  // Fetch prime COs and pay apps for ALL prime contracts (not just the first)
+  const primeIds = primeContracts.map((pc: any) => pc.id).filter(Boolean);
 
-  const [commitmentCOs, primeCOs, requisitions, payApps, directCostsList] = await Promise.all([
+  const [commitmentCOs, requisitions, directCostsList] = await Promise.all([
     // change_order_packages → FLAT path
     safe(() => fetchAllPages('/rest/v1.0/change_order_packages', tokens, fp, userId), [], 'commitment_cos'),
-    // prime COs → FLAT path with prime_contract_id
-    firstPrimeId
-      ? safe(() => fetchAllPages('/rest/v1.0/change_order_packages', tokens, { ...fp, prime_contract_id: String(firstPrimeId) }, userId), [], 'prime_cos')
-      : Promise.resolve([]),
     // requisitions → FLAT path
     safe(() => fetchAllPages('/rest/v1.0/requisitions', tokens, fp, userId), [], 'requisitions'),
-    // payment_applications → FLAT path
-    firstPrimeId
-      ? safe(() => fetchAllPages('/rest/v1.0/payment_applications', tokens, { ...fp, prime_contract_id: String(firstPrimeId) }, userId), [], 'payment_apps')
-      : Promise.resolve([]),
     // direct_costs → PROJECT-SCOPED path (confirmed working)
     safe(() => fetchAllPages(`${projPath}/direct_costs`, tokens, { company_id: companyId }, userId), [], 'direct_costs'),
   ]);
+
+  // Fetch prime COs and pay apps across all prime contracts
+  const primeCOs: any[] = [];
+  const payApps: any[] = [];
+  for (const primeId of primeIds) {
+    const [cos, apps] = await Promise.all([
+      safe(() => fetchAllPages('/rest/v1.0/change_order_packages', tokens, { ...fp, prime_contract_id: String(primeId) }, userId), [], `prime_cos_${primeId}`),
+      safe(() => fetchAllPages('/rest/v1.0/payment_applications', tokens, { ...fp, prime_contract_id: String(primeId) }, userId), [], `payment_apps_${primeId}`),
+    ]);
+    primeCOs.push(...cos);
+    payApps.push(...apps);
+  }
 
   // Change orders (both prime and commitment)
   for (const co of commitmentCOs) {
