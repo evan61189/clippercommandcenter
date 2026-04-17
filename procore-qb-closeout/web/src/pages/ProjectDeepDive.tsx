@@ -19,6 +19,7 @@ interface RFI { id: string; number: string; subject: string; status: string; due
 interface Submittal { id: string; number: string; title: string; status: string; due_date: string; required_on_site_date: string; }
 interface PunchItem { id: string; name: string; status: string; assigned_to_name: string; due_date: string; priority: string; }
 interface BudgetLine { id: string; cost_code: string; description: string; revised_budget: number; committed: number; actual_costs: number; projected_cost: number; over_under: number; }
+interface CommitmentLineItem { id: string; cost_code: string; vendor_name: string; amount: number; }
 interface Correspondence { id: string; subject: string; from_name: string; date: string; snippet: string; }
 
 // --- Helpers ---
@@ -78,6 +79,7 @@ export default function ProjectDeepDive() {
   const [submittals, setSubmittals] = useState<Submittal[]>([])
   const [punch, setPunch] = useState<PunchItem[]>([])
   const [budget, setBudget] = useState<BudgetLine[]>([])
+  const [commitLineItems, setCommitLineItems] = useState<CommitmentLineItem[]>([])
   const [emails, setEmails] = useState<Correspondence[]>([])
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
@@ -87,7 +89,7 @@ export default function ProjectDeepDive() {
   useEffect(() => {
     if (!projectId) return
     async function load() {
-      const [projRes, primesRes, subsRes, cosRes, paRes, rfiRes, subRes, punchRes, budgetRes] = await Promise.all([
+      const [projRes, primesRes, subsRes, cosRes, paRes, rfiRes, subRes, punchRes, budgetRes, cliRes] = await Promise.all([
         supabase.from('projects').select('*').eq('id', projectId).single(),
         supabase.from('prime_contracts').select('*').eq('project_id', projectId).order('contract_value', { ascending: false }),
         supabase.from('subcontracts').select('*').eq('project_id', projectId).order('contract_value', { ascending: false }),
@@ -97,6 +99,7 @@ export default function ProjectDeepDive() {
         supabase.from('submittals').select('*').eq('project_id', projectId),
         supabase.from('punch_items').select('*').eq('project_id', projectId),
         supabase.from('procore_budget').select('*').eq('project_id', projectId),
+        supabase.from('commitment_line_items').select('*').eq('project_id', projectId),
       ])
       if (projRes.data) setProject(projRes.data)
       if (primesRes.data) setPrimes(primesRes.data)
@@ -107,6 +110,7 @@ export default function ProjectDeepDive() {
       if (subRes.data) setSubmittals(subRes.data)
       if (punchRes.data) setPunch(punchRes.data)
       if (budgetRes.data) setBudget(budgetRes.data)
+      if (cliRes.data) setCommitLineItems(cliRes.data)
 
       // Fetch correspondence from Procore API
       if (projRes.data?.procore_project_id && user?.id) {
@@ -139,7 +143,7 @@ export default function ProjectDeepDive() {
       })
       if (res.ok) {
         // Reload all data
-        const [primesRes, subsRes, cosRes, paRes, rfiRes, subRes, punchRes, budgetRes] = await Promise.all([
+        const [primesRes, subsRes, cosRes, paRes, rfiRes, subRes, punchRes, budgetRes, cliRes] = await Promise.all([
           supabase.from('prime_contracts').select('*').eq('project_id', projectId).order('contract_value', { ascending: false }),
           supabase.from('subcontracts').select('*').eq('project_id', projectId).order('contract_value', { ascending: false }),
           supabase.from('procore_change_orders').select('*').eq('project_id', projectId),
@@ -148,6 +152,7 @@ export default function ProjectDeepDive() {
           supabase.from('submittals').select('*').eq('project_id', projectId),
           supabase.from('punch_items').select('*').eq('project_id', projectId),
           supabase.from('procore_budget').select('*').eq('project_id', projectId),
+          supabase.from('commitment_line_items').select('*').eq('project_id', projectId),
         ])
         if (primesRes.data) setPrimes(primesRes.data)
         if (subsRes.data) setSubs(subsRes.data)
@@ -157,6 +162,7 @@ export default function ProjectDeepDive() {
         if (subRes.data) setSubmittals(subRes.data)
         if (punchRes.data) setPunch(punchRes.data)
         if (budgetRes.data) setBudget(budgetRes.data)
+        if (cliRes.data) setCommitLineItems(cliRes.data)
       }
     } catch (err) {
       console.error('Sync failed:', err)
@@ -583,6 +589,18 @@ export default function ProjectDeepDive() {
           <Section title="Commitments" icon={Users} badge={`${subs.length} subs — ${fmt(totalCommitted)}`} defaultOpen={true}>
             <div className="mt-3">
               {(() => {
+                // Build cost code → vendor mapping from commitment line items
+                const costCodeVendors: Record<string, string[]> = {}
+                for (const li of commitLineItems) {
+                  if (!li.cost_code) continue
+                  // Match on the numeric prefix (e.g. "16-100") since budget uses "16-100 - Electrical"
+                  const prefix = li.cost_code.split(' - ')[0]?.trim() || li.cost_code
+                  if (!costCodeVendors[prefix]) costCodeVendors[prefix] = []
+                  if (li.vendor_name && !costCodeVendors[prefix].includes(li.vendor_name)) {
+                    costCodeVendors[prefix].push(li.vendor_name)
+                  }
+                }
+
                 // Budget commitment lines (have the budget vs committed comparison)
                 const commitmentBudgetLines = budget
                   .filter(b => (b.description || '').includes('Commitment') && (b.revised_budget || 0) > 0)
@@ -601,6 +619,7 @@ export default function ProjectDeepDive() {
                         <thead>
                           <tr className="border-b border-gray-200 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
                             <th className="text-left py-2 pr-2">Trade</th>
+                            <th className="text-left py-2 px-2">Vendor</th>
                             <th className="text-right py-2 px-2 w-20">Budget</th>
                             <th className="text-right py-2 px-2 w-20">Committed</th>
                             <th className="text-right py-2 pl-2 w-24">Buyout +/−</th>
@@ -609,12 +628,17 @@ export default function ProjectDeepDive() {
                         <tbody>
                           {displayLines.map((b) => {
                             const tradeName = (b.cost_code || '').replace(/^\d+-\d+\s*-\s*/, '')
+                            const codePrefix = (b.cost_code || '').split(' - ')[0]?.trim()
+                            const vendors = codePrefix ? (costCodeVendors[codePrefix] || []) : []
                             const budgetAmt = b.revised_budget || 0
                             const committedAmt = b.committed || 0
                             const buyout = committedAmt > 0 ? committedAmt - budgetAmt : null
                             return (
                               <tr key={b.id} className="border-b border-gray-50 last:border-0">
                                 <td className="py-1.5 pr-2 font-medium text-gray-700">{tradeName || b.cost_code || '—'}</td>
+                                <td className="py-1.5 px-2 text-gray-500 max-w-[140px] truncate" title={vendors.join(', ')}>
+                                  {vendors.length > 0 ? vendors.join(', ') : <span className="text-gray-300">—</span>}
+                                </td>
                                 <td className="py-1.5 px-2 text-right font-mono text-gray-500">{fmt(budgetAmt)}</td>
                                 <td className="py-1.5 px-2 text-right font-mono text-gray-700">
                                   {committedAmt > 0 ? fmt(committedAmt) : <span className="text-gray-300">—</span>}
@@ -631,6 +655,7 @@ export default function ProjectDeepDive() {
                         <tfoot>
                           <tr className="border-t border-gray-200 font-semibold text-[11px]">
                             <td className="py-2 pr-2 text-gray-600">Total</td>
+                            <td className="py-2 px-2"></td>
                             <td className="py-2 px-2 text-right font-mono text-gray-600">{fmt(totalBudgeted)}</td>
                             <td className="py-2 px-2 text-right font-mono text-gray-800">{fmt(totalBoughtOut)}</td>
                             <td className={`py-2 pl-2 text-right font-mono ${totalBuyout > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
@@ -648,38 +673,9 @@ export default function ProjectDeepDive() {
                         </button>
                       )}
 
-                      {/* Subcontractors list below buyout table */}
-                      {sortedSubs.length > 0 && (
-                        <div className="mt-4 pt-3 border-t border-gray-100">
-                          <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Subcontractors</h4>
-                          <div className="space-y-1">
-                            {sortedSubs.map((sub) => {
-                              const displayName = sub.vendor_name && sub.vendor_name !== sub.title
-                                ? sub.vendor_name
-                                : sub.title || sub.vendor_name || 'Unknown'
-                              const subtitle = sub.vendor_name && sub.vendor_name !== sub.title ? sub.title : sub.number || null
-                              return (
-                                <div key={sub.id} className="flex items-center justify-between py-1 text-xs border-b border-gray-50 last:border-0">
-                                  <div className="flex items-center gap-2 min-w-0 flex-1">
-                                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusDot(sub.status)}`} />
-                                    <div className="min-w-0">
-                                      <span className="truncate font-medium block text-gray-700">{displayName}</span>
-                                      {subtitle && <span className="text-[10px] text-gray-400 truncate block">{subtitle}</span>}
-                                    </div>
-                                  </div>
-                                  <div className="flex items-center gap-2 shrink-0 ml-3">
-                                    {sub.status && !['active', 'Approved', 'approved'].includes(sub.status) && (
-                                      <span className={`text-[9px] px-1 rounded ${
-                                        sub.status === 'Out For Signature' ? 'text-amber-600 bg-amber-50' : 'text-gray-500 bg-gray-100'
-                                      }`}>{sub.status}</span>
-                                    )}
-                                    <span className="text-gray-600 font-mono text-xs">{fmt(sub.contract_value)}</span>
-                                  </div>
-                                </div>
-                              )
-                            })}
-                          </div>
-                        </div>
+                      {/* Note about vendor mapping */}
+                      {Object.keys(costCodeVendors).length === 0 && sortedSubs.length > 0 && (
+                        <p className="text-[10px] text-gray-400 mt-2 italic">Vendor names will appear after next sync pulls sub line items.</p>
                       )}
                     </>
                   )

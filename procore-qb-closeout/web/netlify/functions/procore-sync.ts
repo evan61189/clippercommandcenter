@@ -224,14 +224,16 @@ async function syncProjectDetails(
     }).eq('id', internalId);
   }
 
-  // Subcontracts
+  // Subcontracts + their line items (SOV) for cost code mapping
+  const subVendorMap: Record<string, string> = {}; // procore sub id → vendor name
   for (const sub of subList) {
-    // Procore vendor info may be in vendor object, contractor, or separate fields
     const vendorName = sub.vendor?.name || sub.vendor?.company || sub.contractor?.name || sub.assignee?.company?.name || null;
+    const resolvedVendor = vendorName || sub.title || 'Unknown';
+    subVendorMap[String(sub.id)] = resolvedVendor;
     await supabase.from('subcontracts').upsert({
       project_id: internalId,
       procore_id: String(sub.id),
-      vendor_name: vendorName || sub.title || 'Unknown',
+      vendor_name: resolvedVendor,
       title: sub.title || null,
       number: sub.number || null,
       status: sub.status || 'active',
@@ -241,6 +243,51 @@ async function syncProjectDetails(
       signed_date: sub.executed_date || null,
     }, { onConflict: 'procore_id', ignoreDuplicates: false });
     counts.subcontracts++;
+  }
+
+  // Fetch line items (SOV) for each sub to get cost code → vendor mapping
+  // Clear old line items for this project first
+  await supabase.from('commitment_line_items').delete().eq('project_id', internalId);
+  const lineItemInserts: any[] = [];
+  // Batch fetch line items for all subs in parallel (max 5 at a time)
+  for (let i = 0; i < subList.length; i += 5) {
+    const batch = subList.slice(i, i + 5);
+    const results = await Promise.allSettled(
+      batch.map(sub =>
+        safe(() => fetchAllPages(
+          `/rest/v1.0/work_order_contracts/${sub.id}/line_items`,
+          tokens, fp, userId
+        ), [], `sub_${sub.id}_line_items`)
+          .then(items => ({ subId: String(sub.id), vendor: subVendorMap[String(sub.id)], items }))
+      )
+    );
+    for (const r of results) {
+      if (r.status !== 'fulfilled') continue;
+      const { subId, vendor, items } = r.value;
+      for (const li of items) {
+        const costCode = li.cost_code?.name || li.cost_code?.full_code
+          || (typeof li.cost_code === 'string' ? li.cost_code : null);
+        if (!costCode) continue;
+        lineItemInserts.push({
+          project_id: internalId,
+          subcontract_procore_id: subId,
+          vendor_name: vendor,
+          cost_code: costCode,
+          description: li.description || null,
+          amount: li.amount || li.budget_amount || 0,
+          procore_line_item_id: String(li.id),
+        });
+      }
+    }
+  }
+  if (lineItemInserts.length > 0) {
+    for (let i = 0; i < lineItemInserts.length; i += 500) {
+      await supabase.from('commitment_line_items').upsert(
+        lineItemInserts.slice(i, i + 500),
+        { onConflict: 'procore_line_item_id', ignoreDuplicates: false }
+      );
+    }
+    console.log(`Synced ${lineItemInserts.length} commitment line items for project ${procoreProjectId}`);
   }
 
   // Purchase orders
