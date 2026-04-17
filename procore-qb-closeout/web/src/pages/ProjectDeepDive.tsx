@@ -185,7 +185,10 @@ export default function ProjectDeepDive() {
   const totalSubCost = subInvoices.reduce((s, p) => s + (p.amount_due || 0), 0)
   const budgetActualCost = budget.reduce((s, b) => s + (b.actual_costs || 0), 0)
   const totalCost = totalSubCost > 0 ? totalSubCost : budgetActualCost
-  const margin = contractValue > 0 && totalCost > 0 ? ((contractValue - totalCost) / contractValue) * 100 : null
+  // Margin based on committed costs (what's locked in with subs/POs) — the real
+  // GC margin picture. Falls back to actual costs only if committed is zero.
+  const marginBasis = totalCommitted > 0 ? totalCommitted : totalCost
+  const margin = contractValue > 0 && marginBasis > 0 ? ((contractValue - marginBasis) / contractValue) * 100 : null
   const overUnder = totalBilled - totalCost
   const billedPct = contractValue > 0 ? Math.min(100, (totalBilled / contractValue) * 100) : 0
   const committedPct = contractValue > 0 ? Math.min(100, (totalCommitted / contractValue) * 100) : 0
