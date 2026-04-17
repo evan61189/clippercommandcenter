@@ -123,6 +123,11 @@ async function fetchAllPages(endpoint: string, tokens: TokenData, params?: Recor
   while (true) {
     const pageParams = { ...params, page: String(page), per_page: String(perPage) };
     const data = await procoreGet(endpoint, tokens, pageParams, userId);
+    // Some Procore endpoints (e.g. /prime_contract) return a single object, not an array
+    if (data && !Array.isArray(data) && typeof data === 'object') {
+      allData.push(data);
+      break;
+    }
     if (!Array.isArray(data) || data.length === 0) break;
     allData.push(...data);
     if (data.length < perPage) break;
