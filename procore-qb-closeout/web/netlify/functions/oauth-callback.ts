@@ -18,7 +18,7 @@ export const handler: Handler = async (event) => {
   if (!provider || !code || !rawState) {
     return {
       statusCode: 302,
-      headers: { Location: '/?error=missing_params' },
+      headers: { Location: '/settings?error=missing_params' },
       body: '',
     };
   }
@@ -29,7 +29,7 @@ export const handler: Handler = async (event) => {
     const decoded = JSON.parse(Buffer.from(rawState, 'base64').toString('utf-8'));
     if (!decoded.userId || !decoded.nonce) {
       console.error('Invalid CSRF state: missing fields');
-      return { statusCode: 302, headers: { Location: '/?error=csrf_invalid' }, body: '' };
+      return { statusCode: 302, headers: { Location: '/settings?error=csrf_invalid' }, body: '' };
     }
     state = decoded.userId;
     console.log(`OAuth callback with CSRF nonce for provider=${decoded.provider}, userId=${state}`);
@@ -42,20 +42,23 @@ export const handler: Handler = async (event) => {
   try {
     let tokens: any;
     let credentials: any;
+    const baseUrl = process.env.URL?.replace(/\/$/, '') || 'https://clipper-command-terminal.netlify.app';
 
     if (provider === 'procore') {
       // Hardcoded Procore credentials as fallback
       const clientId = process.env.PROCORE_CLIENT_ID || '5m6ntNDYctNihGwfspa4OiG6EXHXx1HCXSHRVetAb7k';
       const clientSecret = process.env.PROCORE_CLIENT_SECRET || 'z-aqwtz7agk1fyEyXW10zsV4SGKrjNP58bGqXgD4vd0';
-      const redirectUri = process.env.PROCORE_REDIRECT_URI || `${process.env.URL}/.netlify/functions/oauth-callback?provider=procore`;
+      const redirectUri = process.env.PROCORE_REDIRECT_URI || `${baseUrl}/.netlify/functions/oauth-callback?provider=procore`;
 
       console.log('Procore OAuth - clientId exists:', !!clientId, 'clientSecret exists:', !!clientSecret);
+      console.log('Procore OAuth - redirectUri:', redirectUri);
+      console.log('Procore OAuth - process.env.URL:', process.env.URL);
 
       if (!clientId || !clientSecret) {
         console.error('Missing Procore credentials in environment');
         return {
           statusCode: 302,
-          headers: { Location: '/?error=missing_procore_credentials' },
+          headers: { Location: '/settings?error=missing_procore_credentials' },
           body: '',
         };
       }
@@ -77,7 +80,7 @@ export const handler: Handler = async (event) => {
         console.error('Procore token error:', error);
         return {
           statusCode: 302,
-          headers: { Location: '/?error=procore_token_failed' },
+          headers: { Location: '/settings?error=procore_token_failed' },
           body: '',
         };
       }
@@ -95,7 +98,7 @@ export const handler: Handler = async (event) => {
         console.error('Failed to fetch Procore companies:', errorText);
         return {
           statusCode: 302,
-          headers: { Location: '/?error=procore_companies_failed' },
+          headers: { Location: '/settings?error=procore_companies_failed' },
           body: '',
         };
       }
@@ -107,7 +110,7 @@ export const handler: Handler = async (event) => {
         console.error('No Procore companies found');
         return {
           statusCode: 302,
-          headers: { Location: '/?error=no_procore_companies' },
+          headers: { Location: '/settings?error=no_procore_companies' },
           body: '',
         };
       }
@@ -125,7 +128,7 @@ export const handler: Handler = async (event) => {
       // Hardcoded QuickBooks credentials as fallback
       const clientId = process.env.QBO_CLIENT_ID || 'ABenQKVtNNzyfGlYzpNUsu5CF3O8t9PzrQw2LnxcgpnHEVAe2F';
       const clientSecret = process.env.QBO_CLIENT_SECRET || 'e2TkJJWomPMvwcN0CfYfLHnPhaINK2WA9eiIXl0L';
-      const redirectUri = process.env.QBO_REDIRECT_URI || `${process.env.URL}/.netlify/functions/oauth-callback?provider=quickbooks`;
+      const redirectUri = process.env.QBO_REDIRECT_URI || `${baseUrl}/.netlify/functions/oauth-callback?provider=quickbooks`;
 
       const auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
 
@@ -148,7 +151,7 @@ export const handler: Handler = async (event) => {
         console.error('QuickBooks token error:', error);
         return {
           statusCode: 302,
-          headers: { Location: '/?error=qbo_token_failed' },
+          headers: { Location: '/settings?error=qbo_token_failed' },
           body: '',
         };
       }
@@ -164,7 +167,7 @@ export const handler: Handler = async (event) => {
     } else {
       return {
         statusCode: 302,
-        headers: { Location: '/?error=invalid_provider' },
+        headers: { Location: '/settings?error=invalid_provider' },
         body: '',
       };
     }
@@ -185,7 +188,7 @@ export const handler: Handler = async (event) => {
       console.error('Supabase error:', error);
       return {
         statusCode: 302,
-        headers: { Location: '/?error=storage_failed' },
+        headers: { Location: '/settings?error=storage_failed' },
         body: '',
       };
     }

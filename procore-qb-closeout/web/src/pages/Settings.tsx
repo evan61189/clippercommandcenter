@@ -29,6 +29,7 @@ export default function Settings() {
 
     // Show success message and auto-sync if just connected
     const connected = searchParams.get('connected')
+    const oauthError = searchParams.get('error')
     if (connected === 'procore') {
       setMessage('Successfully connected to Procore! Syncing data...')
       setMessageType('success')
@@ -37,6 +38,9 @@ export default function Settings() {
       setMessage('Successfully connected to QuickBooks! Syncing data...')
       setMessageType('success')
       setTimeout(() => runQBSync(), 1000)
+    } else if (oauthError) {
+      setMessage(`Connection failed: ${oauthError.replace(/_/g, ' ')}`)
+      setMessageType('error')
     }
   }, [searchParams])
 
