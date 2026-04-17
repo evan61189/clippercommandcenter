@@ -27,6 +27,7 @@ interface ActiveProject {
   open_submittals: number
   open_punch_items: number
   closed_punch_items: number
+  general_conditions: number
 }
 
 const fmt = (val: number | null | undefined) => {
@@ -178,6 +179,7 @@ export default function CompanyOverview() {
   const totalBilled = projects.reduce((s, p) => s + (p.total_billed || 0), 0)
   const totalCommitted = projects.reduce((s, p) => s + (p.total_committed || 0), 0)
   const totalOpenItems = projects.reduce((s, p) => s + (p.open_rfis || 0) + (p.open_submittals || 0) + (p.open_punch_items || 0), 0)
+  const totalGC = projects.reduce((s, p) => s + (parseFloat(String(p.general_conditions)) || 0), 0)
 
   if (loading) {
     return (
@@ -248,7 +250,7 @@ export default function CompanyOverview() {
       )}
 
       {/* Summary bar */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
         <div className="bg-white rounded-lg border border-gray-200 px-4 py-3">
           <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Total Contract</p>
           <p className="text-xl font-bold text-clipper-black mt-0.5">{fmt(totalContract)}</p>
@@ -268,6 +270,11 @@ export default function CompanyOverview() {
           )}
         </div>
         <div className="bg-white rounded-lg border border-gray-200 px-4 py-3">
+          <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Gen. Conditions</p>
+          <p className="text-xl font-bold text-clipper-black mt-0.5">{totalGC > 0 ? fmt(totalGC) : '—'}</p>
+          <p className="text-xs text-gray-400">PM, APM, Super labor</p>
+        </div>
+        <div className="bg-white rounded-lg border border-gray-200 px-4 py-3">
           <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Open Items</p>
           <p className="text-xl font-bold text-clipper-black mt-0.5">{totalOpenItems}</p>
           <p className="text-xs text-gray-400">RFIs, submittals, punch</p>
@@ -284,6 +291,7 @@ export default function CompanyOverview() {
               <th className="text-right py-3 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Committed</th>
               <th className="text-center py-3 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Billed</th>
               <th className="text-right py-3 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Margin</th>
+              <th className="text-right py-3 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">GC</th>
               <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Flags</th>
               <th className="py-3 px-3 w-8"></th>
             </tr>
@@ -291,7 +299,7 @@ export default function CompanyOverview() {
           <tbody>
             {projects.map((p) => {
               const margin = p.gross_margin_percent || 0
-              const hasCost = (p.total_cost || 0) > 0
+              const hasMargin = margin !== 0
               const committedPct = p.revised_contract_value > 0 ? (p.total_committed / p.revised_contract_value) * 100 : 0
               const overCommitted = committedPct > 100
 
@@ -318,13 +326,16 @@ export default function CompanyOverview() {
                     <BilledBar billed={p.total_billed} contract={p.revised_contract_value} />
                   </td>
                   <td className="py-3 px-3 text-right">
-                    {hasCost ? (
+                    {hasMargin ? (
                       <span className={`font-semibold ${margin > 10 ? 'text-emerald-600' : margin >= 5 ? 'text-amber-600' : 'text-red-600'}`}>
                         {margin.toFixed(1)}%
                       </span>
                     ) : (
                       <span className="text-gray-400">—</span>
                     )}
+                  </td>
+                  <td className="py-3 px-3 text-right font-medium text-gray-600">
+                    {parseFloat(String(p.general_conditions)) > 0 ? fmt(parseFloat(String(p.general_conditions))) : <span className="text-gray-300">—</span>}
                   </td>
                   <td className="py-3 px-3">
                     <RiskBadges project={p} />
