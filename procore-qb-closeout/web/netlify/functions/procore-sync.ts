@@ -268,17 +268,22 @@ async function syncProjectDetails(
     // Clear old budget for this project
     await supabase.from('procore_budget').delete().eq('project_id', internalId);
 
+    // Procore budget detail rows use capitalized display-name keys:
+    //   "cost_code" = flat string like "06-500 - Selective Demolition"
+    //   "category" = "Commitment" / "Labor" etc.
+    //   "wbs_code.description" = "Selective Demolition.Commitment"
+    //   "Revised Budget", "Committed Costs", "Job to Date Costs", etc.
     const budgetInserts = budgetRows.map((row: any) => ({
       project_id: internalId,
-      cost_code: row.cost_code?.full_code || row.cost_code?.name || row.cost_code?.code || null,
-      description: row.description || row.row_name || row.cost_code?.name || row.cost_code?.full_code || row.category?.name || row.line_item_type?.name || null,
-      original_budget: row.original_budget_amount || 0,
-      budget_changes: row.budget_modifications || 0,
-      revised_budget: row.revised_budget_amount || row.original_budget_amount || 0,
-      committed: row.approved_cos || row.committed_amount || 0,
-      actual_costs: row.direct_costs || 0,
-      projected_cost: row.projected_budget || row.forecasted_cost || 0,
-      over_under: row.over_under_amount || 0,
+      cost_code: typeof row.cost_code === 'string' ? row.cost_code : (row.wbs_code?.flat_code || null),
+      description: row.wbs_code?.description || row.category || null,
+      original_budget: parseFloat(row.original_budget_amount) || 0,
+      budget_changes: parseFloat(row['Approved Budget Changes']) || 0,
+      revised_budget: parseFloat(row['Revised Budget']) || parseFloat(row.original_budget_amount) || 0,
+      committed: parseFloat(row['Committed Costs']) || 0,
+      actual_costs: parseFloat(row['Job to Date Costs']) || 0,
+      projected_cost: parseFloat(row['Estimated Cost at Completion']) || parseFloat(row['Projected Costs']) || 0,
+      over_under: parseFloat(row['Projected over Under']) || 0,
       synced_at: new Date().toISOString(),
     }));
 
