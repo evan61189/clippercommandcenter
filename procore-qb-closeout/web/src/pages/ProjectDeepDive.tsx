@@ -435,11 +435,13 @@ export default function ProjectDeepDive() {
                   </div>
                   <div className="space-y-1">
                     {visibleLines.map((b, i) => {
-                      const label = b.cost_code
-                        ? `${b.cost_code}${b.description ? ' — ' + b.description : ''}`
-                        : b.description
-                        ? b.description
-                        : `Unassigned budget — ${fmt(b.revised_budget)}`
+                      const code = b.cost_code && b.cost_code !== 'N/A' ? b.cost_code : null
+                      const desc = b.description && b.description !== 'N/A' ? b.description : null
+                      const label = code
+                        ? `${code}${desc ? ' — ' + desc : ''}`
+                        : desc
+                        ? desc
+                        : `Unassigned budget`
                       return (
                         <div key={i} className="flex items-center justify-between text-xs text-gray-500">
                           <span className="truncate">{label}</span>
