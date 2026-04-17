@@ -46,8 +46,8 @@ export const handler: Handler = async (event) => {
 
     if (provider === 'procore') {
       // Hardcoded Procore credentials as fallback
-      const clientId = process.env.PROCORE_CLIENT_ID || '5m6ntNDYctNihGwfspa4OiG6EXHXx1HCXSHRVetAb7k';
-      const clientSecret = process.env.PROCORE_CLIENT_SECRET || 'z-aqwtz7agk1fyEyXW10zsV4SGKrjNP58bGqXgD4vd0';
+      const clientId = process.env.PROCORE_CLIENT_ID || '';
+      const clientSecret = process.env.PROCORE_CLIENT_SECRET || '';
       const redirectUri = process.env.PROCORE_REDIRECT_URI || `${baseUrl}/.netlify/functions/oauth-callback?provider=procore`;
 
       console.log('Procore OAuth - clientId exists:', !!clientId, 'clientSecret exists:', !!clientSecret);
@@ -129,8 +129,8 @@ export const handler: Handler = async (event) => {
       };
     } else if (provider === 'quickbooks') {
       // Hardcoded QuickBooks credentials as fallback
-      const clientId = process.env.QBO_CLIENT_ID || 'ABenQKVtNNzyfGlYzpNUsu5CF3O8t9PzrQw2LnxcgpnHEVAe2F';
-      const clientSecret = process.env.QBO_CLIENT_SECRET || 'e2TkJJWomPMvwcN0CfYfLHnPhaINK2WA9eiIXl0L';
+      const clientId = process.env.QBO_CLIENT_ID || '';
+      const clientSecret = process.env.QBO_CLIENT_SECRET || '';
       const redirectUri = process.env.QBO_REDIRECT_URI || `${baseUrl}/.netlify/functions/oauth-callback?provider=quickbooks`;
 
       const auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');

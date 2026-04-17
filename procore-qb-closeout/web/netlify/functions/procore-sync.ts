@@ -26,8 +26,8 @@ async function getStoredTokens(userId: string): Promise<TokenData | null> {
 }
 
 async function refreshAccessToken(tokens: TokenData, userId: string): Promise<TokenData | null> {
-  const clientId = process.env.PROCORE_CLIENT_ID || '5m6ntNDYctNihGwfspa4OiG6EXHXx1HCXSHRVetAb7k';
-  const clientSecret = process.env.PROCORE_CLIENT_SECRET || 'z-aqwtz7agk1fyEyXW10zsV4SGKrjNP58bGqXgD4vd0';
+  const clientId = process.env.PROCORE_CLIENT_ID || '';
+  const clientSecret = process.env.PROCORE_CLIENT_SECRET || '';
   const redirectUri = process.env.PROCORE_REDIRECT_URI || `${process.env.URL || 'https://clipper-command-terminal.netlify.app'}/.netlify/functions/oauth-callback?provider=procore`;
 
   console.log('Refreshing Procore token for user:', userId);

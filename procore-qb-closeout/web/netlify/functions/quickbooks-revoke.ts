@@ -34,8 +34,8 @@ export const handler: Handler = async (event) => {
     }
 
     const tokens = data.credentials as { access_token: string; refresh_token: string };
-    const clientId = process.env.QBO_CLIENT_ID || 'ABenQKVtNNzyfGlYzpNUsu5CF3O8t9PzrQw2LnxcgpnHEVAe2F';
-    const clientSecret = process.env.QBO_CLIENT_SECRET || 'e2TkJJWomPMvwcN0CfYfLHnPhaINK2WA9eiIXl0L';
+    const clientId = process.env.QBO_CLIENT_ID || '';
+    const clientSecret = process.env.QBO_CLIENT_SECRET || '';
     const auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
 
     // Revoke the refresh token (this also invalidates the access token)

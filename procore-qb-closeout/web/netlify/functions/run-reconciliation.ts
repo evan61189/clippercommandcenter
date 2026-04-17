@@ -33,8 +33,8 @@ async function getQBTokens(userId: string): Promise<QBTokenData | null> {
 }
 
 async function refreshQBToken(tokens: QBTokenData, userId: string): Promise<QBTokenData | null> {
-  const clientId = process.env.QBO_CLIENT_ID || 'ABenQKVtNNzyfGlYzpNUsu5CF3O8t9PzrQw2LnxcgpnHEVAe2F';
-  const clientSecret = process.env.QBO_CLIENT_SECRET || 'e2TkJJWomPMvwcN0CfYfLHnPhaINK2WA9eiIXl0L';
+  const clientId = process.env.QBO_CLIENT_ID || '';
+  const clientSecret = process.env.QBO_CLIENT_SECRET || '';
 
   if (!clientId || !clientSecret) return null;
 

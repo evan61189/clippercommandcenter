@@ -200,7 +200,7 @@ export default function Settings() {
   }
 
   function connectProcore() {
-    const clientId = import.meta.env.VITE_PROCORE_CLIENT_ID || '5m6ntNDYctNihGwfspa4OiG6EXHXx1HCXSHRVetAb7k'
+    const clientId = import.meta.env.VITE_PROCORE_CLIENT_ID || ''
     const redirectUri = `${window.location.origin}/.netlify/functions/oauth-callback?provider=procore`
 
     const authUrl = new URL('https://login.procore.com/oauth/authorize')
@@ -213,7 +213,7 @@ export default function Settings() {
   }
 
   function connectQuickBooks() {
-    const clientId = import.meta.env.VITE_QBO_CLIENT_ID || 'ABenQKVtNNzyfGlYzpNUsu5CF3O8t9PzrQw2LnxcgpnHEVAe2F'
+    const clientId = import.meta.env.VITE_QBO_CLIENT_ID || ''
     const redirectUri = `${window.location.origin}/.netlify/functions/oauth-callback?provider=quickbooks`
     const scope = 'com.intuit.quickbooks.accounting'
 

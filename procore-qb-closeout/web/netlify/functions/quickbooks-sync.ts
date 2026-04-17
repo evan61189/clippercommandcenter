@@ -27,8 +27,8 @@ async function getStoredTokens(userId: string): Promise<TokenData | null> {
 }
 
 async function refreshAccessToken(tokens: TokenData, userId: string): Promise<TokenData | null> {
-  const clientId = process.env.QBO_CLIENT_ID || 'ABenQKVtNNzyfGlYzpNUsu5CF3O8t9PzrQw2LnxcgpnHEVAe2F';
-  const clientSecret = process.env.QBO_CLIENT_SECRET || 'e2TkJJWomPMvwcN0CfYfLHnPhaINK2WA9eiIXl0L';
+  const clientId = process.env.QBO_CLIENT_ID || '';
+  const clientSecret = process.env.QBO_CLIENT_SECRET || '';
   const auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
 
   const response = await fetch(QBO_TOKEN_URL, {
