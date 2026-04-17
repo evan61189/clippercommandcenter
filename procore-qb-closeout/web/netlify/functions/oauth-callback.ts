@@ -76,11 +76,14 @@ export const handler: Handler = async (event) => {
       });
 
       if (!response.ok) {
-        const error = await response.text();
-        console.error('Procore token error:', error);
+        const errorBody = await response.text();
+        console.error('Procore token error:', response.status, errorBody);
+        console.error('Procore token request used redirectUri:', redirectUri);
+        // Surface the actual error for debugging
+        const errorMsg = encodeURIComponent(`procore_token_${response.status}: ${errorBody.substring(0, 200)}`);
         return {
           statusCode: 302,
-          headers: { Location: '/settings?error=procore_token_failed' },
+          headers: { Location: `/settings?error=${errorMsg}` },
           body: '',
         };
       }
