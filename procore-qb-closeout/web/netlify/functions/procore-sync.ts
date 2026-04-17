@@ -469,6 +469,9 @@ async function syncProjectDetails(
     }, { onConflict: 'procore_id', ignoreDuplicates: false });
     counts.punch_items++;
   }
+
+  // Mark this project as having been detailed-synced
+  await supabase.from('projects').update({ last_detailed_sync: new Date().toISOString() }).eq('id', internalId);
 }
 
 export const handler: Handler = async (event) => {
@@ -521,21 +524,24 @@ export const handler: Handler = async (event) => {
     }
 
     // Step 1: Sync project list
-    const projectMap: Record<string, { id: string; procoreId: string; active: boolean }> = {};
+    const projectMap: Record<string, { id: string; procoreId: string; active: boolean; lastSync: string | null }> = {};
 
     for (const pp of procoreProjects) {
       const isActive = pp.active !== false;
+      // Procore provides project_stage as an object with name, e.g. "Course of Construction", "Closeout", "Complete", "None"
+      const stageName = pp.project_stage?.name || pp.stage || null;
       const { data: upserted, error: projErr } = await supabase.from('projects').upsert({
         organization_id: orgId,
         procore_project_id: String(pp.id),
         name: pp.name || pp.display_name || 'Unnamed',
         code: pp.project_number || pp.code || null,
         status: isActive ? 'active' : 'completed',
+        procore_stage: stageName,
         address: pp.address ? { street: pp.address, city: pp.city, state: pp.state_code, zip: pp.zip } : null,
         start_date: pp.start_date || null,
         estimated_completion_date: pp.projected_finish_date || pp.completion_date || null,
         updated_at: new Date().toISOString(),
-      }, { onConflict: 'procore_project_id', ignoreDuplicates: false }).select('id, procore_project_id');
+      }, { onConflict: 'procore_project_id', ignoreDuplicates: false }).select('id, procore_project_id, last_detailed_sync');
 
       if (projErr) {
         console.error('Project upsert error:', projErr.message);
@@ -548,6 +554,7 @@ export const handler: Handler = async (event) => {
           id: upserted[0].id,
           procoreId: String(pp.id),
           active: isActive,
+          lastSync: upserted[0].last_detailed_sync,
         };
       }
     }
@@ -556,7 +563,13 @@ export const handler: Handler = async (event) => {
 
     // Step 2: Sync financial + risk details for active projects
     // Netlify functions have a 26s timeout — use 22s guard to leave buffer
-    const activeProjects = Object.values(projectMap);
+    // Prioritize: never-synced projects first, then oldest-synced
+    const activeProjects = Object.values(projectMap).sort((a, b) => {
+      if (!a.lastSync && !b.lastSync) return 0;
+      if (!a.lastSync) return -1; // never synced → first
+      if (!b.lastSync) return 1;
+      return new Date(a.lastSync).getTime() - new Date(b.lastSync).getTime(); // oldest sync first
+    });
     let projectsSynced = 0;
 
     for (let i = 0; i < activeProjects.length; i += 3) {

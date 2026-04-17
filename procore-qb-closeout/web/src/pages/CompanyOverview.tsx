@@ -12,6 +12,7 @@ interface ActiveProject {
   code: string
   project_name: string
   status: string
+  procore_stage: string | null
   revised_contract_value: number
   total_committed: number
   total_billed: number
