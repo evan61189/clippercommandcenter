@@ -1,5 +1,5 @@
 import { useParams, Link } from 'react-router-dom'
-import { ArrowLeft, DollarSign, Calendar, AlertTriangle, CheckCircle2, FileQuestion, ClipboardList, CheckSquare, Users, TrendingUp, AlertCircle, Mail } from 'lucide-react'
+import { ArrowLeft, DollarSign, Calendar, AlertTriangle, CheckCircle2, FileQuestion, ClipboardList, CheckSquare, Users, TrendingUp, AlertCircle, Mail, ChevronDown, ChevronRight, FileText } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -11,9 +11,10 @@ interface ProjectData {
   start_date: string; estimated_completion_date: string; address: any;
   procore_project_id: string;
 }
+interface PrimeContract { id: string; procore_id: string; title: string; number: string; owner_name: string; status: string; contract_value: number; retainage_percent: number; executed: boolean; }
 interface SubContract { id: string; vendor_name: string; title: string; contract_value: number; status: string; trade: string; number: string; }
 interface ChangeOrder { id: string; title: string; status: string; amount: number; change_type: string; number: string; }
-interface PayApp { id: string; vendor_name: string; amount_due: number; total_completed: number; retainage: number; status: string; number: string; }
+interface PayApp { id: string; vendor_name: string; amount_due: number; total_completed: number; retainage: number; status: string; number: string; scheduled_value: number; procore_id: string; }
 interface RFI { id: string; number: string; subject: string; status: string; due_date: string; created_at: string; priority: string; }
 interface Submittal { id: string; number: string; title: string; status: string; due_date: string; required_on_site_date: string; }
 interface PunchItem { id: string; name: string; status: string; assigned_to_name: string; due_date: string; priority: string; }
@@ -46,11 +47,30 @@ function pctComplete(start: string, end: string): number {
   return Math.min(100, Math.round((elapsed / total) * 100))
 }
 
+// --- Collapsible Section ---
+function Section({ title, icon: Icon, badge, defaultOpen = true, children }: {
+  title: string; icon: any; badge?: string; defaultOpen?: boolean; children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div className="card !py-0 overflow-hidden">
+      <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-2 px-4 py-3 hover:bg-gray-50 transition-colors text-left">
+        {open ? <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" /> : <ChevronRight className="w-4 h-4 text-gray-400 shrink-0" />}
+        <Icon className="w-4 h-4 text-clipper-gold shrink-0" />
+        <h2 className="text-sm font-semibold text-clipper-black flex-1">{title}</h2>
+        {badge && <span className="text-xs text-gray-400">{badge}</span>}
+      </button>
+      {open && <div className="px-4 pb-4 border-t border-gray-50">{children}</div>}
+    </div>
+  )
+}
+
 // --- Component ---
 export default function ProjectDeepDive() {
   const { projectId } = useParams()
   const { user } = useAuth()
   const [project, setProject] = useState<ProjectData | null>(null)
+  const [primes, setPrimes] = useState<PrimeContract[]>([])
   const [subs, setSubs] = useState<SubContract[]>([])
   const [cos, setCos] = useState<ChangeOrder[]>([])
   const [payApps, setPayApps] = useState<PayApp[]>([])
@@ -65,8 +85,9 @@ export default function ProjectDeepDive() {
   useEffect(() => {
     if (!projectId) return
     async function load() {
-      const [projRes, subsRes, cosRes, paRes, rfiRes, subRes, punchRes, budgetRes] = await Promise.all([
+      const [projRes, primesRes, subsRes, cosRes, paRes, rfiRes, subRes, punchRes, budgetRes] = await Promise.all([
         supabase.from('projects').select('*').eq('id', projectId).single(),
+        supabase.from('prime_contracts').select('*').eq('project_id', projectId).order('contract_value', { ascending: false }),
         supabase.from('subcontracts').select('*').eq('project_id', projectId).order('contract_value', { ascending: false }),
         supabase.from('procore_change_orders').select('*').eq('project_id', projectId),
         supabase.from('procore_pay_apps').select('*').eq('project_id', projectId),
@@ -76,6 +97,7 @@ export default function ProjectDeepDive() {
         supabase.from('procore_budget').select('*').eq('project_id', projectId),
       ])
       if (projRes.data) setProject(projRes.data)
+      if (primesRes.data) setPrimes(primesRes.data)
       if (subsRes.data) setSubs(subsRes.data)
       if (cosRes.data) setCos(cosRes.data)
       if (paRes.data) setPayApps(paRes.data)
@@ -126,8 +148,8 @@ export default function ProjectDeepDive() {
   const billedPct = contractValue > 0 ? Math.min(100, (totalBilled / contractValue) * 100) : 0
   const committedPct = contractValue > 0 ? Math.min(100, (totalCommitted / contractValue) * 100) : 0
 
-  const pendingPrimeCOs = cos.filter(c => c.change_type === 'prime' && !['approved', 'closed', 'rejected', 'void'].includes(c.status))
-  const pendingCommitCOs = cos.filter(c => c.change_type === 'commitment' && !['approved', 'closed', 'rejected', 'void'].includes(c.status))
+  const pendingPrimeCOs = cos.filter(c => c.change_type === 'prime' && !['approved', 'closed', 'rejected', 'void'].includes(c.status?.toLowerCase()))
+  const pendingCommitCOs = cos.filter(c => c.change_type === 'commitment' && !['approved', 'closed', 'rejected', 'void'].includes(c.status?.toLowerCase()))
   const pendingCOTotal = pendingPrimeCOs.reduce((s, c) => s + (c.amount || 0), 0)
 
   const openRfis = rfis.filter(r => !['closed', 'Closed'].includes(r.status))
@@ -147,8 +169,8 @@ export default function ProjectDeepDive() {
     else actions.push({ icon: FileQuestion, text: `${openRfis.length} open RFI${openRfis.length > 1 ? 's' : ''} pending`, urgency: 'amber' })
   }
   if (openSubmittals.length > 0) {
-    const overdueSubmittals = openSubmittals.filter(s => s.due_date && new Date(s.due_date) < new Date())
-    if (overdueSubmittals.length > 0) actions.push({ icon: ClipboardList, text: `${overdueSubmittals.length} overdue submittal${overdueSubmittals.length > 1 ? 's' : ''}`, urgency: 'red' })
+    const overdueSubs = openSubmittals.filter(s => s.due_date && new Date(s.due_date) < new Date())
+    if (overdueSubs.length > 0) actions.push({ icon: ClipboardList, text: `${overdueSubs.length} overdue submittal${overdueSubs.length > 1 ? 's' : ''}`, urgency: 'red' })
     else actions.push({ icon: ClipboardList, text: `${openSubmittals.length} submittal${openSubmittals.length > 1 ? 's' : ''} need review`, urgency: 'amber' })
   }
   if (pendingPrimeCOs.length > 0) actions.push({ icon: DollarSign, text: `${pendingPrimeCOs.length} prime CO${pendingPrimeCOs.length > 1 ? 's' : ''} pending (${fmt(pendingCOTotal)})`, urgency: 'amber' })
@@ -168,7 +190,7 @@ export default function ProjectDeepDive() {
 
   if (actions.length === 0) actions.push({ icon: CheckCircle2, text: 'No critical items — project on track', urgency: 'blue' })
 
-  // Top risks (oldest open RFIs, overdue items)
+  // Top risks
   const risks: { severity: 'red' | 'amber'; text: string; detail: string }[] = []
   const sortedRfis = [...openRfis].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
   for (const rfi of sortedRfis.slice(0, 3)) {
@@ -186,10 +208,16 @@ export default function ProjectDeepDive() {
     risks.push({ severity: margin < 0 ? 'red' : 'amber', text: `Margin at ${margin.toFixed(1)}%`, detail: margin < 0 ? 'Project is over budget' : 'Below target margin' })
   }
 
-  // All subs sorted by value
   const sortedSubs = [...subs].sort((a, b) => (b.contract_value || 0) - (a.contract_value || 0))
-
   const urgencyColors = { red: 'text-red-600 bg-red-50', amber: 'text-amber-600 bg-amber-50', blue: 'text-blue-600 bg-blue-50' }
+
+  const statusDot = (status: string) => {
+    const s = status?.toLowerCase() || ''
+    if (['active', 'approved', 'complete'].includes(s)) return 'bg-emerald-500'
+    if (['out for signature', 'pending'].includes(s)) return 'bg-amber-400'
+    if (s === 'draft') return 'bg-gray-300'
+    return 'bg-gray-300'
+  }
 
   return (
     <div className="space-y-4 max-w-[1400px]">
@@ -267,61 +295,126 @@ export default function ProjectDeepDive() {
         )}
       </div>
 
-      {/* Main Grid: Schedule + Actions | Risks + Stakeholders */}
+      {/* Prime Contracts — one section per contract */}
+      {primes.length > 0 && (
+        <div className="space-y-3">
+          {primes.map((pc) => {
+            // Find pay apps associated with this prime
+            const primePayApps = ownerPayApps // For now all owner pay apps are project-level
+            const primeBilled = primes.length === 1
+              ? totalBilled
+              : null // Can't split billing across primes without Procore linking
+            const billedPctPrime = pc.contract_value > 0 && primeBilled !== null
+              ? Math.min(100, (primeBilled / pc.contract_value) * 100)
+              : null
+
+            return (
+              <Section
+                key={pc.id}
+                title={pc.title || 'Prime Contract'}
+                icon={FileText}
+                badge={`${fmt(pc.contract_value)} — ${pc.status}`}
+                defaultOpen={true}
+              >
+                <div className="mt-3 space-y-3">
+                  {/* Prime contract details */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center text-sm">
+                    <div>
+                      <div className="text-[10px] text-gray-400 uppercase">Contract Value</div>
+                      <div className="font-bold">{fmt(pc.contract_value)}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-gray-400 uppercase">Status</div>
+                      <div className="flex items-center justify-center gap-1.5">
+                        <span className={`w-1.5 h-1.5 rounded-full ${statusDot(pc.status)}`} />
+                        <span className="font-medium">{pc.status}</span>
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-gray-400 uppercase">Executed</div>
+                      <div className="font-medium">{pc.executed ? 'Yes' : 'No'}</div>
+                    </div>
+                    {pc.retainage_percent != null && pc.retainage_percent > 0 && (
+                      <div>
+                        <div className="text-[10px] text-gray-400 uppercase">Retainage</div>
+                        <div className="font-medium">{pc.retainage_percent}%</div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Billing progress for this prime (only shown for single-prime projects) */}
+                  {billedPctPrime !== null && pc.contract_value > 0 && (
+                    <div className="flex items-center gap-2 text-[10px] text-gray-400">
+                      <span className="w-12">Billed</span>
+                      <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                        <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${billedPctPrime}%` }} />
+                      </div>
+                      <span className="w-10 text-right">{billedPctPrime.toFixed(0)}%</span>
+                    </div>
+                  )}
+
+                  {/* Owner name if present */}
+                  {pc.owner_name && (
+                    <div className="text-xs text-gray-400">
+                      Owner: <span className="text-gray-600">{pc.owner_name}</span>
+                    </div>
+                  )}
+                </div>
+              </Section>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Main Grid: Schedule + Actions | Risks + Commitments */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
         {/* Left Column */}
         <div className="space-y-4">
 
           {/* Schedule Snapshot */}
-          <div className="card !py-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Calendar className="w-4 h-4 text-clipper-gold" />
-              <h2 className="text-sm font-semibold text-clipper-black">Schedule</h2>
+          <Section title="Schedule" icon={Calendar} defaultOpen={true}>
+            <div className="mt-3">
+              <div className="grid grid-cols-3 gap-3 text-center mb-3">
+                <div>
+                  <div className="text-[10px] text-gray-400 uppercase">Start</div>
+                  <div className="text-sm font-medium">{project.start_date ? new Date(project.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }) : '—'}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-gray-400 uppercase">End</div>
+                  <div className="text-sm font-medium">{project.estimated_completion_date ? new Date(project.estimated_completion_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }) : '—'}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-gray-400 uppercase">Remaining</div>
+                  <div className={`text-sm font-medium ${daysRemaining !== null && daysRemaining < 30 ? 'text-red-600' : ''}`}>
+                    {daysRemaining !== null ? `${daysRemaining}d` : '—'}
+                  </div>
+                </div>
+              </div>
+              {project.start_date && project.estimated_completion_date && (
+                <div>
+                  <div className="flex items-center gap-2 text-[10px] text-gray-400 mb-1">
+                    <span>Timeline</span>
+                    <span className="ml-auto">{schedulePct}% elapsed</span>
+                  </div>
+                  <div className="bg-gray-100 rounded-full h-3 overflow-hidden">
+                    <div className={`h-full rounded-full transition-all ${schedulePct > 90 ? 'bg-red-500' : schedulePct > 70 ? 'bg-amber-500' : 'bg-clipper-gold'}`}
+                      style={{ width: `${schedulePct}%` }} />
+                  </div>
+                </div>
+              )}
+              {pendingCOTotal !== 0 && (
+                <div className="mt-2 text-xs text-amber-600 flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" />
+                  {fmt(pendingCOTotal)} in pending prime COs could adjust contract
+                </div>
+              )}
             </div>
-            <div className="grid grid-cols-3 gap-3 text-center mb-3">
-              <div>
-                <div className="text-[10px] text-gray-400 uppercase">Start</div>
-                <div className="text-sm font-medium">{project.start_date ? new Date(project.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }) : '—'}</div>
-              </div>
-              <div>
-                <div className="text-[10px] text-gray-400 uppercase">End</div>
-                <div className="text-sm font-medium">{project.estimated_completion_date ? new Date(project.estimated_completion_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }) : '—'}</div>
-              </div>
-              <div>
-                <div className="text-[10px] text-gray-400 uppercase">Remaining</div>
-                <div className={`text-sm font-medium ${daysRemaining !== null && daysRemaining < 30 ? 'text-red-600' : ''}`}>
-                  {daysRemaining !== null ? `${daysRemaining}d` : '—'}
-                </div>
-              </div>
-            </div>
-            {project.start_date && project.estimated_completion_date && (
-              <div>
-                <div className="flex items-center gap-2 text-[10px] text-gray-400 mb-1">
-                  <span>Timeline</span>
-                  <span className="ml-auto">{schedulePct}% elapsed</span>
-                </div>
-                <div className="bg-gray-100 rounded-full h-3 overflow-hidden">
-                  <div className={`h-full rounded-full transition-all ${schedulePct > 90 ? 'bg-red-500' : schedulePct > 70 ? 'bg-amber-500' : 'bg-clipper-gold'}`}
-                    style={{ width: `${schedulePct}%` }} />
-                </div>
-              </div>
-            )}
-            {pendingCOTotal !== 0 && (
-              <div className="mt-2 text-xs text-amber-600 flex items-center gap-1">
-                <AlertCircle className="w-3 h-3" />
-                {fmt(pendingCOTotal)} in pending prime COs could adjust contract
-              </div>
-            )}
-          </div>
+          </Section>
 
           {/* Action Items */}
-          <div className="card !py-4">
-            <div className="flex items-center gap-2 mb-3">
-              <AlertTriangle className="w-4 h-4 text-clipper-gold" />
-              <h2 className="text-sm font-semibold text-clipper-black">Action Items</h2>
-            </div>
-            <div className="space-y-2">
+          <Section title="Action Items" icon={AlertTriangle} badge={`${actions.length}`} defaultOpen={true}>
+            <div className="mt-3 space-y-2">
               {actions.map((a, i) => (
                 <div key={i} className={`flex items-center gap-2.5 text-sm px-2.5 py-1.5 rounded-lg ${urgencyColors[a.urgency]}`}>
                   <a.icon className="w-4 h-4 shrink-0" />
@@ -346,130 +439,110 @@ export default function ProjectDeepDive() {
                 </div>
               </div>
             )}
-          </div>
+          </Section>
 
           {/* Top Risks */}
-          <div className="card !py-4">
-            <div className="flex items-center gap-2 mb-3">
-              <AlertCircle className="w-4 h-4 text-red-500" />
-              <h2 className="text-sm font-semibold text-clipper-black">Top Risks</h2>
-            </div>
-            {risks.length === 0 ? (
-              <p className="text-sm text-gray-400 flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-500" /> No major risks identified
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {risks.map((r, i) => (
-                  <div key={i} className="flex items-start gap-2 text-sm">
-                    <span className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${r.severity === 'red' ? 'bg-red-500' : 'bg-amber-400'}`} />
-                    <div>
-                      <span className="font-medium">{r.text}</span>
-                      <span className="text-gray-400 ml-1.5">{r.detail}</span>
+          <Section title="Top Risks" icon={AlertCircle} defaultOpen={risks.length > 0}>
+            <div className="mt-3">
+              {risks.length === 0 ? (
+                <p className="text-sm text-gray-400 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-500" /> No major risks identified
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {risks.map((r, i) => (
+                    <div key={i} className="flex items-start gap-2 text-sm">
+                      <span className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${r.severity === 'red' ? 'bg-red-500' : 'bg-amber-400'}`} />
+                      <div>
+                        <span className="font-medium">{r.text}</span>
+                        <span className="text-gray-400 ml-1.5">{r.detail}</span>
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </Section>
         </div>
 
         {/* Right Column */}
         <div className="space-y-4">
 
           {/* Commitments / Subcontractors */}
-          <div className="card !py-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Users className="w-4 h-4 text-clipper-gold" />
-              <h2 className="text-sm font-semibold text-clipper-black">Commitments</h2>
-              <span className="text-xs text-gray-400 ml-auto">{subs.length} total — {fmt(totalCommitted)}</span>
-            </div>
-            {sortedSubs.length === 0 ? (
-              <p className="text-sm text-gray-400">No subcontracts synced yet</p>
-            ) : (
-              <div className="space-y-1">
-                {(showAllSubs ? sortedSubs : sortedSubs.slice(0, 6)).map((sub) => {
-                  // Show vendor name if available and different from title, otherwise show title with number
-                  const displayName = sub.vendor_name && sub.vendor_name !== sub.title
-                    ? sub.vendor_name
-                    : sub.title || sub.vendor_name || 'Unknown'
-                  const subtitle = sub.vendor_name && sub.vendor_name !== sub.title
-                    ? sub.title
-                    : sub.number || null
+          <Section title="Commitments" icon={Users} badge={`${subs.length} total — ${fmt(totalCommitted)}`} defaultOpen={true}>
+            <div className="mt-3">
+              {sortedSubs.length === 0 ? (
+                <p className="text-sm text-gray-400">No subcontracts synced yet</p>
+              ) : (
+                <div className="space-y-1">
+                  {(showAllSubs ? sortedSubs : sortedSubs.slice(0, 8)).map((sub) => {
+                    const displayName = sub.vendor_name && sub.vendor_name !== sub.title
+                      ? sub.vendor_name
+                      : sub.title || sub.vendor_name || 'Unknown'
+                    const subtitle = sub.vendor_name && sub.vendor_name !== sub.title
+                      ? sub.title
+                      : sub.number || null
 
-                  return (
-                    <div key={sub.id} className="flex items-center justify-between py-1.5 text-sm border-b border-gray-50 last:border-0">
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                          sub.status === 'active' || sub.status === 'Approved' || sub.status === 'approved'
-                            ? 'bg-emerald-500'
-                            : sub.status === 'Out For Signature'
-                            ? 'bg-amber-400'
-                            : sub.status === 'Draft'
-                            ? 'bg-gray-300'
-                            : 'bg-gray-300'
-                        }`} />
-                        <div className="min-w-0">
-                          <span className="truncate font-medium block">{displayName}</span>
-                          <div className="flex items-center gap-2">
-                            {subtitle && <span className="text-[10px] text-gray-400 truncate">{subtitle}</span>}
-                            {sub.trade && <span className="text-[10px] text-blue-500 bg-blue-50 px-1 rounded">{sub.trade}</span>}
-                            {sub.status && !['active', 'Approved', 'approved'].includes(sub.status) && (
-                              <span className={`text-[10px] px-1 rounded ${
-                                sub.status === 'Out For Signature' ? 'text-amber-600 bg-amber-50' :
-                                sub.status === 'Draft' ? 'text-gray-500 bg-gray-100' : 'text-gray-500 bg-gray-100'
-                              }`}>{sub.status}</span>
-                            )}
+                    return (
+                      <div key={sub.id} className="flex items-center justify-between py-1.5 text-sm border-b border-gray-50 last:border-0">
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusDot(sub.status)}`} />
+                          <div className="min-w-0">
+                            <span className="truncate font-medium block">{displayName}</span>
+                            <div className="flex items-center gap-2">
+                              {subtitle && <span className="text-[10px] text-gray-400 truncate">{subtitle}</span>}
+                              {sub.trade && <span className="text-[10px] text-blue-500 bg-blue-50 px-1 rounded">{sub.trade}</span>}
+                              {sub.status && !['active', 'Approved', 'approved'].includes(sub.status) && (
+                                <span className={`text-[10px] px-1 rounded ${
+                                  sub.status === 'Out For Signature' ? 'text-amber-600 bg-amber-50' :
+                                  sub.status === 'Draft' ? 'text-gray-500 bg-gray-100' : 'text-gray-500 bg-gray-100'
+                                }`}>{sub.status}</span>
+                              )}
+                            </div>
                           </div>
                         </div>
+                        <span className="text-gray-600 font-mono text-xs shrink-0 ml-3">{fmt(sub.contract_value)}</span>
                       </div>
-                      <span className="text-gray-600 font-mono text-xs shrink-0 ml-3">{fmt(sub.contract_value)}</span>
-                    </div>
-                  )
-                })}
-                {sortedSubs.length > 6 && (
-                  <button
-                    onClick={() => setShowAllSubs(!showAllSubs)}
-                    className="text-xs text-clipper-gold-dark hover:underline pt-1.5 w-full text-left"
-                  >
-                    {showAllSubs ? 'Show less' : `+ ${sortedSubs.length - 6} more commitments`}
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
+                    )
+                  })}
+                  {sortedSubs.length > 8 && (
+                    <button
+                      onClick={() => setShowAllSubs(!showAllSubs)}
+                      className="text-xs text-clipper-gold-dark hover:underline pt-1.5 w-full text-left"
+                    >
+                      {showAllSubs ? 'Show less' : `+ ${sortedSubs.length - 8} more commitments`}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </Section>
 
           {/* Recent Communications */}
-          <div className="card !py-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Mail className="w-4 h-4 text-clipper-gold" />
-              <h2 className="text-sm font-semibold text-clipper-black">Recent Communications</h2>
-            </div>
-            {emails.length === 0 ? (
-              <p className="text-xs text-gray-400">Communication data will populate after next sync. Emails from Procore's correspondence module provide context on stakeholder concerns and project discussions.</p>
-            ) : (
-              <div className="space-y-2">
-                {emails.map((e, i) => (
-                  <div key={i} className="text-sm border-l-2 border-gray-200 pl-2.5 py-0.5">
-                    <div className="flex items-center gap-2 text-xs text-gray-400">
-                      <span className="font-medium text-gray-600">{e.from_name}</span>
-                      <span>{e.date}</span>
+          <Section title="Recent Communications" icon={Mail} defaultOpen={emails.length > 0}>
+            <div className="mt-3">
+              {emails.length === 0 ? (
+                <p className="text-xs text-gray-400">Communication data will populate after next sync.</p>
+              ) : (
+                <div className="space-y-2">
+                  {emails.map((e, i) => (
+                    <div key={i} className="text-sm border-l-2 border-gray-200 pl-2.5 py-0.5">
+                      <div className="flex items-center gap-2 text-xs text-gray-400">
+                        <span className="font-medium text-gray-600">{e.from_name}</span>
+                        <span>{e.date}</span>
+                      </div>
+                      <div className="text-gray-700 truncate">{e.subject}</div>
                     </div>
-                    <div className="text-gray-700 truncate">{e.subject}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </Section>
 
-          {/* Budget Snapshot (if data exists) */}
+          {/* Budget Snapshot */}
           {budget.length > 0 && (
-            <div className="card !py-4">
-              <div className="flex items-center gap-2 mb-3">
-                <TrendingUp className="w-4 h-4 text-clipper-gold" />
-                <h2 className="text-sm font-semibold text-clipper-black">Budget Summary</h2>
-              </div>
-              <div className="grid grid-cols-3 gap-3 text-center text-sm">
+            <Section title="Budget Summary" icon={TrendingUp} defaultOpen={true}>
+              <div className="mt-3 grid grid-cols-3 gap-3 text-center text-sm">
                 <div>
                   <div className="text-[10px] text-gray-400 uppercase">Budget</div>
                   <div className="font-bold">{fmt(budget.reduce((s, b) => s + (b.revised_budget || 0), 0))}</div>
@@ -483,7 +556,7 @@ export default function ProjectDeepDive() {
                   <div className="font-bold">{fmt(budget.reduce((s, b) => s + (b.projected_cost || 0), 0))}</div>
                 </div>
               </div>
-            </div>
+            </Section>
           )}
         </div>
       </div>
