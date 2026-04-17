@@ -90,10 +90,22 @@ async function rawProcore(
     const body = await res.json();
     const isArray = Array.isArray(body);
     const count = isArray ? body.length : (body ? 1 : 0);
-    // Return first item as sample (truncated)
-    const sample = isArray && body.length > 0
-      ? Object.keys(body[0]).slice(0, 15).reduce((o: any, k) => { o[k] = body[0][k]; return o; }, {})
-      : (!isArray && body ? Object.keys(body).slice(0, 15).reduce((o: any, k) => { o[k] = body[k]; return o; }, {}) : null);
+    // Return first item — all keys listed, values for important fields only
+    const firstItem = isArray && body.length > 0 ? body[0] : (!isArray && body ? body : null);
+    const sample = firstItem ? {
+      _allKeys: Object.keys(firstItem),
+      id: firstItem.id,
+      title: firstItem.title,
+      name: firstItem.name,
+      status: firstItem.status,
+      prime_contract_id: firstItem.prime_contract_id,
+      prime_contract: firstItem.prime_contract,
+      contract_id: firstItem.contract_id,
+      parent: firstItem.parent,
+      grand_total: firstItem.grand_total,
+      original_value: firstItem.original_value,
+      vendor: firstItem.vendor,
+    } : null;
 
     return { label, endpoint, status, count, error: null, sample };
   } catch (err: any) {
