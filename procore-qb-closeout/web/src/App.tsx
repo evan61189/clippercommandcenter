@@ -1,18 +1,12 @@
 import { Routes, Route, Link, useLocation, useNavigate } from 'react-router-dom'
 import {
-  LayoutDashboard, Briefcase, DollarSign, Users, Shield, GitCompare,
-  Settings as SettingsIcon, LogOut, ChevronLeft, ChevronRight, Ship
+  Briefcase, Settings as SettingsIcon, LogOut, ChevronLeft, ChevronRight, Ship
 } from 'lucide-react'
 import { useState } from 'react'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import CompanyOverview from './pages/CompanyOverview'
-import ProjectPortfolio from './pages/ProjectPortfolio'
 import ProjectDeepDive from './pages/ProjectDeepDive'
-import FinancialHealth from './pages/FinancialHealth'
-import ResourceManagement from './pages/ResourceManagement'
-import Reconciliation from './pages/Reconciliation'
-import ComplianceRisk from './pages/ComplianceRisk'
 import Settings from './pages/Settings'
 import Login from './pages/Login'
 import ResetPassword from './pages/ResetPassword'
@@ -20,12 +14,7 @@ import Privacy from './pages/Privacy'
 import Terms from './pages/Terms'
 
 const navItems = [
-  { path: '/', label: 'Overview', icon: LayoutDashboard },
-  { path: '/projects', label: 'Projects', icon: Briefcase },
-  { path: '/financials', label: 'Financials', icon: DollarSign },
-  { path: '/resources', label: 'Resources', icon: Users },
-  { path: '/reconciliation', label: 'Reconciliation', icon: GitCompare },
-  { path: '/compliance', label: 'Compliance', icon: Shield },
+  { path: '/', label: 'Projects', icon: Briefcase },
   { path: '/settings', label: 'Settings', icon: SettingsIcon },
 ]
 
@@ -33,7 +22,7 @@ function Sidebar({ collapsed, setCollapsed }: { collapsed: boolean; setCollapsed
   const location = useLocation()
 
   const isActive = (path: string) => {
-    if (path === '/') return location.pathname === '/'
+    if (path === '/') return location.pathname === '/' || location.pathname.startsWith('/projects')
     return location.pathname.startsWith(path)
   }
 
@@ -97,7 +86,7 @@ function TopBar() {
         <h1 className="text-sm font-semibold text-gray-900">
           Clipper Construction
         </h1>
-        <p className="text-xs text-gray-500">Executive Dashboard</p>
+        <p className="text-xs text-gray-500">Command Terminal</p>
       </div>
       <div className="flex items-center gap-4">
         <span className="text-sm text-gray-500">{user?.email}</span>
@@ -138,12 +127,7 @@ function AppLayout() {
         <main className="flex-1 p-6 overflow-auto bg-gray-50">
           <Routes>
             <Route path="/" element={<ProtectedRoute><CompanyOverview /></ProtectedRoute>} />
-            <Route path="/projects" element={<ProtectedRoute><ProjectPortfolio /></ProtectedRoute>} />
             <Route path="/projects/:projectId" element={<ProtectedRoute><ProjectDeepDive /></ProtectedRoute>} />
-            <Route path="/financials" element={<ProtectedRoute><FinancialHealth /></ProtectedRoute>} />
-            <Route path="/resources" element={<ProtectedRoute><ResourceManagement /></ProtectedRoute>} />
-            <Route path="/reconciliation" element={<ProtectedRoute><Reconciliation /></ProtectedRoute>} />
-            <Route path="/compliance" element={<ProtectedRoute><ComplianceRisk /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/terms" element={<Terms />} />
