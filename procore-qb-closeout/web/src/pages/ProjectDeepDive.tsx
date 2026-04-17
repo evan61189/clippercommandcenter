@@ -185,10 +185,21 @@ export default function ProjectDeepDive() {
   const totalSubCost = subInvoices.reduce((s, p) => s + (p.amount_due || 0), 0)
   const budgetActualCost = budget.reduce((s, b) => s + (b.actual_costs || 0), 0)
   const totalCost = totalSubCost > 0 ? totalSubCost : budgetActualCost
-  // Margin based on committed costs (what's locked in with subs/POs) — the real
-  // GC margin picture. Falls back to actual costs only if committed is zero.
-  const marginBasis = totalCommitted > 0 ? totalCommitted : totalCost
-  const margin = contractValue > 0 && marginBasis > 0 ? ((contractValue - marginBasis) / contractValue) * 100 : null
+
+  // Margin calculation — uses P&O budget lines + buyout over/under when budget exists
+  // P&O lines are cost codes starting with "17-" for Profit, Overhead, Markup (not Contingency/Bond/Buyout)
+  const poLines = budget.filter(b => {
+    const cc = (b.cost_code || '').toLowerCase()
+    return cc.startsWith('17-40') || cc.startsWith('17-50') || cc.startsWith('17-70') || cc.startsWith('17-80')
+  })
+  const budgetedPO = poLines.reduce((s, b) => s + (b.revised_budget || 0), 0)
+  const totalBuyoutOverUnder = budget.reduce((s, b) => s + (b.over_under || 0), 0)
+  // Real margin = planned P&O + buyout wins/losses
+  const hasBudgetMargin = budget.length > 0 && budgetedPO > 0
+  const realMarginDollars = hasBudgetMargin ? budgetedPO + totalBuyoutOverUnder : null
+  const margin = hasBudgetMargin && contractValue > 0
+    ? (realMarginDollars! / contractValue) * 100
+    : (contractValue > 0 && totalCommitted > 0 ? ((contractValue - totalCommitted) / contractValue) * 100 : null)
   const overUnder = totalBilled - totalCost
   const billedPct = contractValue > 0 ? Math.min(100, (totalBilled / contractValue) * 100) : 0
   const committedPct = contractValue > 0 ? Math.min(100, (totalCommitted / contractValue) * 100) : 0
@@ -344,6 +355,11 @@ export default function ProjectDeepDive() {
             <div className={`text-lg font-bold ${margin !== null ? (margin >= 20 ? 'text-emerald-600' : margin >= 10 ? 'text-amber-600' : 'text-red-600') : 'text-gray-300'}`}>
               {margin !== null ? `${margin.toFixed(1)}%` : '—'}
             </div>
+            {margin !== null && (
+              <div className="text-[9px] text-gray-400">
+                {hasBudgetMargin ? `P&O ${fmt(budgetedPO)} + buyout ${totalBuyoutOverUnder >= 0 ? '+' : ''}${fmt(totalBuyoutOverUnder)}` : 'est. from commitments'}
+              </div>
+            )}
           </div>
           <div>
             <div className="text-[10px] font-medium text-gray-400 uppercase">Retainage</div>
