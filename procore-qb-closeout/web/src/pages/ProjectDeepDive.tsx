@@ -219,6 +219,15 @@ export default function ProjectDeepDive() {
   if (pendingCommitCOs.length > 0) actions.push({ icon: DollarSign, text: `${pendingCommitCOs.length} commitment CO${pendingCommitCOs.length > 1 ? 's' : ''} to process`, urgency: 'blue' })
   if (openPunch.length > 0) actions.push({ icon: CheckSquare, text: `${openPunch.length} punch item${openPunch.length > 1 ? 's' : ''} open${closedPunch.length > 0 ? ` (${closedPunch.length} closed)` : ''}`, urgency: openPunch.length > 20 ? 'red' : 'amber' })
 
+  // No budget built out — flag immediately
+  if (budget.length === 0 && contractValue > 0) {
+    actions.push({
+      icon: AlertTriangle,
+      text: 'No budget built out in Procore — budget needs to be created',
+      urgency: 'red',
+    })
+  }
+
   // Budget lines without commitments
   const uncommittedLines = budget.filter(b => (b.revised_budget || 0) > 0 && (b.committed || 0) === 0)
   const uncommittedTotal = uncommittedLines.reduce((s, b) => s + (b.revised_budget || 0), 0)
@@ -230,9 +239,9 @@ export default function ProjectDeepDive() {
     })
   }
 
-  // Contract vs committed gap (catches projects without budget lines too)
+  // Contract vs committed gap
   const uncommittedGap = contractValue - totalCommitted
-  if (uncommittedGap > 0 && contractValue > 0 && uncommittedLines.length === 0) {
+  if (uncommittedGap > 0 && contractValue > 0) {
     const gapPct = (uncommittedGap / contractValue) * 100
     if (gapPct > 10) {
       actions.push({
