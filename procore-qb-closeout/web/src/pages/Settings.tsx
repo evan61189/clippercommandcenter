@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { CheckCircle, ExternalLink, RefreshCw, Loader2 } from 'lucide-react'
+import { CheckCircle, ExternalLink, RefreshCw, Loader2, Bug } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -10,6 +10,14 @@ interface ConnectionStatus {
   connectedAt?: string
 }
 
+interface DiagResult {
+  label: string
+  status: number
+  count: number | null
+  error: string | null
+  sampleKeys: string[] | null
+}
+
 export default function Settings() {
   const [searchParams] = useSearchParams()
   const [status, setStatus] = useState<ConnectionStatus>({ connected: false })
@@ -17,6 +25,9 @@ export default function Settings() {
   const [syncing, setSyncing] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [messageType, setMessageType] = useState<'success' | 'error'>('success')
+  const [diagnosing, setDiagnosing] = useState(false)
+  const [diagResults, setDiagResults] = useState<DiagResult[] | null>(null)
+  const [diagProject, setDiagProject] = useState<string | null>(null)
 
   const { user } = useAuth()
   const userId = user?.id || 'anonymous'
@@ -130,6 +141,28 @@ export default function Settings() {
     }
   }
 
+  async function runDiagnostics() {
+    setDiagnosing(true)
+    setDiagResults(null)
+    setDiagProject(null)
+    try {
+      const res = await fetch('/.netlify/functions/procore-diagnose', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      })
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error || 'Diagnostics failed')
+      setDiagResults(result.results || [])
+      setDiagProject(result.testProject ? `${result.testProject.name} (${result.testProject.id})` : null)
+    } catch (err: any) {
+      setMessage(`Diagnostics error: ${err.message}`)
+      setMessageType('error')
+    } finally {
+      setDiagnosing(false)
+    }
+  }
+
   function connectProcore() {
     const clientId = import.meta.env.VITE_PROCORE_CLIENT_ID || ''
     if (!clientId) {
@@ -228,10 +261,50 @@ export default function Settings() {
           </div>
 
           {status.connected && (
-            <div className="mt-4 pt-4 border-t border-gray-100 text-sm text-gray-500">
-              Use "Sync Now" to pull the latest projects, contracts, change orders, RFIs, submittals, pay apps, and punch items from Procore.
+            <div className="mt-4 pt-4 border-t border-gray-100 text-sm text-gray-500 flex items-center justify-between">
+              <span>Use "Sync Now" to pull the latest projects, contracts, change orders, RFIs, submittals, pay apps, and punch items from Procore.</span>
+              <button
+                onClick={runDiagnostics}
+                disabled={diagnosing}
+                className="ml-4 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 rounded hover:bg-gray-200 disabled:opacity-50 flex items-center shrink-0"
+              >
+                {diagnosing ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Bug className="w-3 h-3 mr-1" />}
+                Diagnose API
+              </button>
             </div>
           )}
+        </div>
+      )}
+
+      {diagResults && (
+        <div className="card">
+          <h3 className="text-sm font-semibold text-gray-900 mb-1">API Diagnostics</h3>
+          {diagProject && <p className="text-xs text-gray-500 mb-3">Testing against: {diagProject}</p>}
+          <div className="space-y-1">
+            {diagResults.map((r, i) => (
+              <div key={i} className={`flex items-center justify-between text-xs px-2 py-1.5 rounded ${
+                r.status === 200 && r.count && r.count > 0
+                  ? 'bg-green-50 text-green-800'
+                  : r.status === 200 && r.count === 0
+                  ? 'bg-yellow-50 text-yellow-800'
+                  : r.status === 403
+                  ? 'bg-orange-50 text-orange-800'
+                  : r.status === 404
+                  ? 'bg-gray-50 text-gray-600'
+                  : 'bg-red-50 text-red-800'
+              }`}>
+                <span className="font-medium">{r.label}</span>
+                <span className="flex items-center gap-2">
+                  <span className="font-mono">{r.status}</span>
+                  {r.count !== null && <span>{r.count} items</span>}
+                  {r.error && <span className="max-w-xs truncate" title={r.error}>{r.error.substring(0, 80)}</span>}
+                </span>
+              </div>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-gray-400">
+            Green = data returned, Yellow = 200 but empty, Orange = 403 forbidden, Gray = 404 not found, Red = error
+          </p>
         </div>
       )}
     </div>
