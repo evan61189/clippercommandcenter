@@ -208,6 +208,42 @@ export const handler: Handler = async (event) => {
       rawProcore('direct_costs (flat)', '/rest/v1.0/direct_costs', tokens, { ...cp, project_id: String(testProjectId) }),
     ]);
 
+    // Fetch a budget detail row and dump ALL fields so we can see what's available
+    const budgetViewResult = results.find(r => r.label === 'budget_views (flat)' && r.count && r.count > 0);
+    let budgetRowSample: any = null;
+    if (budgetViewResult && budgetViewResult.sample?.id) {
+      try {
+        const url = new URL(`${PROCORE_BASE_URL}/rest/v1.0/budget_views/${budgetViewResult.sample.id}/detail_rows`);
+        url.searchParams.append('company_id', companyId);
+        url.searchParams.append('project_id', String(testProjectId));
+        url.searchParams.append('per_page', '3');
+        const res = await fetch(url.toString(), {
+          headers: {
+            Authorization: `Bearer ${tokens.access_token}`,
+            'Content-Type': 'application/json',
+            ...(tokens.company_id ? { 'Procore-Company-Id': tokens.company_id } : {}),
+          },
+        });
+        if (res.ok) {
+          const rows = await res.json();
+          if (Array.isArray(rows) && rows.length > 0) {
+            // Return first 3 rows with ALL their fields
+            budgetRowSample = rows.slice(0, 3).map((row: any) => {
+              const flat: any = {};
+              for (const [k, v] of Object.entries(row)) {
+                if (v && typeof v === 'object' && !Array.isArray(v)) {
+                  flat[k] = v; // keep nested objects as-is
+                } else {
+                  flat[k] = v;
+                }
+              }
+              return flat;
+            });
+          }
+        }
+      } catch { /* non-critical */ }
+    }
+
     // If we found a prime contract, also test payment_applications
     const primeResult = results.find(r => r.label.startsWith('prime_contract') && r.count && r.count > 0);
     if (primeResult && primeResult.sample) {
@@ -226,6 +262,7 @@ export const handler: Handler = async (event) => {
         testProject: { id: testProjectId, name: testProjectName },
         companyId,
         tokenExpiresAt: tokens.expires_at,
+        budgetRowSample,
         results: results.map(r => ({
           label: r.label,
           status: r.status,

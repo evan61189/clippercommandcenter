@@ -28,6 +28,7 @@ export default function Settings() {
   const [diagnosing, setDiagnosing] = useState(false)
   const [diagResults, setDiagResults] = useState<DiagResult[] | null>(null)
   const [diagProject, setDiagProject] = useState<string | null>(null)
+  const [budgetSample, setBudgetSample] = useState<any[] | null>(null)
 
   const { user } = useAuth()
   const userId = user?.id || 'anonymous'
@@ -154,6 +155,7 @@ export default function Settings() {
       const result = await res.json()
       if (!res.ok) throw new Error(result.error || 'Diagnostics failed')
       setDiagResults(result.results || [])
+      setBudgetSample(result.budgetRowSample || null)
       setDiagProject(result.testProject ? `${result.testProject.name} (${result.testProject.id})` : null)
     } catch (err: any) {
       setMessage(`Diagnostics error: ${err.message}`)
@@ -305,6 +307,15 @@ export default function Settings() {
           <p className="mt-2 text-xs text-gray-400">
             Green = data returned, Yellow = 200 but empty, Orange = 403 forbidden, Gray = 404 not found, Red = error
           </p>
+
+          {budgetSample && budgetSample.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-gray-100">
+              <h4 className="text-xs font-semibold text-gray-700 mb-2">Budget Detail Row Sample (raw Procore fields):</h4>
+              <pre className="text-[10px] bg-gray-50 p-3 rounded overflow-auto max-h-64 text-gray-600">
+                {JSON.stringify(budgetSample, null, 2)}
+              </pre>
+            </div>
+          )}
         </div>
       )}
     </div>
