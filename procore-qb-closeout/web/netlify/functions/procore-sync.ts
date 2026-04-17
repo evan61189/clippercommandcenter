@@ -173,17 +173,19 @@ async function syncProjectDetails(
   userId: string,
   counts: SyncCounts
 ): Promise<void> {
-  const p = { company_id: companyId, project_id: procoreProjectId };
+  // Procore API uses MIXED path styles per the diagnostics:
+  //   Project-scoped (/rest/v1.0/projects/{id}/X): rfis, submittals, direct_costs
+  //   Flat (/rest/v1.0/X?project_id=): change_order_packages, requisitions, punch_items,
+  //     prime_contract, work_order_contracts, purchase_order_contracts, budget_views
+  const projPath = `/rest/v1.0/projects/${procoreProjectId}`;
+  const fp = { company_id: companyId, project_id: procoreProjectId }; // flat-path params
 
   // --- FINANCIAL DATA (parallel fetch) ---
-  const projPath = `/rest/v1.0/projects/${procoreProjectId}`;
-  const cp = { company_id: companyId }; // company-only params (project in path)
-
   const [primeContracts, subList, poList, budgetViews] = await Promise.all([
-    safe(() => fetchAllPages(`${projPath}/prime_contract`, tokens, cp, userId), [], 'prime_contracts'),
-    safe(() => fetchAllPages(`${projPath}/work_order_contracts`, tokens, cp, userId), [], 'work_order_contracts'),
-    safe(() => fetchAllPages(`${projPath}/purchase_order_contracts`, tokens, cp, userId), [], 'purchase_order_contracts'),
-    safe(() => procoreGet(`${projPath}/budget_views`, tokens, cp, userId), [], 'budget_views'),
+    safe(() => fetchAllPages('/rest/v1.0/prime_contract', tokens, fp, userId), [], 'prime_contracts'),
+    safe(() => fetchAllPages('/rest/v1.0/work_order_contracts', tokens, fp, userId), [], 'work_order_contracts'),
+    safe(() => fetchAllPages('/rest/v1.0/purchase_order_contracts', tokens, fp, userId), [], 'purchase_order_contracts'),
+    safe(() => procoreGet('/rest/v1.0/budget_views', tokens, fp, userId), [], 'budget_views'),
   ]);
 
   // Prime contracts → update project contract values
@@ -245,8 +247,8 @@ async function syncProjectDetails(
   // Budget line items
   if (Array.isArray(budgetViews) && budgetViews.length > 0) {
     const budgetRows = await safe(() =>
-      fetchAllPages(`${projPath}/budget_views/${budgetViews[0].id}/detail_rows`, tokens,
-        cp, userId
+      fetchAllPages(`/rest/v1.0/budget_views/${budgetViews[0].id}/detail_rows`, tokens,
+        fp, userId
       ), [], 'budget_detail_rows');
 
     // Clear old budget for this project
@@ -274,19 +276,23 @@ async function syncProjectDetails(
   }
 
   // --- CHANGE ORDERS, PAY APPS, SUB INVOICES, DIRECT COSTS (parallel) ---
-  const primeContractIds = new Set(primeContracts.map((pc: any) => String(pc.id)));
   const firstPrimeId = primeContracts.length > 0 ? primeContracts[0].id : null;
 
   const [commitmentCOs, primeCOs, requisitions, payApps, directCostsList] = await Promise.all([
-    safe(() => fetchAllPages(`${projPath}/change_order_packages`, tokens, cp, userId), [], 'commitment_cos'),
+    // change_order_packages → FLAT path
+    safe(() => fetchAllPages('/rest/v1.0/change_order_packages', tokens, fp, userId), [], 'commitment_cos'),
+    // prime COs → FLAT path with prime_contract_id
     firstPrimeId
-      ? safe(() => fetchAllPages(`${projPath}/prime_contract/${firstPrimeId}/change_order_packages`, tokens, cp, userId), [], 'prime_cos')
+      ? safe(() => fetchAllPages('/rest/v1.0/change_order_packages', tokens, { ...fp, prime_contract_id: String(firstPrimeId) }, userId), [], 'prime_cos')
       : Promise.resolve([]),
-    safe(() => fetchAllPages(`${projPath}/requisitions`, tokens, cp, userId), [], 'requisitions'),
+    // requisitions → FLAT path
+    safe(() => fetchAllPages('/rest/v1.0/requisitions', tokens, fp, userId), [], 'requisitions'),
+    // payment_applications → FLAT path
     firstPrimeId
-      ? safe(() => fetchAllPages(`${projPath}/prime_contract/${firstPrimeId}/payment_applications`, tokens, cp, userId), [], 'payment_apps')
+      ? safe(() => fetchAllPages('/rest/v1.0/payment_applications', tokens, { ...fp, prime_contract_id: String(firstPrimeId) }, userId), [], 'payment_apps')
       : Promise.resolve([]),
-    safe(() => fetchAllPages(`${projPath}/direct_costs`, tokens, cp, userId), [], 'direct_costs'),
+    // direct_costs → PROJECT-SCOPED path (confirmed working)
+    safe(() => fetchAllPages(`${projPath}/direct_costs`, tokens, { company_id: companyId }, userId), [], 'direct_costs'),
   ]);
 
   // Change orders (both prime and commitment)
@@ -378,9 +384,12 @@ async function syncProjectDetails(
 
   // --- RISK DATA (parallel) ---
   const [rfiList, submittalList, punchList] = await Promise.all([
-    safe(() => fetchAllPages(`${projPath}/rfis`, tokens, cp, userId), [], 'rfis'),
-    safe(() => fetchAllPages(`${projPath}/submittals`, tokens, cp, userId), [], 'submittals'),
-    safe(() => fetchAllPages(`${projPath}/punch_items`, tokens, cp, userId), [], 'punch_items'),
+    // rfis → PROJECT-SCOPED (confirmed working)
+    safe(() => fetchAllPages(`${projPath}/rfis`, tokens, { company_id: companyId }, userId), [], 'rfis'),
+    // submittals → PROJECT-SCOPED (confirmed working)
+    safe(() => fetchAllPages(`${projPath}/submittals`, tokens, { company_id: companyId }, userId), [], 'submittals'),
+    // punch_items → FLAT path (project-scoped returned 404)
+    safe(() => fetchAllPages('/rest/v1.0/punch_items', tokens, fp, userId), [], 'punch_items'),
   ]);
 
   // RFIs

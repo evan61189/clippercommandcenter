@@ -150,21 +150,25 @@ export const handler: Handler = async (event) => {
     const testProjectName = projectsResult.sample.name || projectsResult.sample.display_name;
     const projPath = `/rest/v1.0/projects/${testProjectId}`;
     const cp = { company_id: companyId };
+    const fp = { company_id: companyId, project_id: String(testProjectId) };
 
-    // Step 2: Test EVERY endpoint we use, both project-scoped and alternatives
+    // Step 2: Test EVERY endpoint we use, both project-scoped and flat alternatives
     const results = await Promise.all([
       projectsResult, // Already done
 
-      // Prime contract — test both singular and plural
-      rawProcore('prime_contract (singular)', `${projPath}/prime_contract`, tokens, cp),
-      rawProcore('prime_contracts (plural)', `${projPath}/prime_contracts`, tokens, cp),
+      // Prime contract — test project-scoped and flat
+      rawProcore('prime_contract (proj-scoped)', `${projPath}/prime_contract`, tokens, cp),
+      rawProcore('prime_contract (flat)', '/rest/v1.0/prime_contract', tokens, fp),
 
-      // Commitments
-      rawProcore('work_order_contracts', `${projPath}/work_order_contracts`, tokens, cp),
-      rawProcore('purchase_order_contracts', `${projPath}/purchase_order_contracts`, tokens, cp),
+      // Commitments — test both styles
+      rawProcore('work_order_contracts (proj-scoped)', `${projPath}/work_order_contracts`, tokens, cp),
+      rawProcore('work_order_contracts (flat)', '/rest/v1.0/work_order_contracts', tokens, fp),
+      rawProcore('purchase_order_contracts (proj-scoped)', `${projPath}/purchase_order_contracts`, tokens, cp),
+      rawProcore('purchase_order_contracts (flat)', '/rest/v1.0/purchase_order_contracts', tokens, fp),
 
-      // Budget
-      rawProcore('budget_views', `${projPath}/budget_views`, tokens, cp),
+      // Budget — test both styles
+      rawProcore('budget_views (proj-scoped)', `${projPath}/budget_views`, tokens, cp),
+      rawProcore('budget_views (flat)', '/rest/v1.0/budget_views', tokens, fp),
 
       // Change orders — test both project-level and flat
       rawProcore('change_order_packages (proj-scoped)', `${projPath}/change_order_packages`, tokens, cp),
