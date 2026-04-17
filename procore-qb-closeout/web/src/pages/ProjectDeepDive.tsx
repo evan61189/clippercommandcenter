@@ -81,6 +81,7 @@ export default function ProjectDeepDive() {
   const [emails, setEmails] = useState<Correspondence[]>([])
   const [loading, setLoading] = useState(true)
   const [showAllSubs, setShowAllSubs] = useState(false)
+  const [showAllUncommitted, setShowAllUncommitted] = useState(false)
 
   useEffect(() => {
     if (!projectId) return
@@ -134,7 +135,10 @@ export default function ProjectDeepDive() {
   }
 
   // --- Computed values ---
-  const contractValue = project.current_contract_value || project.original_contract_value || 0
+  // Sum contract value from prime_contracts table (more reliable than project field
+  // since Procore's /prime_contract endpoint may only return one)
+  const primesTotal = primes.reduce((s, pc) => s + (pc.contract_value || 0), 0)
+  const contractValue = primesTotal > 0 ? primesTotal : (project.current_contract_value || project.original_contract_value || 0)
   const totalCommitted = subs.reduce((s, c) => s + (c.contract_value || 0), 0)
   const ownerPayApps = payApps.filter(p => p.vendor_name === '__OWNER__')
   const subInvoices = payApps.filter(p => p.vendor_name !== '__OWNER__')
@@ -421,22 +425,40 @@ export default function ProjectDeepDive() {
               ))}
             </div>
             {/* Uncommitted budget line detail */}
-            {uncommittedLines.length > 0 && (
-              <div className="mt-3 pt-3 border-t border-gray-100">
-                <p className="text-xs font-medium text-gray-500 mb-1.5">Budget lines without commitment:</p>
-                <div className="space-y-1">
-                  {uncommittedLines.slice(0, 8).map((b, i) => (
-                    <div key={i} className="flex items-center justify-between text-xs text-gray-500">
-                      <span className="truncate">{b.cost_code && b.cost_code !== 'N/A' ? b.cost_code : ''}{b.description ? (b.cost_code && b.cost_code !== 'N/A' ? ' — ' : '') + b.description : b.cost_code === 'N/A' ? `Line ${i + 1}` : ''}</span>
-                      <span className="font-mono shrink-0 ml-2">{fmt(b.revised_budget)}</span>
-                    </div>
-                  ))}
-                  {uncommittedLines.length > 8 && (
-                    <p className="text-xs text-gray-400">+ {uncommittedLines.length - 8} more lines</p>
-                  )}
+            {uncommittedLines.length > 0 && (() => {
+              const visibleLines = showAllUncommitted ? uncommittedLines : uncommittedLines.slice(0, 8)
+              return (
+                <div className="mt-3 pt-3 border-t border-gray-100">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <p className="text-xs font-medium text-gray-500">Budget lines without commitment:</p>
+                    <p className="text-xs text-gray-400 font-mono">{fmt(uncommittedTotal)} total</p>
+                  </div>
+                  <div className="space-y-1">
+                    {visibleLines.map((b, i) => {
+                      const label = b.cost_code
+                        ? `${b.cost_code}${b.description ? ' — ' + b.description : ''}`
+                        : b.description
+                        ? b.description
+                        : `Unassigned budget — ${fmt(b.revised_budget)}`
+                      return (
+                        <div key={i} className="flex items-center justify-between text-xs text-gray-500">
+                          <span className="truncate">{label}</span>
+                          <span className="font-mono shrink-0 ml-2">{fmt(b.revised_budget)}</span>
+                        </div>
+                      )
+                    })}
+                    {uncommittedLines.length > 8 && (
+                      <button
+                        onClick={() => setShowAllUncommitted(!showAllUncommitted)}
+                        className="text-xs text-clipper-gold-dark hover:underline pt-1 w-full text-left"
+                      >
+                        {showAllUncommitted ? 'Show less' : `+ ${uncommittedLines.length - 8} more budget lines`}
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
+              )
+            })()}
           </Section>
 
           {/* Top Risks */}

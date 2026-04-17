@@ -270,8 +270,8 @@ async function syncProjectDetails(
 
     const budgetInserts = budgetRows.map((row: any) => ({
       project_id: internalId,
-      cost_code: row.cost_code?.full_code || row.cost_code?.name || null,
-      description: row.description || row.cost_code?.name || null,
+      cost_code: row.cost_code?.full_code || row.cost_code?.name || row.cost_code?.code || null,
+      description: row.description || row.row_name || row.cost_code?.name || row.cost_code?.full_code || row.category?.name || row.line_item_type?.name || null,
       original_budget: row.original_budget_amount || 0,
       budget_changes: row.budget_modifications || 0,
       revised_budget: row.revised_budget_amount || row.original_budget_amount || 0,
