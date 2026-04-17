@@ -345,25 +345,52 @@ async function syncProjectDetails(
   // Fetch prime COs and pay apps for ALL prime contracts (not just the first)
   const primeIds = primeContracts.map((pc: any) => pc.id).filter(Boolean);
 
-  const [commitmentCOs, requisitions, directCostsList] = await Promise.all([
+  const [commitmentCOs, directCostsList] = await Promise.all([
     // change_order_packages → FLAT path
     safe(() => fetchAllPages('/rest/v1.0/change_order_packages', tokens, fp, userId), [], 'commitment_cos'),
-    // requisitions → FLAT path
-    safe(() => fetchAllPages('/rest/v1.0/requisitions', tokens, fp, userId), [], 'requisitions'),
     // direct_costs → PROJECT-SCOPED path (confirmed working)
     safe(() => fetchAllPages(`${projPath}/direct_costs`, tokens, { company_id: companyId }, userId), [], 'direct_costs'),
   ]);
 
+  // Fetch requisitions (sub invoices) per subcontract
+  const requisitions: any[] = [];
+  for (const sub of subList) {
+    const subReqs = await safe(() => fetchAllPages(
+      `/rest/v1.0/requisitions`, tokens,
+      { ...fp, work_order_contract_id: String(sub.id) }, userId
+    ), [], `reqs_sub_${sub.id}`);
+    // If flat path returns nothing, try project-scoped
+    if (subReqs.length === 0) {
+      const scopedReqs = await safe(() => fetchAllPages(
+        `${projPath}/requisitions`, tokens,
+        { company_id: companyId, work_order_contract_id: String(sub.id) }, userId
+      ), [], `reqs_sub_scoped_${sub.id}`);
+      for (const r of scopedReqs) requisitions.push({ ...r, vendor_name: r.vendor_name || r.vendor?.name || sub.vendor_name || sub.name });
+    } else {
+      for (const r of subReqs) requisitions.push({ ...r, vendor_name: r.vendor_name || r.vendor?.name || sub.vendor_name || sub.name });
+    }
+  }
+
   // Fetch prime COs and pay apps across all prime contracts
+  // Try flat path first, fall back to project-scoped
   const primeCOs: any[] = [];
   const payApps: any[] = [];
   for (const primeId of primeIds) {
     const [cos, apps] = await Promise.all([
       safe(() => fetchAllPages('/rest/v1.0/change_order_packages', tokens, { ...fp, prime_contract_id: String(primeId) }, userId), [], `prime_cos_${primeId}`),
-      safe(() => fetchAllPages('/rest/v1.0/payment_applications', tokens, { ...fp, prime_contract_id: String(primeId) }, userId), [], `payment_apps_${primeId}`),
+      safe(() => fetchAllPages('/rest/v1.0/payment_applications', tokens, { ...fp, prime_contract_id: String(primeId) }, userId), [], `pay_apps_flat_${primeId}`),
     ]);
     primeCOs.push(...cos);
-    payApps.push(...apps);
+    if (apps.length > 0) {
+      payApps.push(...apps);
+    } else {
+      // Fallback: project-scoped path
+      const scopedApps = await safe(() => fetchAllPages(
+        `${projPath}/prime_contract/${primeId}/payment_applications`, tokens,
+        { company_id: companyId }, userId
+      ), [], `pay_apps_scoped_${primeId}`);
+      payApps.push(...scopedApps);
+    }
   }
 
   // Change orders (both prime and commitment)
