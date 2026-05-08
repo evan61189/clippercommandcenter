@@ -254,6 +254,155 @@ export const handler: Handler = async (event) => {
         console.log('Test result:', result);
         break;
 
+      case 'getActiveProjects':
+        // Returns only projects where Procore's `active` flag is true.
+        // Used by the Field Activity page so we don't pull daily logs for closed jobs.
+        console.log('Fetching ACTIVE projects for company:', companyId);
+        try {
+          const allProjects = await fetchAllPages('/rest/v1.0/projects', tokens, { company_id: companyId });
+          result = (allProjects || []).filter((p: any) => p && p.active === true);
+          console.log(`Active projects: ${result.length} of ${allProjects?.length || 0} total`);
+        } catch (err: any) {
+          console.error('Failed to fetch active projects:', err.message);
+          throw err;
+        }
+        break;
+
+      case 'getFieldActivity':
+        // Aggregates field-side data for a single project over a date window.
+        // Returns counts + lightweight item lists with Procore web links so the
+        // UI can render a daily table without paying for full payload bodies.
+        if (!projectId) throw new Error('Project ID required');
+        {
+          const { startDate, endDate } = JSON.parse(event.body || '{}') as {
+            startDate?: string; endDate?: string;
+          };
+          if (!startDate || !endDate) throw new Error('startDate and endDate (YYYY-MM-DD) required');
+
+          // Procore's filter[created_at] uses ISO8601 with `...` as the range delimiter.
+          const isoRange = `${startDate}T00:00:00Z...${endDate}T23:59:59Z`;
+
+          const safe = async <T,>(fn: () => Promise<T>, fallback: T): Promise<T> => {
+            try { return await fn(); }
+            catch (err: any) {
+              const msg = err?.message || String(err);
+              if (msg.includes('404') || msg.includes('403') || msg.includes('Not Found')) {
+                console.log(`Field activity fallback (${msg.substring(0, 80)})`);
+                return fallback;
+              }
+              console.error('Field activity error:', msg.substring(0, 200));
+              return fallback;
+            }
+          };
+
+          // Daily logs: Procore exposes per-type endpoints. Manpower is the de-facto
+          // "did the super file a report?" signal — pull that and weather as a bonus.
+          const [manpower, weather, photos, inspections, observations, punchItems] = await Promise.all([
+            safe(
+              () => fetchAllPages(
+                `/rest/v1.0/projects/${projectId}/daily_log/manpower_logs`,
+                tokens,
+                { company_id: companyId, start_date: startDate, end_date: endDate }
+              ),
+              [] as any[]
+            ),
+            safe(
+              () => fetchAllPages(
+                `/rest/v1.0/projects/${projectId}/weather_logs`,
+                tokens,
+                { company_id: companyId, start_date: startDate, end_date: endDate }
+              ),
+              [] as any[]
+            ),
+            safe(
+              () => fetchAllPages(
+                `/rest/v1.0/projects/${projectId}/images`,
+                tokens,
+                { company_id: companyId, 'filters[created_at]': isoRange }
+              ),
+              [] as any[]
+            ),
+            safe(
+              () => fetchAllPages(
+                `/rest/v1.0/checklist/lists`,
+                tokens,
+                { company_id: companyId, project_id: projectId, 'filters[updated_at]': isoRange }
+              ),
+              [] as any[]
+            ),
+            safe(
+              () => fetchAllPages(
+                `/rest/v1.0/observations/items`,
+                tokens,
+                { company_id: companyId, project_id: projectId, 'filters[created_at]': isoRange }
+              ),
+              [] as any[]
+            ),
+            safe(
+              () => fetchAllPages(
+                `/rest/v1.0/projects/${projectId}/punch_items`,
+                tokens,
+                { company_id: companyId, 'filters[created_at]': isoRange }
+              ),
+              [] as any[]
+            ),
+          ]);
+
+          // Trim payloads to just the fields the UI uses. Keep this conservative
+          // so per-project responses stay well under Netlify's body limits even
+          // for jobs with hundreds of photos.
+          const slimManpower = manpower.map((m: any) => ({
+            id: m.id, date: m.date || m.log_date, vendor_name: m.vendor?.name,
+            num_workers: m.num_workers, hours: m.hours,
+          }));
+          const slimWeather = weather.map((w: any) => ({
+            id: w.id, date: w.date || w.log_date,
+            high_temperature: w.high_temperature, low_temperature: w.low_temperature,
+            conditions: w.conditions,
+          }));
+          const slimPhotos = photos.map((p: any) => ({
+            id: p.id, name: p.name, created_at: p.created_at,
+            url: p.url, thumbnail: p.thumbnail_url || p.url,
+          }));
+          const slimInspections = inspections.map((i: any) => ({
+            id: i.id, name: i.name, status: i.status,
+            closed_at: i.closed_at, inspection_date: i.inspection_date,
+            updated_at: i.updated_at,
+          }));
+          const slimObservations = observations.map((o: any) => ({
+            id: o.id, name: o.name, status: o.status,
+            type: o.type?.name, priority: o.priority,
+            created_at: o.created_at, due_date: o.due_date,
+          }));
+          const slimPunch = punchItems.map((p: any) => ({
+            id: p.id, name: p.name, status: p.status,
+            created_at: p.created_at, due_date: p.due_date,
+            closed_at: p.closed_at, priority: p.priority,
+          }));
+
+          result = {
+            projectId,
+            startDate,
+            endDate,
+            manpowerLogs: slimManpower,
+            weatherLogs: slimWeather,
+            photos: slimPhotos,
+            inspections: slimInspections,
+            observations: slimObservations,
+            punchItems: slimPunch,
+            counts: {
+              manpowerLogs: slimManpower.length,
+              weatherLogs: slimWeather.length,
+              photos: slimPhotos.length,
+              inspections: slimInspections.length,
+              inspectionsCompleted: slimInspections.filter((i: any) => i.status === 'closed').length,
+              observations: slimObservations.length,
+              punchItems: slimPunch.length,
+            },
+          };
+        }
+        break;
+
       case 'getProjects':
         // Use /rest/v1.0/projects with company_id as query param (header is also sent)
         console.log('Fetching projects for company:', companyId);
