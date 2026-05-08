@@ -143,6 +143,26 @@ async function procoreRequest(
       throw new Error('Authentication failed - token refresh failed. Please reconnect Procore in Settings.');
     }
 
+    if (response.status === 429) {
+      // Rate limited. Honor Retry-After if present, otherwise back off 2s, then retry once.
+      const retryAfterHeader = response.headers.get('Retry-After');
+      const waitMs = retryAfterHeader ? Math.min(parseInt(retryAfterHeader, 10) * 1000 || 2000, 8000) : 2000;
+      console.warn(`Procore 429 rate-limit on ${endpoint}; waiting ${waitMs}ms then retrying once`);
+      await new Promise((r) => setTimeout(r, waitMs));
+      // Single retry only — if Procore is still throttling, surface the error.
+      const retryResponse = await fetch(url.toString(), {
+        headers: {
+          Authorization: `Bearer ${tokens.access_token}`,
+          'Content-Type': 'application/json',
+          ...(tokens.company_id ? { 'Procore-Company-Id': tokens.company_id } : {}),
+        },
+      });
+      if (retryResponse.ok) {
+        return await retryResponse.json();
+      }
+      throw new Error(`Procore 429 after retry: ${endpoint}`);
+    }
+
     if (!response.ok) {
       const errorText = await response.text();
       console.error('Procore API error response:', response.status, errorText);
@@ -343,28 +363,24 @@ export const handler: Handler = async (event) => {
             return [];
           };
 
-          // ---- Daily logs: probe all log types, with per-type fallback paths ----
-          const dailyLogTypes = [
-            'manpower_logs', 'notes_logs', 'weather_logs', 'delivery_logs',
-            'equipment_logs', 'productivity_logs', 'visitor_logs',
-            'safety_violation_logs', 'accident_logs',
-          ];
+          // ---- Daily logs: keep this small to stay under Procore's rate limit. ----
+          // Manpower + notes covers most teams' "did the super file a report" signal.
+          // Probing 9 types x 2 paths per project ate the burst limit and 429'd
+          // everything else — so we're down to two types and one path each.
+          const dailyLogTypes = ['manpower_logs', 'notes_logs'];
           const dailyLogParams = { company_id: companyId, start_date: startDate, end_date: endDate };
 
-          const dailyLogResults = await Promise.all(
-            dailyLogTypes.map((type) =>
-              tryPaths(
-                `daily_log:${type}`,
-                [
-                  // Procore's documented path for these is a bit inconsistent.
-                  // Try the daily_log/-prefixed variant first, then bare.
-                  `/rest/v1.0/projects/${projectId}/daily_log/${type}`,
-                  `/rest/v1.0/projects/${projectId}/${type}`,
-                ],
-                dailyLogParams
-              )
-            )
-          );
+          // Sequential, not parallel — same reason. Keeps each project's calls
+          // serialized so we don't burst the rate limiter.
+          const dailyLogResults: any[][] = [];
+          for (const type of dailyLogTypes) {
+            const items = await tryEndpoint(
+              `daily_log:${type}`,
+              `/rest/v1.0/projects/${projectId}/daily_log/${type}`,
+              dailyLogParams
+            );
+            dailyLogResults.push(items);
+          }
 
           const allDailyLogs: any[] = [];
           dailyLogTypes.forEach((type, idx) => {
@@ -375,45 +391,31 @@ export const handler: Handler = async (event) => {
 
           const weather = dailyLogResults[dailyLogTypes.indexOf('weather_logs')] || [];
 
-          // ---- Photos: no bracket filter; fetch latest 200 and filter by date here ----
-          // Procore returns photos newest-first by default.
-          const photosRaw = await tryPaths(
+          // ---- Other data: single primary path each, serialized ----
+          const otherParams = { company_id: companyId, project_id: String(projectId), per_page: '100' };
+
+          const photosRaw = await tryEndpoint(
             'photos',
-            [
-              `/rest/v1.0/projects/${projectId}/images`,
-              `/rest/v1.0/images`,
-            ],
-            { company_id: companyId, project_id: String(projectId), per_page: '200' }
+            `/rest/v1.0/projects/${projectId}/images`,
+            otherParams
           );
 
-          // ---- Inspections (checklists) ----
-          const inspectionsRaw = await tryPaths(
+          const inspectionsRaw = await tryEndpoint(
             'inspections',
-            [
-              `/rest/v1.0/projects/${projectId}/checklist/lists`,
-              `/rest/v1.0/checklist/lists`,
-            ],
-            { company_id: companyId, project_id: String(projectId), per_page: '200' }
+            `/rest/v1.0/checklist/lists`,
+            otherParams
           );
 
-          // ---- Observations ----
-          const observationsRaw = await tryPaths(
+          const observationsRaw = await tryEndpoint(
             'observations',
-            [
-              `/rest/v1.0/projects/${projectId}/observations/items`,
-              `/rest/v1.0/observations/items`,
-            ],
-            { company_id: companyId, project_id: String(projectId), per_page: '200' }
+            `/rest/v1.0/observations/items`,
+            otherParams
           );
 
-          // ---- Punch list ----
-          const punchRaw = await tryPaths(
+          const punchRaw = await tryEndpoint(
             'punch_items',
-            [
-              `/rest/v1.0/projects/${projectId}/punch_items`,
-              `/rest/v1.0/punch_items`,
-            ],
-            { company_id: companyId, project_id: String(projectId), per_page: '200' }
+            `/rest/v1.0/projects/${projectId}/punch_items`,
+            otherParams
           );
 
           // ---- Date-filter helper (server-side, since we dropped Procore filters) ----

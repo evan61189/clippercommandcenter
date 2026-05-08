@@ -201,7 +201,7 @@ export default function FieldActivity() {
     let cancelled = false
     pmap(
       projects,
-      4,
+      2,
       async (p) => {
         try {
           const data: FieldActivityResponse = await callProcore('getFieldActivity', {
