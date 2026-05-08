@@ -374,9 +374,12 @@ export const handler: Handler = async (event) => {
           // serialized so we don't burst the rate limiter.
           const dailyLogResults: any[][] = [];
           for (const type of dailyLogTypes) {
+            // Procore's daily-log endpoints are bare under the project resource —
+            // /rest/v1.0/projects/{id}/manpower_logs, NOT /daily_log/manpower_logs.
+            // The /daily_log/ prefix returns the web app's 404 HTML.
             const items = await tryEndpoint(
               `daily_log:${type}`,
-              `/rest/v1.0/projects/${projectId}/daily_log/${type}`,
+              `/rest/v1.0/projects/${projectId}/${type}`,
               dailyLogParams
             );
             dailyLogResults.push(items);
