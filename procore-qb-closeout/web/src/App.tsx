@@ -1,6 +1,5 @@
 import { Routes, Route, Link, useLocation, useNavigate } from 'react-router-dom'
 import {
-  LayoutDashboard, Briefcase, DollarSign, Users, Shield, GitCompare,
   Settings as SettingsIcon, LogOut, ChevronLeft, ChevronRight, Ship, HardHat
 } from 'lucide-react'
 import { useState } from 'react'
