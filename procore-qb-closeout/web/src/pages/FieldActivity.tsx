@@ -254,7 +254,7 @@ export default function FieldActivity() {
           <HardHat className="w-6 h-6 text-clipper-gold-dark" />
           <h1 className="text-2xl font-bold text-clipper-black">Field</h1>
           <span className="text-sm text-gray-500 ml-2">
-            {projects.length} active jobs · last 7 days
+            {projects.length} active jobs (Course of Construction) · last 7 days
             {stillLoading > 0 && <span className="ml-2 text-clipper-gold-dark">· {stillLoading} loading…</span>}
           </span>
         </div>
@@ -410,7 +410,7 @@ function DayCell({
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1 text-emerald-700 hover:text-clipper-gold-dark"
-          title={`${reports} manpower entries`}
+          title={`${reports} daily log entr${reports === 1 ? 'y' : 'ies'}`}
         >
           <CheckCircle2 className="w-3 h-3" />
           <span>report</span>

@@ -255,13 +255,32 @@ export const handler: Handler = async (event) => {
         break;
 
       case 'getActiveProjects':
-        // Returns only projects where Procore's `active` flag is true.
-        // Used by the Field Activity page so we don't pull daily logs for closed jobs.
-        console.log('Fetching ACTIVE projects for company:', companyId);
+        // Returns ONLY projects in Procore's "Course of Construction" stage.
+        // Procore's `active` flag is too permissive (closed jobs sometimes
+        // still read active=true) so we filter on the project_stage instead.
+        console.log('Fetching active (Course of Construction) projects for company:', companyId);
         try {
           const allProjects = await fetchAllPages('/rest/v1.0/projects', tokens, { company_id: companyId });
-          result = (allProjects || []).filter((p: any) => p && p.active === true);
+          // Surface what stages we observed so we can diagnose if filter is wrong.
+          const stageHist: Record<string, number> = {};
+          for (const p of (allProjects || [])) {
+            const stageName = p?.project_stage?.name || p?.stage?.name || '(no stage)';
+            stageHist[stageName] = (stageHist[stageName] || 0) + 1;
+          }
+          console.log('Stage histogram:', JSON.stringify(stageHist));
+
+          // Strict filter: project_stage.name must equal "Course of Construction".
+          // Some Procore deployments use slightly different casing/wording so
+          // we also accept "Construction" as a fallback.
+          result = (allProjects || []).filter((p: any) => {
+            if (!p) return false;
+            const stageName: string = (p.project_stage?.name || p.stage?.name || '').toLowerCase();
+            return stageName === 'course of construction' || stageName === 'construction';
+          });
           console.log(`Active projects: ${result.length} of ${allProjects?.length || 0} total`);
+          if (result.length === 0 && (allProjects?.length || 0) > 0) {
+            console.warn('No projects matched Course of Construction filter. Stage histogram above shows what was returned.');
+          }
         } catch (err: any) {
           console.error('Failed to fetch active projects:', err.message);
           throw err;
@@ -295,25 +314,53 @@ export const handler: Handler = async (event) => {
             }
           };
 
-          // Daily logs: Procore exposes per-type endpoints. Manpower is the de-facto
-          // "did the super file a report?" signal — pull that and weather as a bonus.
-          const [manpower, weather, photos, inspections, observations, punchItems] = await Promise.all([
-            safe(
-              () => fetchAllPages(
-                `/rest/v1.0/projects/${projectId}/daily_log/manpower_logs`,
-                tokens,
-                { company_id: companyId, start_date: startDate, end_date: endDate }
-              ),
-              [] as any[]
-            ),
-            safe(
-              () => fetchAllPages(
-                `/rest/v1.0/projects/${projectId}/weather_logs`,
-                tokens,
-                { company_id: companyId, start_date: startDate, end_date: endDate }
-              ),
-              [] as any[]
-            ),
+          // Daily logs: Procore exposes a per-type endpoint for each kind of log
+          // (manpower, notes, weather, deliveries, etc.). To answer "did the super
+          // file SOMETHING for this job today?" we probe all of them and union by
+          // date. Each log type lives at /rest/v1.0/projects/{id}/daily_log/{type}.
+          const dailyLogTypes = [
+            'manpower_logs',
+            'notes_logs',
+            'weather_logs',
+            'delivery_logs',
+            'equipment_logs',
+            'productivity_logs',
+            'visitor_logs',
+            'safety_violation_logs',
+            'accident_logs',
+          ];
+          const dailyLogParams = { company_id: companyId, start_date: startDate, end_date: endDate };
+
+          const dailyLogResults = await Promise.all(
+            dailyLogTypes.map((type) =>
+              safe(
+                () => fetchAllPages(`/rest/v1.0/projects/${projectId}/daily_log/${type}`, tokens, dailyLogParams),
+                [] as any[]
+              )
+            )
+          );
+          // Tag each entry with which log type it came from so the UI can show
+          // a brief breakdown when needed.
+          const allDailyLogs: any[] = [];
+          dailyLogTypes.forEach((type, idx) => {
+            const items = dailyLogResults[idx] || [];
+            console.log(`Project ${projectId} ${type}: ${items.length}`);
+            for (const item of items) {
+              allDailyLogs.push({ ...item, _logType: type });
+            }
+          });
+          // Build a per-day "did anyone file anything?" set.
+          const reportDays = new Set<string>();
+          for (const item of allDailyLogs) {
+            const raw = item.date || item.log_date || item.created_at;
+            if (raw) reportDays.add(String(raw).slice(0, 10));
+          }
+
+          // Weather is a subset of dailyLogs but we keep a separate slot so the
+          // existing UI keeps working without a deeper rewrite.
+          const weather = dailyLogResults[dailyLogTypes.indexOf('weather_logs')] || [];
+
+          const [photos, inspections, observations, punchItems] = await Promise.all([
             safe(
               () => fetchAllPages(
                 `/rest/v1.0/projects/${projectId}/images`,
@@ -348,11 +395,13 @@ export const handler: Handler = async (event) => {
             ),
           ]);
 
-          // Trim payloads to just the fields the UI uses. Keep this conservative
-          // so per-project responses stay well under Netlify's body limits even
-          // for jobs with hundreds of photos.
-          const slimManpower = manpower.map((m: any) => ({
-            id: m.id, date: m.date || m.log_date, vendor_name: m.vendor?.name,
+          // Trim payloads to just the fields the UI uses. The "manpower" slot
+          // is now a union across all daily-log types so a daily report counts
+          // as filed regardless of which Procore log subform the super used.
+          const slimManpower = allDailyLogs.map((m: any) => ({
+            id: m.id, date: m.date || m.log_date || m.created_at,
+            log_type: m._logType,
+            vendor_name: m.vendor?.name,
             num_workers: m.num_workers, hours: m.hours,
           }));
           const slimWeather = weather.map((w: any) => ({
