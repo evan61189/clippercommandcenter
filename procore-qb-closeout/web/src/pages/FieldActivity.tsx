@@ -34,13 +34,22 @@ interface ActiveProject {
   active: boolean
 }
 
+interface DiagnosticEntry {
+  label: string
+  path: string
+  ok: boolean
+  count: number
+  error?: string
+}
+
 interface FieldActivityResponse {
   projectId: number
-  manpowerLogs: Array<{ id: number; date: string; num_workers?: number }>
+  manpowerLogs: Array<{ id: number; date: string; num_workers?: number; log_type?: string }>
   photos: Array<{ id: number; created_at: string }>
   inspections: Array<{ id: number; status: string; closed_at?: string; inspection_date?: string; updated_at?: string }>
   observations: Array<{ id: number; created_at: string }>
   punchItems: Array<{ id: number; created_at: string }>
+  _diagnostics?: DiagnosticEntry[]
 }
 
 interface ProjectActivity {
@@ -147,6 +156,7 @@ export default function FieldActivity() {
   const [loadingProjects, setLoadingProjects] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [showDiagnostics, setShowDiagnostics] = useState(false)
 
   const days = useMemo(() => buildDateRange(WINDOW_DAYS), [])
   const startDate = days[0]
@@ -258,14 +268,23 @@ export default function FieldActivity() {
             {stillLoading > 0 && <span className="ml-2 text-clipper-gold-dark">· {stillLoading} loading…</span>}
           </span>
         </div>
-        <button
-          onClick={() => setRefreshKey((k) => k + 1)}
-          className="btn btn-gold flex items-center gap-2"
-          title="Refresh from Procore"
-        >
-          <RefreshCw className="w-4 h-4" />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowDiagnostics((v) => !v)}
+            className="text-xs text-gray-500 hover:text-clipper-gold-dark px-3 py-1.5 rounded border border-gray-200 hover:border-clipper-gold-dark transition-colors"
+            title="Show which Procore endpoints succeeded/failed for each project"
+          >
+            {showDiagnostics ? 'Hide diagnostics' : 'Show diagnostics'}
+          </button>
+          <button
+            onClick={() => setRefreshKey((k) => k + 1)}
+            className="btn btn-gold flex items-center gap-2"
+            title="Refresh from Procore"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* The grid */}
@@ -338,6 +357,64 @@ export default function FieldActivity() {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Diagnostics panel — shows per-endpoint success/failure for each project */}
+      {showDiagnostics && (
+        <div className="card text-xs space-y-3">
+          <div className="font-semibold text-gray-700">Endpoint diagnostics</div>
+          <div className="text-gray-500">
+            Each row below shows what Procore returned for that project's six data sources. If a row says
+            "0 / failed" check the path — most empty cells are caused by a 404 on the wrong API path.
+          </div>
+          <div className="space-y-2 max-h-[400px] overflow-y-auto">
+            {projects.map((p) => {
+              const a = activity[p.id]
+              const diag = a?.data?._diagnostics
+              if (!diag || diag.length === 0) return null
+              // Group by label so multiple path attempts collapse together.
+              const byLabel: Record<string, DiagnosticEntry[]> = {}
+              for (const d of diag) {
+                if (!byLabel[d.label]) byLabel[d.label] = []
+                byLabel[d.label].push(d)
+              }
+              return (
+                <div key={p.id} className="border-t border-gray-100 pt-2">
+                  <div className="font-medium text-gray-700 mb-1">
+                    {p.name} <span className="text-gray-400 font-normal">(#{p.id})</span>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1">
+                    {Object.entries(byLabel).map(([label, attempts]) => {
+                      const successful = attempts.find((x) => x.ok)
+                      const ok = !!successful
+                      return (
+                        <div key={label} className="flex items-start gap-2">
+                          <span className={ok ? 'text-emerald-600' : 'text-red-500'}>
+                            {ok ? '✓' : '✗'}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-gray-700">
+                              <span className="font-medium">{label}</span>{' '}
+                              <span className="text-gray-400">→</span>{' '}
+                              <span className="tabular-nums">{successful?.count ?? 0}</span>
+                              {!ok && <span className="text-red-500 ml-1">all paths failed</span>}
+                            </div>
+                            {attempts.map((att, i) => (
+                              <div key={i} className="text-[10px] text-gray-400 truncate">
+                                {att.ok ? '✓' : '✗'} <code>{att.path}</code>
+                                {att.error && <span className="text-red-400"> — {att.error.substring(0, 80)}</span>}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         </div>
       )}
 

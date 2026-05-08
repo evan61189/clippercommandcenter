@@ -289,8 +289,11 @@ export const handler: Handler = async (event) => {
 
       case 'getFieldActivity':
         // Aggregates field-side data for a single project over a date window.
-        // Returns counts + lightweight item lists with Procore web links so the
-        // UI can render a daily table without paying for full payload bodies.
+        // Strategy: for each data type try a primary endpoint path, and if that
+        // 404s try a fallback path. Drop bracketed filter[...] params (Procore
+        // is finicky about those) — fetch recent items with per_page=200 and
+        // filter by date in code. Return a `_diagnostics` object so the UI can
+        // surface exactly what hit and what didn't.
         if (!projectId) throw new Error('Project ID required');
         {
           const { startDate, endDate } = JSON.parse(event.body || '{}') as {
@@ -298,106 +301,138 @@ export const handler: Handler = async (event) => {
           };
           if (!startDate || !endDate) throw new Error('startDate and endDate (YYYY-MM-DD) required');
 
-          // Procore's filter[created_at] uses ISO8601 with `...` as the range delimiter.
-          const isoRange = `${startDate}T00:00:00Z...${endDate}T23:59:59Z`;
+          // ---- Diagnostic-aware endpoint try ----
+          // Each call records the path hit, status, count, and (if any) error.
+          // We push entries to `diagnostics` so they can be returned to the UI.
+          const diagnostics: Array<{
+            label: string; path: string; ok: boolean; count: number; error?: string;
+          }> = [];
 
-          const safe = async <T,>(fn: () => Promise<T>, fallback: T): Promise<T> => {
-            try { return await fn(); }
-            catch (err: any) {
-              const msg = err?.message || String(err);
-              if (msg.includes('404') || msg.includes('403') || msg.includes('Not Found')) {
-                console.log(`Field activity fallback (${msg.substring(0, 80)})`);
-                return fallback;
-              }
-              console.error('Field activity error:', msg.substring(0, 200));
-              return fallback;
+          const tryEndpoint = async (label: string, path: string, params: Record<string, string>): Promise<any[]> => {
+            try {
+              const data = await fetchAllPages(path, tokens, params);
+              const arr = Array.isArray(data) ? data : [];
+              diagnostics.push({ label, path, ok: true, count: arr.length });
+              console.log(`[FA] ${label} ${path} → ${arr.length} items`);
+              return arr;
+            } catch (err: any) {
+              const msg = (err?.message || String(err)).substring(0, 240);
+              diagnostics.push({ label, path, ok: false, count: 0, error: msg });
+              console.warn(`[FA] ${label} ${path} FAILED: ${msg.substring(0, 120)}`);
+              return [];
             }
           };
 
-          // Daily logs: Procore exposes a per-type endpoint for each kind of log
-          // (manpower, notes, weather, deliveries, etc.). To answer "did the super
-          // file SOMETHING for this job today?" we probe all of them and union by
-          // date. Each log type lives at /rest/v1.0/projects/{id}/daily_log/{type}.
+          // Try a list of paths in order until one succeeds (returns >=0 items).
+          // Returns whatever the FIRST successful call returned, even if empty.
+          const tryPaths = async (label: string, paths: string[], params: Record<string, string>): Promise<any[]> => {
+            for (const path of paths) {
+              try {
+                const data = await fetchAllPages(path, tokens, params);
+                const arr = Array.isArray(data) ? data : [];
+                diagnostics.push({ label, path, ok: true, count: arr.length });
+                console.log(`[FA] ${label} ${path} → ${arr.length} items`);
+                return arr;
+              } catch (err: any) {
+                const msg = (err?.message || String(err)).substring(0, 240);
+                diagnostics.push({ label, path, ok: false, count: 0, error: msg });
+                console.warn(`[FA] ${label} ${path} FAILED: ${msg.substring(0, 120)}`);
+                // Keep trying remaining paths.
+              }
+            }
+            return [];
+          };
+
+          // ---- Daily logs: probe all log types, with per-type fallback paths ----
           const dailyLogTypes = [
-            'manpower_logs',
-            'notes_logs',
-            'weather_logs',
-            'delivery_logs',
-            'equipment_logs',
-            'productivity_logs',
-            'visitor_logs',
-            'safety_violation_logs',
-            'accident_logs',
+            'manpower_logs', 'notes_logs', 'weather_logs', 'delivery_logs',
+            'equipment_logs', 'productivity_logs', 'visitor_logs',
+            'safety_violation_logs', 'accident_logs',
           ];
           const dailyLogParams = { company_id: companyId, start_date: startDate, end_date: endDate };
 
           const dailyLogResults = await Promise.all(
             dailyLogTypes.map((type) =>
-              safe(
-                () => fetchAllPages(`/rest/v1.0/projects/${projectId}/daily_log/${type}`, tokens, dailyLogParams),
-                [] as any[]
+              tryPaths(
+                `daily_log:${type}`,
+                [
+                  // Procore's documented path for these is a bit inconsistent.
+                  // Try the daily_log/-prefixed variant first, then bare.
+                  `/rest/v1.0/projects/${projectId}/daily_log/${type}`,
+                  `/rest/v1.0/projects/${projectId}/${type}`,
+                ],
+                dailyLogParams
               )
             )
           );
-          // Tag each entry with which log type it came from so the UI can show
-          // a brief breakdown when needed.
+
           const allDailyLogs: any[] = [];
           dailyLogTypes.forEach((type, idx) => {
-            const items = dailyLogResults[idx] || [];
-            console.log(`Project ${projectId} ${type}: ${items.length}`);
-            for (const item of items) {
+            for (const item of dailyLogResults[idx] || []) {
               allDailyLogs.push({ ...item, _logType: type });
             }
           });
-          // Build a per-day "did anyone file anything?" set.
-          const reportDays = new Set<string>();
-          for (const item of allDailyLogs) {
-            const raw = item.date || item.log_date || item.created_at;
-            if (raw) reportDays.add(String(raw).slice(0, 10));
-          }
 
-          // Weather is a subset of dailyLogs but we keep a separate slot so the
-          // existing UI keeps working without a deeper rewrite.
           const weather = dailyLogResults[dailyLogTypes.indexOf('weather_logs')] || [];
 
-          const [photos, inspections, observations, punchItems] = await Promise.all([
-            safe(
-              () => fetchAllPages(
-                `/rest/v1.0/projects/${projectId}/images`,
-                tokens,
-                { company_id: companyId, 'filters[created_at]': isoRange }
-              ),
-              [] as any[]
-            ),
-            safe(
-              () => fetchAllPages(
-                `/rest/v1.0/checklist/lists`,
-                tokens,
-                { company_id: companyId, project_id: projectId, 'filters[updated_at]': isoRange }
-              ),
-              [] as any[]
-            ),
-            safe(
-              () => fetchAllPages(
-                `/rest/v1.0/observations/items`,
-                tokens,
-                { company_id: companyId, project_id: projectId, 'filters[created_at]': isoRange }
-              ),
-              [] as any[]
-            ),
-            safe(
-              () => fetchAllPages(
-                `/rest/v1.0/projects/${projectId}/punch_items`,
-                tokens,
-                { company_id: companyId, 'filters[created_at]': isoRange }
-              ),
-              [] as any[]
-            ),
-          ]);
+          // ---- Photos: no bracket filter; fetch latest 200 and filter by date here ----
+          // Procore returns photos newest-first by default.
+          const photosRaw = await tryPaths(
+            'photos',
+            [
+              `/rest/v1.0/projects/${projectId}/images`,
+              `/rest/v1.0/images`,
+            ],
+            { company_id: companyId, project_id: String(projectId), per_page: '200' }
+          );
 
-          // Trim payloads to just the fields the UI uses. The "manpower" slot
-          // is now a union across all daily-log types so a daily report counts
-          // as filed regardless of which Procore log subform the super used.
+          // ---- Inspections (checklists) ----
+          const inspectionsRaw = await tryPaths(
+            'inspections',
+            [
+              `/rest/v1.0/projects/${projectId}/checklist/lists`,
+              `/rest/v1.0/checklist/lists`,
+            ],
+            { company_id: companyId, project_id: String(projectId), per_page: '200' }
+          );
+
+          // ---- Observations ----
+          const observationsRaw = await tryPaths(
+            'observations',
+            [
+              `/rest/v1.0/projects/${projectId}/observations/items`,
+              `/rest/v1.0/observations/items`,
+            ],
+            { company_id: companyId, project_id: String(projectId), per_page: '200' }
+          );
+
+          // ---- Punch list ----
+          const punchRaw = await tryPaths(
+            'punch_items',
+            [
+              `/rest/v1.0/projects/${projectId}/punch_items`,
+              `/rest/v1.0/punch_items`,
+            ],
+            { company_id: companyId, project_id: String(projectId), per_page: '200' }
+          );
+
+          // ---- Date-filter helper (server-side, since we dropped Procore filters) ----
+          const inWindow = (raw?: string) => {
+            if (!raw) return false;
+            const d = String(raw).slice(0, 10);
+            return d >= startDate && d <= endDate;
+          };
+
+          // Daily logs: API call already filtered by start_date/end_date.
+          // Photos: filter on created_at OR taken_at.
+          const photos = photosRaw.filter((p: any) => inWindow(p.created_at) || inWindow(p.taken_at));
+          // Inspections: filter on closed_at (when complete) OR updated_at.
+          const inspections = inspectionsRaw.filter((i: any) => inWindow(i.closed_at) || inWindow(i.inspection_date) || inWindow(i.updated_at));
+          // Observations / punch: filter on created_at.
+          const observations = observationsRaw.filter((o: any) => inWindow(o.created_at) || inWindow(o.updated_at));
+          const punchItems = punchRaw.filter((p: any) => inWindow(p.created_at) || inWindow(p.updated_at));
+
+          // ---- Slim payloads for the wire ----
           const slimManpower = allDailyLogs.map((m: any) => ({
             id: m.id, date: m.date || m.log_date || m.created_at,
             log_type: m._logType,
@@ -410,7 +445,7 @@ export const handler: Handler = async (event) => {
             conditions: w.conditions,
           }));
           const slimPhotos = photos.map((p: any) => ({
-            id: p.id, name: p.name, created_at: p.created_at,
+            id: p.id, name: p.name, created_at: p.created_at || p.taken_at,
             url: p.url, thumbnail: p.thumbnail_url || p.url,
           }));
           const slimInspections = inspections.map((i: any) => ({
@@ -448,6 +483,7 @@ export const handler: Handler = async (event) => {
               observations: slimObservations.length,
               punchItems: slimPunch.length,
             },
+            _diagnostics: diagnostics,
           };
         }
         break;
