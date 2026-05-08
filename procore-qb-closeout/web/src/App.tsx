@@ -20,14 +20,11 @@ import ResetPassword from './pages/ResetPassword'
 import Privacy from './pages/Privacy'
 import Terms from './pages/Terms'
 
+// Sidebar deliberately trimmed to Field + Settings only.
+// Other pages (Overview, Projects, Financials, etc.) are still wired as routes
+// below — accessible by direct URL — but hidden from the nav to reduce clutter.
 const navItems = [
-  { path: '/', label: 'Overview', icon: LayoutDashboard },
-  { path: '/projects', label: 'Projects', icon: Briefcase },
-  { path: '/field', label: 'Field', icon: HardHat },
-  { path: '/financials', label: 'Financials', icon: DollarSign },
-  { path: '/resources', label: 'Resources', icon: Users },
-  { path: '/reconciliation', label: 'Reconciliation', icon: GitCompare },
-  { path: '/compliance', label: 'Compliance', icon: Shield },
+  { path: '/', label: 'Field', icon: HardHat },
   { path: '/settings', label: 'Settings', icon: SettingsIcon },
 ]
 
@@ -139,10 +136,13 @@ function AppLayout() {
         <TopBar />
         <main className="flex-1 p-6 overflow-auto bg-gray-50">
           <Routes>
-            <Route path="/" element={<ProtectedRoute><CompanyOverview /></ProtectedRoute>} />
+            {/* Field is now the home page. Old dashboard routes are kept
+                accessible by URL for now but hidden from the sidebar nav. */}
+            <Route path="/" element={<ProtectedRoute><FieldActivity /></ProtectedRoute>} />
+            <Route path="/field" element={<ProtectedRoute><FieldActivity /></ProtectedRoute>} />
+            <Route path="/overview" element={<ProtectedRoute><CompanyOverview /></ProtectedRoute>} />
             <Route path="/projects" element={<ProtectedRoute><ProjectPortfolio /></ProtectedRoute>} />
             <Route path="/projects/:projectId" element={<ProtectedRoute><ProjectDeepDive /></ProtectedRoute>} />
-            <Route path="/field" element={<ProtectedRoute><FieldActivity /></ProtectedRoute>} />
             <Route path="/financials" element={<ProtectedRoute><FinancialHealth /></ProtectedRoute>} />
             <Route path="/resources" element={<ProtectedRoute><ResourceManagement /></ProtectedRoute>} />
             <Route path="/reconciliation" element={<ProtectedRoute><Reconciliation /></ProtectedRoute>} />
@@ -158,11 +158,4 @@ function AppLayout() {
 }
 
 function App() {
-  return (
-    <AuthProvider>
-      <AppLayout />
-    </AuthProvider>
-  )
-}
-
-export default App
+  retu
