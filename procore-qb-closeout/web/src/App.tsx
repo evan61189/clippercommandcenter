@@ -22,7 +22,7 @@ import Terms from './pages/Terms'
 
 // Sidebar deliberately trimmed to Field + Settings only.
 // Other pages (Overview, Projects, Financials, etc.) are still wired as routes
-// below — accessible by direct URL — but hidden from the nav to reduce clutter.
+// below -- accessible by direct URL -- but hidden from the nav to reduce clutter.
 const navItems = [
   { path: '/', label: 'Field', icon: HardHat },
   { path: '/settings', label: 'Settings', icon: SettingsIcon },
@@ -96,7 +96,7 @@ function TopBar() {
         <h1 className="text-sm font-semibold text-gray-900">
           Clipper Construction
         </h1>
-        <p className="text-xs text-gray-500">Executive Dashboard</p>
+        <p className="text-xs text-gray-500">Field Operations</p>
       </div>
       <div className="flex items-center gap-4">
         <span className="text-sm text-gray-500">{user?.email}</span>
@@ -158,4 +158,11 @@ function AppLayout() {
 }
 
 function App() {
-  retu
+  return (
+    <AuthProvider>
+      <AppLayout />
+    </AuthProvider>
+  )
+}
+
+export default App
