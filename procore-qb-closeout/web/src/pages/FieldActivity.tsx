@@ -776,69 +776,208 @@ function EmptyState({ msg }: { msg: string }) {
   return <div className="text-sm text-gray-500 italic py-8 text-center">{msg}</div>
 }
 
+function authorOf(raw: any): string | null {
+  if (!raw) return null
+  const u = raw.created_by || raw.creator || raw.user
+  if (!u) return null
+  if (typeof u === 'string') return u
+  return u.name || u.full_name || u.login || null
+}
+
+function timeOf(raw: any): string | null {
+  if (!raw) return null
+  const iso = raw.datetime || raw.created_at || raw.timestamp
+  if (!iso) return null
+  try {
+    return new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+  } catch { return null }
+}
+
 function ReportsView({ rows }: { rows: DailyLogRow[] }) {
   if (rows.length === 0) return <EmptyState msg="No daily log entries for this day." />
   const manpower = rows.filter((r) => r.log_type === 'manpower_logs')
   const notes = rows.filter((r) => r.log_type === 'notes_logs')
-  const other = rows.filter((r) => r.log_type !== 'manpower_logs' && r.log_type !== 'notes_logs')
+  const weather = rows.filter((r) => r.log_type === 'weather_logs')
+  const delivery = rows.filter((r) => r.log_type === 'delivery_logs')
+  const equipment = rows.filter((r) => r.log_type === 'equipment_logs')
+
+  const totalWorkers = manpower.reduce((s, m) => s + (Number(m.num_workers) || 0), 0)
+  const totalHours = manpower.reduce((s, m) => s + (Number(m.hours) || 0), 0)
 
   return (
     <div className="space-y-5">
+      {(manpower.length > 0) && (
+        <div className="grid grid-cols-3 gap-3 text-sm">
+          <div className="border border-gray-100 rounded p-3">
+            <div className="text-[10px] uppercase tracking-wider text-gray-500">Vendors on site</div>
+            <div className="text-xl font-semibold text-clipper-black tabular-nums">{manpower.length}</div>
+          </div>
+          <div className="border border-gray-100 rounded p-3">
+            <div className="text-[10px] uppercase tracking-wider text-gray-500">Workers</div>
+            <div className="text-xl font-semibold text-clipper-black tabular-nums">{totalWorkers}</div>
+          </div>
+          <div className="border border-gray-100 rounded p-3">
+            <div className="text-[10px] uppercase tracking-wider text-gray-500">Total hours</div>
+            <div className="text-xl font-semibold text-clipper-black tabular-nums">{totalHours.toFixed(1)}</div>
+          </div>
+        </div>
+      )}
+
       {manpower.length > 0 && (
         <div>
           <div className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">Manpower</div>
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-xs text-gray-500 border-b border-gray-200">
+              <tr className="text-[10px] uppercase tracking-wider text-gray-500 border-b border-gray-200">
                 <th className="text-left py-1.5 pr-3 font-medium">Vendor</th>
+                <th className="text-left py-1.5 px-3 font-medium">Trade / location</th>
                 <th className="text-right py-1.5 px-3 font-medium">Workers</th>
-                <th className="text-right py-1.5 pl-3 font-medium">Hours</th>
+                <th className="text-right py-1.5 px-3 font-medium">Hours</th>
+                <th className="text-left py-1.5 pl-3 font-medium">Logged by</th>
               </tr>
             </thead>
             <tbody>
-              {manpower.map((m) => (
-                <tr key={m.id} className="border-b border-gray-100">
-                  <td className="py-1.5 pr-3 text-gray-900">{m.vendor_name || '—'}</td>
-                  <td className="py-1.5 px-3 text-right tabular-nums">{m.num_workers ?? '—'}</td>
-                  <td className="py-1.5 pl-3 text-right tabular-nums">{m.hours ?? '—'}</td>
-                </tr>
-              ))}
+              {manpower.map((m) => {
+                const r = m.raw || {}
+                const trade = r.trade?.name || r.trade || r.cost_code?.name || null
+                const location = r.location?.name || r.location || null
+                const comments = r.comments || r.description || null
+                return (
+                  <tr key={m.id} className="border-b border-gray-100 align-top">
+                    <td className="py-1.5 pr-3 text-gray-900">{m.vendor_name || '-'}</td>
+                    <td className="py-1.5 px-3 text-gray-600">
+                      {trade && <div>{trade}</div>}
+                      {location && <div className="text-xs text-gray-400">{location}</div>}
+                      {comments && <div className="text-xs text-gray-500 italic mt-0.5">{comments}</div>}
+                      {!trade && !location && !comments && <span className="text-gray-300">-</span>}
+                    </td>
+                    <td className="py-1.5 px-3 text-right tabular-nums">{m.num_workers ?? '-'}</td>
+                    <td className="py-1.5 px-3 text-right tabular-nums">{m.hours ?? '-'}</td>
+                    <td className="py-1.5 pl-3 text-xs text-gray-500">
+                      {authorOf(r) || '-'}
+                      {timeOf(r) && <div className="text-[10px] text-gray-400">{timeOf(r)}</div>}
+                    </td>
+                  </tr>
+                )
+              })}
               <tr className="font-semibold text-gray-700">
                 <td className="py-1.5 pr-3">Total</td>
-                <td className="py-1.5 px-3 text-right tabular-nums">
-                  {manpower.reduce((s, m) => s + (Number(m.num_workers) || 0), 0)}
-                </td>
-                <td className="py-1.5 pl-3 text-right tabular-nums">
-                  {manpower.reduce((s, m) => s + (Number(m.hours) || 0), 0).toFixed(1)}
-                </td>
+                <td className="py-1.5 px-3"></td>
+                <td className="py-1.5 px-3 text-right tabular-nums">{totalWorkers}</td>
+                <td className="py-1.5 px-3 text-right tabular-nums">{totalHours.toFixed(1)}</td>
+                <td></td>
               </tr>
             </tbody>
           </table>
         </div>
       )}
+
       {notes.length > 0 && (
         <div>
-          <div className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">Notes</div>
+          <div className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">Site notes</div>
           <ul className="space-y-2">
-            {notes.map((n) => (
-              <li key={n.id} className="text-sm text-gray-800 whitespace-pre-wrap border border-gray-100 rounded p-3 bg-gray-50">
-                {n.notes || <span className="italic text-gray-400">No content</span>}
-              </li>
-            ))}
+            {notes.map((n) => {
+              const r = n.raw || {}
+              const author = authorOf(r)
+              const t = timeOf(r)
+              const location = r.location?.name || r.location || null
+              return (
+                <li key={n.id} className="border border-gray-100 rounded p-3 bg-gray-50">
+                  <div className="text-sm text-gray-800 whitespace-pre-wrap">
+                    {n.notes || <span className="italic text-gray-400">No content</span>}
+                  </div>
+                  {(author || t || location) && (
+                    <div className="text-[11px] text-gray-500 mt-2 flex gap-2 flex-wrap">
+                      {author && <span>{author}</span>}
+                      {t && <span>{author ? ' · ' : ''}{t}</span>}
+                      {location && <span>{(author || t) ? ' · ' : ''}{location}</span>}
+                    </div>
+                  )}
+                </li>
+              )
+            })}
           </ul>
         </div>
       )}
-      {other.length > 0 && (
+
+      {weather.length > 0 && (
         <div>
-          <div className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">Other entries</div>
+          <div className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">Weather</div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-[10px] uppercase tracking-wider text-gray-500 border-b border-gray-200">
+                <th className="text-left py-1.5 pr-3 font-medium">Conditions</th>
+                <th className="text-right py-1.5 px-3 font-medium">High</th>
+                <th className="text-right py-1.5 px-3 font-medium">Low</th>
+                <th className="text-right py-1.5 px-3 font-medium">Wind</th>
+                <th className="text-right py-1.5 pl-3 font-medium">Precip</th>
+              </tr>
+            </thead>
+            <tbody>
+              {weather.map((w) => {
+                const r = w.raw || {}
+                return (
+                  <tr key={w.id} className="border-b border-gray-100">
+                    <td className="py-1.5 pr-3 text-gray-900">{r.conditions || r.weather_condition || '-'}</td>
+                    <td className="py-1.5 px-3 text-right tabular-nums">{r.high_temperature ?? '-'}°</td>
+                    <td className="py-1.5 px-3 text-right tabular-nums">{r.low_temperature ?? '-'}°</td>
+                    <td className="py-1.5 px-3 text-right tabular-nums">{r.average_wind_speed ?? r.wind_speed ?? '-'}</td>
+                    <td className="py-1.5 pl-3 text-right tabular-nums">{r.precipitation ?? '-'}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {delivery.length > 0 && (
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">Deliveries</div>
           <ul className="space-y-1.5 text-sm">
-            {other.map((o) => (
-              <li key={o.id} className="text-gray-700">
-                <span className="text-xs text-gray-400 mr-2">{o.log_type.replace(/_logs$/, '')}</span>
-                {o.notes || o.vendor_name || `entry #${o.procore_id}`}
-              </li>
-            ))}
+            {delivery.map((d) => {
+              const r = d.raw || {}
+              const contents = r.delivery_contents || r.contents || r.notes
+              return (
+                <li key={d.id} className="border border-gray-100 rounded p-2.5">
+                  <div className="font-medium text-gray-900">{d.vendor_name || r.vendor?.name || 'Unknown vendor'}</div>
+                  {contents && <div className="text-gray-700 mt-0.5">{contents}</div>}
+                  <div className="text-[11px] text-gray-500 mt-1 flex gap-2 flex-wrap">
+                    {r.tracking_number && <span>Tracking #{r.tracking_number}</span>}
+                    {authorOf(r) && <span>· {authorOf(r)}</span>}
+                    {timeOf(r) && <span>· {timeOf(r)}</span>}
+                  </div>
+                </li>
+              )
+            })}
           </ul>
+        </div>
+      )}
+
+      {equipment.length > 0 && (
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">Equipment</div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-[10px] uppercase tracking-wider text-gray-500 border-b border-gray-200">
+                <th className="text-left py-1.5 pr-3 font-medium">Equipment</th>
+                <th className="text-left py-1.5 px-3 font-medium">Vendor</th>
+                <th className="text-right py-1.5 pl-3 font-medium">Hours</th>
+              </tr>
+            </thead>
+            <tbody>
+              {equipment.map((e) => {
+                const r = e.raw || {}
+                return (
+                  <tr key={e.id} className="border-b border-gray-100">
+                    <td className="py-1.5 pr-3 text-gray-900">{r.equipment_name || r.name || r.description || '-'}</td>
+                    <td className="py-1.5 px-3 text-gray-600">{e.vendor_name || r.vendor?.name || '-'}</td>
+                    <td className="py-1.5 pl-3 text-right tabular-nums">{e.hours ?? r.hours ?? '-'}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
