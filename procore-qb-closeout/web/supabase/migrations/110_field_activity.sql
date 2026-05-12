@@ -16,7 +16,7 @@
 -- and drill into errors if a project failed.
 CREATE TABLE IF NOT EXISTS field_sync_runs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    project_procore_id INTEGER NOT NULL,
+    project_procore_id BIGINT NOT NULL,
     started_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
     finished_at TIMESTAMPTZ,
     status VARCHAR(20) NOT NULL DEFAULT 'running', -- running | success | partial | error
@@ -40,7 +40,7 @@ CREATE INDEX IF NOT EXISTS idx_field_sync_runs_project
 CREATE TABLE IF NOT EXISTS field_daily_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     procore_id BIGINT NOT NULL,
-    project_procore_id INTEGER NOT NULL,
+    project_procore_id BIGINT NOT NULL,
     log_type VARCHAR(50) NOT NULL,           -- manpower_logs, notes_logs, etc.
     entry_date DATE NOT NULL,                 -- the date the log is FOR
     vendor_name VARCHAR(255),                 -- manpower-specific
@@ -63,7 +63,7 @@ CREATE INDEX IF NOT EXISTS idx_field_daily_logs_project_date
 CREATE TABLE IF NOT EXISTS field_photos (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     procore_id BIGINT NOT NULL,
-    project_procore_id INTEGER NOT NULL,
+    project_procore_id BIGINT NOT NULL,
     name VARCHAR(500),
     description TEXT,
     taken_at TIMESTAMPTZ,
@@ -86,7 +86,7 @@ CREATE INDEX IF NOT EXISTS idx_field_photos_project_date
 CREATE TABLE IF NOT EXISTS field_inspections (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     procore_id BIGINT NOT NULL,
-    project_procore_id INTEGER NOT NULL,
+    project_procore_id BIGINT NOT NULL,
     name VARCHAR(500),
     status VARCHAR(50),                       -- draft | in_progress | closed
     inspection_date DATE,
@@ -108,7 +108,7 @@ CREATE INDEX IF NOT EXISTS idx_field_inspections_project_date
 CREATE TABLE IF NOT EXISTS field_observations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     procore_id BIGINT NOT NULL,
-    project_procore_id INTEGER NOT NULL,
+    project_procore_id BIGINT NOT NULL,
     name VARCHAR(500),
     description TEXT,
     status VARCHAR(50),
@@ -133,7 +133,7 @@ CREATE INDEX IF NOT EXISTS idx_field_observations_project_date
 CREATE TABLE IF NOT EXISTS field_punch_items (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     procore_id BIGINT NOT NULL,
-    project_procore_id INTEGER NOT NULL,
+    project_procore_id BIGINT NOT NULL,
     name VARCHAR(500),
     description TEXT,
     status VARCHAR(50),
