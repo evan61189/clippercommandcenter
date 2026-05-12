@@ -289,13 +289,32 @@ export const handler: Handler = async (event) => {
           }
           console.log('Stage histogram:', JSON.stringify(stageHist));
 
-          // Strict filter: project_stage.name must equal "Course of Construction".
-          // Some Procore deployments use slightly different casing/wording so
-          // we also accept "Construction" as a fallback.
+          // Exclusion-based filter: keep anything that's NOT in a known
+          // dormant/pre-active stage. This catches Course of Construction,
+          // Punch List, Close-Out, In Progress, etc. without us having to
+          // hard-code every variant.
+          //
+          // Also require active === true so archived/deleted projects drop.
+          const inactiveStages = new Set([
+            'bidding',
+            'pre-construction',
+            'pre construction',
+            'preconstruction',
+            'closed',
+            'warranty',
+            'completed',
+            'lost',
+            'cancelled',
+            'canceled',
+          ]);
           result = (allProjects || []).filter((p: any) => {
             if (!p) return false;
-            const stageName: string = (p.project_stage?.name || p.stage?.name || '').toLowerCase();
-            return stageName === 'course of construction' || stageName === 'construction';
+            if (p.active === false) return false;
+            const stageName: string = (p.project_stage?.name || p.stage?.name || '').toLowerCase().trim();
+            // Allow projects with no stage set (some Procore deployments
+            // leave this blank for active work).
+            if (!stageName) return true;
+            return !inactiveStages.has(stageName);
           });
           console.log(`Active projects: ${result.length} of ${allProjects?.length || 0} total`);
           if (result.length === 0 && (allProjects?.length || 0) > 0) {
