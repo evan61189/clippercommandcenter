@@ -189,10 +189,18 @@ async function syncProject(userId: string, projectId: number, tokens: TokenData)
     () => fetchAllPages(`/rest/v1.0/projects/${projectId}/manpower_logs`, tokens, dailyLogParams, userId), []);
   const notes = await safe('notes_logs',
     () => fetchAllPages(`/rest/v1.0/projects/${projectId}/notes_logs`, tokens, dailyLogParams, userId), []);
+  // Pull a few more daily-log types so teams that use a different log subform
+  // for their "daily report" still register as having filed something.
+  const weather = await safe('weather_logs',
+    () => fetchAllPages(`/rest/v1.0/projects/${projectId}/weather_logs`, tokens, dailyLogParams, userId), []);
+  const delivery = await safe('delivery_logs',
+    () => fetchAllPages(`/rest/v1.0/projects/${projectId}/delivery_logs`, tokens, dailyLogParams, userId), []);
+  const equipment = await safe('equipment_logs',
+    () => fetchAllPages(`/rest/v1.0/projects/${projectId}/equipment_logs`, tokens, dailyLogParams, userId), []);
 
-  // 2. Photos (latest 100)
+  // 2. Photos — project-nested 404s in this account, use top-level with project_id filter
   const photos = await safe('photos',
-    () => fetchAllPages(`/rest/v1.0/projects/${projectId}/images`, tokens, baseParams, userId), []);
+    () => fetchAllPages(`/rest/v1.0/images`, tokens, baseParams, userId), []);
 
   // 3. Inspections
   const inspections = await safe('inspections',
@@ -202,9 +210,9 @@ async function syncProject(userId: string, projectId: number, tokens: TokenData)
   const observations = await safe('observations',
     () => fetchAllPages(`/rest/v1.0/observations/items`, tokens, baseParams, userId), []);
 
-  // 5. Punch items
+  // 5. Punch items — project-nested 404s, use top-level with project_id filter
   const punch = await safe('punch_items',
-    () => fetchAllPages(`/rest/v1.0/projects/${projectId}/punch_items`, tokens, baseParams, userId), []);
+    () => fetchAllPages(`/rest/v1.0/punch_items`, tokens, baseParams, userId), []);
 
   // ---- Upserts ----
   // Each upsert keys on (project_procore_id, procore_id) so a re-sync
@@ -212,13 +220,13 @@ async function syncProject(userId: string, projectId: number, tokens: TokenData)
 
   const upserts: Promise<any>[] = [];
 
-  if (manpower.length || notes.length) {
+  if (manpower.length || notes.length || weather.length || delivery.length || equipment.length) {
+    const todayISO = new Date().toISOString().slice(0, 10);
+    const dateOf = (x: any) => x.date || x.log_date || (x.created_at && String(x.created_at).slice(0, 10)) || todayISO;
     const dailyRows = [
       ...manpower.map((m: any) => ({
-        procore_id: m.id,
-        project_procore_id: projectId,
-        log_type: 'manpower_logs',
-        entry_date: m.date || m.log_date || new Date().toISOString().slice(0, 10),
+        procore_id: m.id, project_procore_id: projectId, log_type: 'manpower_logs',
+        entry_date: dateOf(m),
         vendor_name: m.vendor?.name || null,
         num_workers: m.num_workers ?? null,
         hours: m.hours ?? null,
@@ -226,15 +234,35 @@ async function syncProject(userId: string, projectId: number, tokens: TokenData)
         raw: m,
       })),
       ...notes.map((n: any) => ({
-        procore_id: n.id,
-        project_procore_id: projectId,
-        log_type: 'notes_logs',
-        entry_date: n.date || n.log_date || new Date().toISOString().slice(0, 10),
-        vendor_name: null,
-        num_workers: null,
-        hours: null,
+        procore_id: n.id, project_procore_id: projectId, log_type: 'notes_logs',
+        entry_date: dateOf(n),
+        vendor_name: null, num_workers: null, hours: null,
         notes: n.notes || n.description || null,
         raw: n,
+      })),
+      ...weather.map((w: any) => ({
+        procore_id: w.id, project_procore_id: projectId, log_type: 'weather_logs',
+        entry_date: dateOf(w),
+        vendor_name: null, num_workers: null, hours: null,
+        notes: w.conditions || null,
+        raw: w,
+      })),
+      ...delivery.map((d: any) => ({
+        procore_id: d.id, project_procore_id: projectId, log_type: 'delivery_logs',
+        entry_date: dateOf(d),
+        vendor_name: d.vendor?.name || null,
+        num_workers: null, hours: null,
+        notes: d.delivery_contents || d.tracking_number || null,
+        raw: d,
+      })),
+      ...equipment.map((e: any) => ({
+        procore_id: e.id, project_procore_id: projectId, log_type: 'equipment_logs',
+        entry_date: dateOf(e),
+        vendor_name: e.vendor?.name || null,
+        num_workers: null,
+        hours: e.hours ?? null,
+        notes: e.description || null,
+        raw: e,
       })),
     ];
     upserts.push(
@@ -325,7 +353,7 @@ async function syncProject(userId: string, projectId: number, tokens: TokenData)
   const upsertErrors = upsertResults.map((r: any) => r?.error).filter(Boolean);
 
   const counts = {
-    daily_logs: manpower.length + notes.length,
+    daily_logs: manpower.length + notes.length + weather.length + delivery.length + equipment.length,
     photos: photos.length,
     inspections: inspections.length,
     observations: observations.length,
