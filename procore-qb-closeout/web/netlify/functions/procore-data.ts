@@ -318,9 +318,8 @@ export const handler: Handler = async (event) => {
             if (!p) return false;
             if (p.active === false) return false;
             const stageName: string = (p.project_stage?.name || p.stage?.name || '').toLowerCase().trim();
-            // Allow projects with no stage set (some Procore deployments
-            // leave this blank for active work).
-            if (!stageName) return true;
+            // No stage set -> exclude. User asked for stage-tagged projects only.
+            if (!stageName) return false;
             return !inactiveStages.has(stageName);
           });
           console.log(`Active projects: ${result.length} of ${allProjects?.length || 0} total`);
