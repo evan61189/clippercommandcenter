@@ -31,7 +31,17 @@ export const handler: Handler = async (event) => {
       // Hardcoded Procore credentials as fallback
       const clientId = process.env.PROCORE_CLIENT_ID || '5m6ntNDYctNihGwfspa4OiG6EXHXx1HCXSHRVetAb7k';
       const clientSecret = process.env.PROCORE_CLIENT_SECRET || 'z-aqwtz7agk1fyEyXW10zsV4SGKrjNP58bGqXgD4vd0';
-      const redirectUri = process.env.PROCORE_REDIRECT_URI || `${process.env.URL}/.netlify/functions/oauth-callback?provider=procore`;
+      // IMPORTANT: derive redirect_uri from the request that just hit us,
+      // not from env vars. The frontend uses window.location.origin to start
+      // the auth flow, so if process.env.URL or PROCORE_REDIRECT_URI is stale
+      // (old Netlify site name) the two sides won't match and Procore will
+      // reject the token exchange with 'invalid_grant'.
+      const host = event.headers.host || event.headers.Host || '';
+      const proto = (event.headers['x-forwarded-proto'] as string)
+        || (host.startsWith('localhost') ? 'http' : 'https');
+      const requestOrigin = `${proto}://${host}`;
+      const redirectUri = `${requestOrigin}/.netlify/functions/oauth-callback?provider=procore`;
+      console.log('Procore OAuth redirect_uri:', redirectUri);
 
       console.log('Procore OAuth - clientId exists:', !!clientId, 'clientSecret exists:', !!clientSecret);
 
@@ -109,7 +119,10 @@ export const handler: Handler = async (event) => {
       // Hardcoded QuickBooks credentials as fallback
       const clientId = process.env.QBO_CLIENT_ID || 'ABgPHajheBYc4ajSSov1P8b8emmalTPmmw5uAn99gUcfg2bOo9';
       const clientSecret = process.env.QBO_CLIENT_SECRET || 'pDqaEgsPkyKf9hNmN9p5wfeVIKBLIFRLz1yNOfX9';
-      const redirectUri = process.env.QBO_REDIRECT_URI || `${process.env.URL}/.netlify/functions/oauth-callback?provider=quickbooks`;
+      const host2 = event.headers.host || event.headers.Host || '';
+      const proto2 = (event.headers['x-forwarded-proto'] as string)
+        || (host2.startsWith('localhost') ? 'http' : 'https');
+      const redirectUri = `${proto2}://${host2}/.netlify/functions/oauth-callback?provider=quickbooks`;
 
       const auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
 
