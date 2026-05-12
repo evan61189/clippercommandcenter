@@ -172,11 +172,23 @@ async function syncProject(userId: string, projectId: number, tokens: TokenData)
 
   const baseParams = { company_id: companyId, project_id: String(projectId) };
 
+  // Daily-log endpoints return TODAY ONLY unless start_date/end_date are
+  // provided. Pull a 30-day rolling window so the dashboard's 7-day view
+  // is comfortably covered + we have a small buffer for date-flipped entries.
+  const today = new Date();
+  const thirtyDaysAgo = new Date(today);
+  thirtyDaysAgo.setDate(today.getDate() - 30);
+  const dailyLogParams = {
+    company_id: companyId,
+    start_date: thirtyDaysAgo.toISOString().slice(0, 10),
+    end_date: today.toISOString().slice(0, 10),
+  };
+
   // 1. Daily logs (manpower + notes only — keep request count low)
   const manpower = await safe('manpower_logs',
-    () => fetchAllPages(`/rest/v1.0/projects/${projectId}/manpower_logs`, tokens, { company_id: companyId }, userId), []);
+    () => fetchAllPages(`/rest/v1.0/projects/${projectId}/manpower_logs`, tokens, dailyLogParams, userId), []);
   const notes = await safe('notes_logs',
-    () => fetchAllPages(`/rest/v1.0/projects/${projectId}/notes_logs`, tokens, { company_id: companyId }, userId), []);
+    () => fetchAllPages(`/rest/v1.0/projects/${projectId}/notes_logs`, tokens, dailyLogParams, userId), []);
 
   // 2. Photos (latest 100)
   const photos = await safe('photos',
